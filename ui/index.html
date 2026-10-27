@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Stonic AI — পার্সোনাল ডেস্কটপ অ্যাসিস্ট্যান্ট</title>
+<title>Stonic AI — System Core</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
@@ -17,13 +17,20 @@
     <div class="brand-orb"></div>
     <div>
       <div class="brand-name">STONIC&nbsp;AI</div>
-      <div class="brand-sub">পার্সোনাল ডেস্কটপ অ্যাসিস্ট্যান্ট</div>
+      <div class="brand-sub">SYSTEM CORE // পার্সোনাল অ্যাসিস্ট্যান্ট</div>
     </div>
   </div>
 
   <div class="topbar-center">
+    <div class="core-switch" title="Core চরিত্র বদলাও">
+      <button class="core-pill" data-gender="female">♀ FEMALE</button>
+      <button class="core-pill" data-gender="male">♂ MALE</button>
+    </div>
+    <span class="tb-sep"></span>
     <span id="serverDot" class="dot dot-off"></span>
-    <span id="serverText" class="server-text">সার্ভার: চেক করা হচ্ছে…</span>
+    <span id="serverText" class="server-text">চেক করা হচ্ছে…</span>
+    <span class="tb-sep"></span>
+    <span id="clock" class="clock">--:--:--</span>
     <span id="camIndicator" class="live-indicator hidden">🔴 ক্যামেরা/স্ক্রিন চালু</span>
   </div>
 
@@ -36,38 +43,22 @@
   </div>
 </header>
 
-<div class="layout">
+<div class="layout" id="layout">
+  <!-- সার্কিট লাইন (JS দিয়ে আঁকা হয়) -->
+  <svg id="wires" class="wires" aria-hidden="true"></svg>
 
-  <!-- ===== বাম সাইডবার ===== -->
-  <aside class="sidebar">
+  <!-- ===== বাম মডিউল কলাম ===== -->
+  <aside class="col col-left">
 
-    <!-- Character -->
-    <section class="panel">
-      <h3>🧍 Character — চরিত্র</h3>
-      <div class="gender-row">
-        <button class="gender-btn active" id="btnMale" data-gender="male">👨 Male (ছেলে)</button>
-        <button class="gender-btn" id="btnFemale" data-gender="female">👩 Female (মেয়ে)</button>
-      </div>
-      <p class="hint" id="characterHint">সিলেক্ট অনুযায়ী হলোগ্রামের আকৃতি ও কণ্ঠ বদলাবে (কণ্ঠ: ধাপ ৫)।</p>
-      <label class="field-label">ব্যক্তিত্ব (Personality)</label>
-      <select id="personality" class="input">
-        <option>বন্ধুসুলভ ও আন্তরিক</option>
-        <option>প্রফেশনাল সহকারী</option>
-        <option>শিক্ষকের মতো</option>
-        <option>মোটিভেশনাল কোচ</option>
-      </select>
-    </section>
-
-    <!-- Memory -->
-    <section class="panel">
-      <h3>🧠 Memory — স্মৃতি</h3>
-      <div class="empty-note">এখনো কোনো স্মৃতি নেই।<br>ধাপ ৪ থেকে আমি তোমাকে মনে রাখতে শিখবো।</div>
+    <section class="panel module" data-wire="left">
+      <header class="mod-head"><span class="mod-index">01</span><h3>MEMORY — স্মৃতি</h3><span class="led"></span></header>
+      <div class="empty-note">এখনো কোনো স্মৃতি নেই।<br>ধাপ ৪ থেকে আমি তোমাকে মনে রাখতে শিখবো — নাম, পছন্দ, প্রতিদিনের কথা।</div>
       <button class="btn btn-danger" id="clearMemory" disabled>সব স্মৃতি মুছে ফেলো</button>
+      <p class="hint">সব স্মৃতি থাকবে তোমার ল্যাপটপেই (SQLite) — ক্লাউডে নয়।</p>
     </section>
 
-    <!-- Skills -->
-    <section class="panel">
-      <h3>🧩 Skills — দক্ষতা</h3>
+    <section class="panel module" data-wire="left">
+      <header class="mod-head"><span class="mod-index">02</span><h3>SKILLS — দক্ষতা</h3><span class="led"></span></header>
       <div class="skill-row">
         <span>🌐 ব্রাউজার এজেন্ট</span>
         <label class="switch"><input type="checkbox" class="skill-toggle" data-skill="browser_agent" checked><span class="slider"></span></label>
@@ -84,12 +75,117 @@
         <span>📷 ক্যামেরা ভিশন</span>
         <label class="switch"><input type="checkbox" class="skill-toggle" data-skill="camera_vision"><span class="slider"></span></label>
       </div>
-      <p class="hint">নতুন স্কিল যোগ করার ব্যবস্থা ধাপ ৭-এ আসবে।</p>
+      <p class="hint">প্রতিটা স্কিল আলাদা ON/OFF — নতুন স্কিল যোগ হবে ধাপ ৭ থেকে।</p>
     </section>
 
-    <!-- Settings -->
-    <section class="panel">
-      <h3>⚙️ Settings — সেটিংস</h3>
+    <section class="panel module">
+      <header class="mod-head"><span class="mod-index">⬢</span><h3>BUILD — প্রগ্রেস</h3><span class="led"></span></header>
+      <ol class="stage-list">
+        <li class="stage current">ধাপ ১ — UI + হলোগ্রাম <span>রিভিউ চলছে</span></li>
+        <li class="stage">ধাপ ২ — API Key সেভ</li>
+        <li class="stage">ধাপ ৩ — টেক্সট চ্যাট</li>
+        <li class="stage">ধাপ ৪ — লোকাল মেমোরি</li>
+        <li class="stage">ধাপ ৫ — ভয়েস</li>
+        <li class="stage">ধাপ ৬ — হলোগ্রাম সিঙ্ক</li>
+        <li class="stage">ধাপ ৭ — Notes + Skills</li>
+        <li class="stage">ধাপ ৮ — Agent (ব্রাউজার)</li>
+        <li class="stage">ধাপ ৯ — ক্যামেরা/স্ক্রিন</li>
+        <li class="stage">ধাপ ১০ — World Monitor</li>
+        <li class="stage">ধাপ ১১ — auto_setup + শর্টকাট</li>
+      </ol>
+    </section>
+  </aside>
+
+  <!-- ===== মাঝখান: CORE স্টেজ + কমান্ড ডেক ===== -->
+  <main class="col col-center">
+    <div class="stage" id="stage">
+      <canvas id="holoCanvas"></canvas>
+      <div class="hud hud-tl"></div><div class="hud hud-tr"></div>
+      <div class="hud hud-bl"></div><div class="hud hud-br"></div>
+      <div class="chip chip-left">CORE // PARTICLE AVATAR</div>
+      <div class="chip chip-right" id="holoState">FORMING…</div>
+      <div class="visual-hub">
+        <span class="vh-label">VISUAL HUB</span>
+        <span class="vh-chip" id="camChip">CAM · OFF</span>
+        <span class="vh-chip" id="scrChip">SCREEN · OFF</span>
+      </div>
+      <div class="nameplate">
+        <div class="np-name">S T O N I C</div>
+        <div class="np-status" id="holoStatus">✨ পার্টিকেলগুলো জড়ো হয়ে আকার নিচ্ছে…</div>
+        <div class="np-actions">
+          <button class="mini-btn" id="reformBtn">✨ আবার গঠন হও</button>
+          <span class="np-hint">🖱️ ড্র্যাগ করে ঘোরাও</span>
+        </div>
+      </div>
+    </div>
+
+    <nav class="mode-tabs">
+      <button class="mode-tab active" data-mode="voice">🎤 Voice Mode</button>
+      <button class="mode-tab" data-mode="agent">🤖 Agent Mode</button>
+      <button class="mode-tab" data-mode="notes">📝 Notes Mode</button>
+    </nav>
+
+    <!-- Voice Mode -->
+    <section class="mode-panel active" id="mode-voice">
+      <div class="chat-log" id="chatLog">
+        <div class="msg msg-ai">
+          <div class="msg-bubble">আসসালামু আলাইকুম সাইদুল! 👋 আমি <b>Stonic AI</b> — দেখো, এবার আমি ডটগুলো জড়ো হয়ে তৈরি হয়ে এলাম! এখন <b>ধাপ ১</b> (শুধু UI) চলছে। নিচে কিছু লিখে পাঠাও, ডেমো উত্তরে আমার মাথা নড়তে দেখবে। <b>ধাপ ৩</b>-এ Gemini/Groq দিয়ে সত্যিকারের বুদ্ধি পাবো।</div>
+        </div>
+      </div>
+      <div class="input-row">
+        <button class="icon-btn mic-btn" id="micBtn" title="ভয়েস (ধাপ ৫)">🎤</button>
+        <input type="text" id="chatInput" class="input chat-input" placeholder="এখানে লেখো… (Enter চাপো)">
+        <button class="btn btn-send" id="sendBtn">পাঠাও ➤</button>
+      </div>
+    </section>
+
+    <!-- Agent Mode -->
+    <section class="mode-panel" id="mode-agent">
+      <div class="panel agent-box">
+        <h4>🤖 AGENT — ব্রাউজার নিয়ন্ত্রণ</h4>
+        <p class="hint">উদাহরণ: "এই বিষয়ে সার্চ করে সামারি দাও" — আমি নিজে ব্রাউজার খুলে কাজ করে রিপোর্ট দেবো। <b>(কার্যকর হবে ধাপ ৮-এ)</b></p>
+        <div class="input-row">
+          <input type="text" id="agentInput" class="input chat-input" placeholder="কাজের নির্দেশ লেখো…">
+          <button class="btn btn-send" id="agentBtn">▶ চালু করো</button>
+        </div>
+        <div class="agent-log" id="agentLog">এখানে এজেন্টের কাজের অগ্রগতি দেখা যাবে…</div>
+      </div>
+    </section>
+
+    <!-- Notes Mode -->
+    <section class="mode-panel" id="mode-notes">
+      <div class="panel agent-box">
+        <h4>📝 NOTES — আমার নোটস</h4>
+        <div class="input-row">
+          <input type="text" id="noteInput" class="input chat-input" placeholder="নোট লেখো… (ডেমো: শুধু এই সেশনে থাকবে, আসল সেভ ধাপ ৭-এ)">
+          <button class="btn btn-send" id="noteAdd">＋ যোগ করো</button>
+        </div>
+        <ul class="notes-list" id="notesList"></ul>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== ডান মডিউল কলাম ===== -->
+  <aside class="col col-right">
+
+    <section class="panel module" data-wire="right">
+      <header class="mod-head"><span class="mod-index">03</span><h3>CHARACTER — চরিত্র</h3><span class="led"></span></header>
+      <div class="gender-row">
+        <button class="gender-btn" data-gender="male" id="btnMale">👨 Male (ছেলে)</button>
+        <button class="gender-btn" data-gender="female" id="btnFemale">👩 Female (মেয়ে)</button>
+      </div>
+      <p class="hint" id="characterHint">বদলালে ডটগুলো ভেঙে ছড়িয়ে আবার নতুন আকারে গঠন হবে। কণ্ঠও বদলাবে ধাপ ৫ থেকে।</p>
+      <label class="field-label">ব্যক্তিত্ব (Personality)</label>
+      <select id="personality" class="input">
+        <option>বন্ধুসুলভ ও আন্তরিক</option>
+        <option>প্রফেশনাল JARVIS-স্টাইল</option>
+        <option>শিক্ষকের মতো মেন্টর</option>
+        <option>মোটিভেশনাল কোচ</option>
+      </select>
+    </section>
+
+    <section class="panel module" data-wire="right">
+      <header class="mod-head"><span class="mod-index">04</span><h3>SETTINGS — সেটিংস</h3><span class="led"></span></header>
       <label class="field-label">Gemini API Key (প্রাইমারি)</label>
       <input type="password" id="geminiKey" class="input" placeholder="ধাপ ২-এ সক্রিয় হবে" autocomplete="off">
       <label class="field-label">Groq API Key (ব্যাকআপ)</label>
@@ -106,88 +202,14 @@
       </div>
       <p class="hint">দুটোই ডিফল্ট OFF — শুধু তুমি ON করলেই আমি দেখতে পাবো।</p>
     </section>
-  </aside>
 
-  <!-- ===== মাঝখান: হলোগ্রাম + মোড ===== -->
-  <main class="center" id="mainArea">
-    <div class="hologram-wrap">
-      <canvas id="holoCanvas"></canvas>
-      <div class="holo-status" id="holoStatus">🟢 প্রস্তুত — Stonic AI অপেক্ষা করছে</div>
-      <div class="holo-hint">🖱️ ড্র্যাগ করে হলোগ্রাম ঘোরানো যায়</div>
-    </div>
-
-    <nav class="mode-tabs">
-      <button class="mode-tab active" data-mode="voice">🎤 Voice Mode</button>
-      <button class="mode-tab" data-mode="agent">🤖 Agent Mode</button>
-      <button class="mode-tab" data-mode="notes">📝 Notes Mode</button>
-    </nav>
-
-    <!-- Voice Mode -->
-    <section class="mode-panel active" id="mode-voice">
-      <div class="chat-log" id="chatLog">
-        <div class="msg msg-ai">
-          <div class="msg-bubble">আসসালামু আলাইকুম সাইদুল! 👋 আমি <b>Stonic AI</b>। এখন <b>ধাপ ১</b> চলছে — শুধু UI তৈরি। নিচের বাক্সে কিছু লিখে ডেমো চালিয়ে দেখো; <b>ধাপ ৩</b>-এ আমি Gemini/Groq দিয়ে সত্যি সত্যি ভাবতে ও উত্তর দিতে শিখবো।</div>
-        </div>
-      </div>
-      <div class="input-row">
-        <button class="icon-btn" id="micBtn" title="ভয়েস (ধাপ ৫)">🎤</button>
-        <input type="text" id="chatInput" class="input chat-input" placeholder="এখানে লেখো… (Enter চাপো)">
-        <button class="btn btn-send" id="sendBtn">পাঠাও ➤</button>
-      </div>
-    </section>
-
-    <!-- Agent Mode -->
-    <section class="mode-panel" id="mode-agent">
-      <div class="agent-box">
-        <h4>🤖 ব্রাউজার এজেন্ট</h4>
-        <p class="hint">উদাহরণ: “এআই দিয়ে টাকা উপার্জনের সেরা উপায় সার্চ করে সামারি দাও” — আমি নিজে ব্রাউজার খুলে কাজ করে রিপোর্ট দেবো। <b>(কার্যকর হবে ধাপ ৮-এ)</b></p>
-        <div class="input-row">
-          <input type="text" id="agentInput" class="input chat-input" placeholder="কাজের নির্দেশ লেখো…">
-          <button class="btn btn-send" id="agentBtn">▶ চালু করো</button>
-        </div>
-        <div class="agent-log" id="agentLog">এখানে এজেন্টের কাজের অগ্রগতি দেখা যাবে…</div>
-      </div>
-    </section>
-
-    <!-- Notes Mode -->
-    <section class="mode-panel" id="mode-notes">
-      <div class="agent-box">
-        <h4>📝 আমার নোটস</h4>
-        <div class="input-row">
-          <input type="text" id="noteInput" class="input chat-input" placeholder="নোট লেখো… (ডেমো: শুধু এই সেশনে থাকবে, আসল সেভ ধাপ ৭-এ)">
-          <button class="btn btn-send" id="noteAdd">＋ যোগ করো</button>
-        </div>
-        <ul class="notes-list" id="notesList"></ul>
-      </div>
-    </section>
-  </main>
-
-  <!-- ===== ডানে: World Monitor ===== -->
-  <aside class="world">
-    <section class="panel">
-      <h3>🌍 World Monitor</h3>
-      <p class="hint">বিশ্বের লাইভ হেডলাইন — <b>ধাপ ১০</b>-এ সক্রিয় হবে। এখন নিচে ডেমো কাঠামো দেখা যাচ্ছে।</p>
-      <div class="news-card skeleton"><div class="news-tag">WORLD</div><div class="news-title">ডেমো শিরোনাম — এখানে বিশ্ব সংবাদ আসবে</div><div class="news-meta">সোর্স: —</div></div>
-      <div class="news-card skeleton"><div class="news-tag">TECH</div><div class="news-title">ডেমো শিরোনাম — এখানে প্রযুক্তির খবর আসবে</div><div class="news-meta">সোর্স: —</div></div>
-      <div class="news-card skeleton"><div class="news-tag">বাংলাদেশ</div><div class="news-title">ডেমো শিরোনাম — এখানে দেশের খবর আসবে</div><div class="news-meta">সোর্স: —</div></div>
+    <section class="panel module world-panel" data-wire="right">
+      <header class="mod-head"><span class="mod-index">05</span><h3>SAT-LINK — বিশ্ব নজরদারি</h3><span class="led"></span></header>
+      <canvas id="globeCanvas"></canvas>
+      <div class="news-card skeleton"><div class="news-tag">WORLD</div><div class="news-title">ডেমো শিরোনাম — ধাপ ১০-এ লাইভ বিশ্ব সংবাদ আসবে</div><div class="news-meta">সোর্স: —</div></div>
+      <div class="news-card skeleton"><div class="news-tag">TECH</div><div class="news-title">ডেমো শিরোনাম — ধাপ ১০-এ লাইভ প্রযুক্তির খবর আসবে</div><div class="news-meta">সোর্স: —</div></div>
+      <div class="news-card skeleton"><div class="news-tag">দেশ</div><div class="news-title">ডেমো শিরোনাম — ধাপ ১০-এ লাইভ দেশের খবর আসবে</div><div class="news-meta">সোর্স: —</div></div>
       <button class="btn" id="refreshNews">🔄 খবর রিফ্রেশ করো</button>
-    </section>
-
-    <section class="panel stage-card">
-      <h3>🚀 বিল্ড প্রগ্রেস</h3>
-      <ol class="stage-list" id="stageList">
-        <li class="stage current">ধাপ ১ — UI + হলোগ্রাম <span>চলমান</span></li>
-        <li class="stage">ধাপ ২ — API Key সেভ</li>
-        <li class="stage">ধাপ ৩ — টেক্সট চ্যাট</li>
-        <li class="stage">ধাপ ৪ — লোকাল মেমোরি</li>
-        <li class="stage">ধাপ ৫ — ভয়েস</li>
-        <li class="stage">ধাপ ৬ — হলোগ্রাম সিঙ্ক</li>
-        <li class="stage">ধাপ ৭ — Notes + Skills</li>
-        <li class="stage">ধাপ ৮ — Agent (ব্রাউজার)</li>
-        <li class="stage">ধাপ ৯ — ক্যামেরা/স্ক্রিন</li>
-        <li class="stage">ধাপ ১০ — World Monitor</li>
-        <li class="stage">ধাপ ১১ — auto_setup + শর্টকাট</li>
-      </ol>
     </section>
   </aside>
 </div>
