@@ -1,13 +1,21 @@
 /* =========================================================
-   Stonic AI — System Core UI (ধাপ ১, v2)
-   পার্টিকেল বাস্ট হলোগ্রাম (বুক থেকে উপরে): ডটগুলো ছড়ানো
-   মেঘ থেকে ঘুরে এসে ছেলে/মেয়ের আকারে গঠন হয়।
+   Stonic AI — System Core UI (ধাপ ১, v3)
+   ভাস্কর্যের মতো খোদাই করা পার্টিকেল বাস্ট (বুক থেকে উপরে):
+   কপাল, ভ্রু, নাক, চোখ, ঠোঁট, চোয়ালসহ আসল মুখের গঠন —
+   ২০,০০০ ডট ছড়ানো মেঘ থেকে ঘুরে এসে আকার গঠন করে।
    ধাপ ৩ থেকে চ্যাট আসল API-তে যাবে; এখন ডেমো উত্তর।
    ========================================================= */
 'use strict';
 
-/* ---------- ছোট হেল্পার ---------- */
+/* ---------- হেল্পার ---------- */
 const $ = (id) => document.getElementById(id);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const rand = (a, b) => a + Math.random() * (b - a);
+const lerp = (a, b, t) => a + (b - a) * t;
+const g2 = (x, y, cx, cy, sx, sy, amp) => {
+  const dx = (x - cx) / sx, dy = (y - cy) / sy;
+  return amp * Math.exp(-(dx * dx + dy * dy));
+};
 let toastTimer = null;
 function toast(msg, ms = 3600) {
   const t = $('toast');
@@ -23,196 +31,375 @@ function setHoloState(txt) {
   _stateChip = txt;
   const el = $('holoState'); if (el) el.textContent = txt;
 }
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const rand = (a, b) => a + Math.random() * (b - a);
 
 /* =========================================================
-   CORE হলোগ্রাম — পার্টিকেল বাস্ট (formation animation)
+   CORE হলোগ্রাম — খোদাই-করা মুখের পার্টিকেল বাস্ট
    ========================================================= */
-const N = 12000;                       // মোট পার্টিকেল সংখ্যা
+const N = 20000;
 const COLORS = { male: 0x22d3ee, female: 0xe879f9 };
 const HOLO = {
   gender: localStorage.getItem('stonic_gender') || 'male',
   power: true,
   speaking: false,
   speakBlend: 0,
-  formT: 0,            // 0 = ছড়ানো মেঘ, 1 = পূর্ণ আকার
-  mode: 'in',          // 'in' গঠন হচ্ছে | 'out' ভাঙছে (তারপর নতুন আকার)
+  formT: 0,
+  mode: 'in',
   pendingGender: null,
   targetRotY: 0,
   autoRot: 0,
   dragging: false,
-  accentMats: [],      // ডিস্ক/রিং ম্যাটেরিয়াল (রঙ বদলের জন্য)
+  accentMats: [],
 };
 
-/* --- বাস্টের গায়ে পয়েন্ট স্যাম্পলিং --- */
-function sampleHead(out, n, cfg, col) {
-  // মাথা: এলিপসয়েড + চোয়াল/চিবুকের আকৃতি; সামনের দিকে (মুখ) ঘন
-  let placed = 0, guard = 0;
-  while (placed < n && guard++ < n * 40) {
-    const u = Math.random() * 2 - 1;
-    const th = Math.random() * Math.PI * 2;
-    const s = Math.sqrt(1 - u * u);
-    const dx = s * Math.cos(th), dy = u, dz = s * Math.sin(th);
-    if (Math.random() > 0.45 + 0.55 * Math.max(dz, 0)) continue; // মুখের দিকে ঘনত্ব বেশি
-    let taper = 1;
-    if (dy < 0) taper = 1 - cfg.jaw * Math.pow(-dy, 1.4);        // চিবুক সরু
-    const x = cfg.cx + cfg.rx * dx * taper;
-    const y = cfg.cy + cfg.ry * dy;
-    let z = cfg.cz + cfg.rz * dz * (dy < 0 ? 1 - cfg.jaw * 0.5 * Math.pow(-dy, 1.4) : 1);
-    if (dz > 0.8) z *= 0.97;                                     // মুখ সামান্য চ্যাপ্টা
-    out.push([x + rand(-.006, .006), y + rand(-.006, .006), z + rand(-.006, .006), col, 1]);
-    placed++;
-  }
+/* নকল আলো: বাঁ-ওপর থেকে key light + ডান-পেছন থেকে rim light */
+const LGT = (() => {
+  const n = (x, y, z) => { const l = Math.hypot(x, y, z); return [x / l, y / l, z / l]; };
+  return { key: n(-0.45, 0.78, 0.88), rim: n(0.85, 0.3, -0.72) };
+})();
+function shade(nx, ny, nz) {
+  const l = Math.hypot(nx, ny, nz) || 1;
+  nx /= l; ny /= l; nz /= l;
+  const dKey = Math.max(0, nx * LGT.key[0] + ny * LGT.key[1] + nz * LGT.key[2]);
+  const dRim = Math.max(0, nx * LGT.rim[0] + ny * LGT.rim[1] + nz * LGT.rim[2]);
+  return clamp(0.42 + 0.72 * dKey + 0.6 * Math.pow(dRim, 3), 0.22, 1.55);
 }
 
-function sampleHairMale(out, n, cfg, col) {
-  // ছেলেদের ছোট চুল: মাথার ওপরের ক্যাপ
-  let placed = 0, guard = 0;
-  while (placed < n && guard++ < n * 40) {
-    const u = Math.random() * 2 - 1;
-    const th = Math.random() * Math.PI * 2;
-    const s = Math.sqrt(1 - u * u);
-    const dx = s * Math.cos(th), dy = u, dz = s * Math.sin(th);
-    const ok = dy > 0.02 || (dz < -0.15 && dy > -0.45) || (Math.abs(dx) > 0.75 && dy > -0.25);
-    if (!ok) continue;
-    out.push([
-      cfg.cx + cfg.rx * 1.09 * dx + rand(-.01, .01),
-      cfg.cy + cfg.ry * 1.09 * dy + 0.025 + rand(-.01, .01),
-      cfg.cz + cfg.rz * 1.09 * dz + rand(-.01, .01), col, 1]);
-    placed++;
-  }
-}
+/* --- মাথার সেকশন প্রোফাইল [y, rx, rz, cz] : থুতনি → মাথার চূড়া --- */
+const HEAD_ROWS = {
+  female: [
+    [1.52, .15, .13, .10], [1.60, .245, .205, .055], [1.70, .315, .26, .03],
+    [1.80, .365, .30, .012], [1.92, .405, .33, 0], [2.03, .41, .335, 0],
+    [2.13, .415, .345, .005], [2.26, .435, .355, -.008], [2.40, .43, .365, -.03],
+    [2.52, .35, .30, -.05], [2.62, .17, .15, -.06],
+  ],
+  male: [
+    [1.52, .18, .15, .10], [1.60, .28, .23, .055], [1.70, .34, .275, .03],
+    [1.80, .385, .315, .012], [1.92, .42, .345, 0], [2.03, .43, .35, 0],
+    [2.13, .44, .36, .008], [2.26, .445, .365, -.012], [2.40, .44, .375, -.035],
+    [2.52, .36, .31, -.05], [2.62, .18, .16, -.06],
+  ],
+};
+const EYE = { x: 0.168, y: 2.045 };
 
-function sampleHairFemale(out, n, cfg, col) {
-  // মেয়েদের লম্বা চুল: ওপরের খোলস + দুই পাশে/পিছনে কাঁধ পর্যন্ত ঝোলা পর্দা
-  const topN = Math.floor(n * 0.45), curtainN = n - topN;
-  let placed = 0, guard = 0;
-  while (placed < topN && guard++ < topN * 40) {
-    const u = Math.random() * 2 - 1;
-    const th = Math.random() * Math.PI * 2;
-    const s = Math.sqrt(1 - u * u);
-    const dx = s * Math.cos(th), dy = u, dz = s * Math.sin(th);
-    if (dy < -0.15 && dz > 0.25) continue; // মুখের জানালা খালি রাখো
-    out.push([
-      cfg.cx + cfg.rx * 1.11 * dx + rand(-.012, .012),
-      cfg.cy + cfg.ry * 1.10 * dy + 0.03 + rand(-.012, .012),
-      cfg.cz + cfg.rz * 1.11 * dz + rand(-.012, .012), col, 1]);
-    placed++;
-  }
-  const prof = [[2.05, 0.54], [1.72, 0.63], [1.38, 0.61], [1.12, 0.55], [1.0, 0.5]];
-  const rAt = (y) => {
-    for (let i = 0; i < prof.length - 1; i++) {
-      const [y1, r1] = prof[i], [y2, r2] = prof[i + 1];
-      if (y <= y1 && y >= y2) return r1 + (r2 - r1) * ((y1 - y) / (y1 - y2));
+function rowAt(rows, y) {
+  if (y <= rows[0][0]) return rows[0].slice(1);
+  for (let i = 0; i < rows.length - 1; i++) {
+    const a = rows[i], b = rows[i + 1];
+    if (y >= a[0] && y <= b[0]) {
+      const t = (y - a[0]) / (b[0] - a[0]);
+      return [lerp(a[1], b[1], t), lerp(a[2], b[2], t), lerp(a[3], b[3], t)];
     }
-    return prof[prof.length - 1][1];
-  };
-  for (let i = 0; i < curtainN; i++) {
-    const y = rand(1.0, 2.05);
-    let phi = rand(-Math.PI, Math.PI);
-    if (y < 1.92 && Math.abs(phi) < 0.82) phi = (phi < 0 ? -1 : 1) * rand(0.82, Math.PI); // সামনে মুখ খোলা
-    const r = rAt(y) * rand(0.96, 1.05);
-    const headW = 0.25 + 0.75 * clamp((y - 1.0) / 1.0, 0, 1); // ডগা কম নড়ে
-    out.push([
-      Math.sin(phi) * r + rand(-.015, .015),
-      y + rand(-.012, .012),
-      Math.cos(phi) * r * 0.94 - 0.03 + rand(-.015, .015), col, headW]);
+  }
+  return rows[rows.length - 1].slice(1);
+}
+
+/* মুখের বৈশিষ্ট্যের উচ্চতা-মাঠ (সামনের পৃষ্ঠে z ঠেলে দেয়) */
+function faceFeatures(x, y, female) {
+  const soft = female ? 0.9 : 1.06;
+  let d = 0;
+  d += g2(x, y, 0, 1.855, .055, .07, .13 * soft);            // নাকের ডগা
+  d += g2(x, y, 0, 1.97, .04, .12, .065 * soft);             // নাকের সেতু
+  d += g2(x, y, .062, 1.812, .048, .038, .042);              // নাসারন্ধ্র ডানা
+  d += g2(x, y, -.062, 1.812, .048, .038, .042);
+  d += g2(x, y, 0, 1.775, .07, .03, -.018);                  // নাকের নিচের ছায়া
+  d += g2(x, y, EYE.x, 2.05, .088, .055, -.05);              // চোখের কোটর
+  d += g2(x, y, -EYE.x, 2.05, .088, .055, -.05);
+  const browA = female ? .038 : .06;
+  d += g2(x, y, EYE.x + .005, 2.135, .105, .042, browA);     // ভ্রু হাড়
+  d += g2(x, y, -EYE.x - .005, 2.135, .105, .042, browA);
+  d += g2(x, y, 0, 2.125, .05, .05, .024);                   // দুই ভ্রুর মাঝ
+  d += g2(x, y, .265, 1.93, .105, .085, .036);               // গালের হাড়
+  d += g2(x, y, -.265, 1.93, .105, .085, .036);
+  d += g2(x, y, 0, 1.755, .045, .035, .014);                 // ঠোঁটের ওপরের খাঁজ
+  d += g2(x, y, 0, 1.705, .082, .027, .042);                 // ওপরের ঠোঁট
+  d += g2(x, y, 0, 1.65, .068, .03, .052);                   // নিচের ঠোঁট
+  d += g2(x, y, 0, 1.678, .088, .011, -.028);                // মুখের রেখা
+  d += g2(x, y, 0, 1.585, .07, .05, .04);                    // থুতনি
+  return d;
+}
+
+/* মাথার গায়ে একটা পয়েন্ট (শেডিং উজ্জ্বলতাসহ) */
+function genHeadPoint(female) {
+  const rows = female ? HEAD_ROWS.female : HEAD_ROWS.male;
+  const y = rand(1.52, 2.62);
+  const [rx, rz, cz] = rowAt(rows, y);
+  let th;
+  if (Math.random() < 0.55) th = Math.PI / 2 + rand(-0.88, 0.88);  // মুখের দিকে ঘন
+  else th = Math.random() * Math.PI * 2;
+  const fr = Math.sin(th);
+  let x = rx * Math.cos(th);
+  let z = cz + rz * fr;
+  if (fr > 0.2) {
+    z += faceFeatures(x, y, female) * clamp((fr - 0.2) / 0.5, 0, 1);
+  }
+  let b = shade(x * 1.7, (y - 2.02) * 0.85, z * 1.5);
+  // চোখের কোটর ও মুখের রেখা গাঢ় ছায়া
+  const de = Math.min(Math.hypot(x - EYE.x, y - 2.05), Math.hypot(x + EYE.x, y - 2.05));
+  if (fr > 0.4 && de < 0.085) b *= 0.72;
+  if (fr > 0.4 && Math.abs(y - 1.678) < 0.013 && Math.abs(x) < 0.15) b *= 0.5;
+  return [x, y, z, b];
+}
+
+function pushPt(arr, x, y, z, col, bright, headW) {
+  arr.push({
+    x, y, z, headW,
+    r: clamp(col.r * bright, 0, 2), g: clamp(col.g * bright, 0, 2), b: clamp(col.b * bright, 0, 2),
+  });
+}
+
+function sampleHeadAll(out, female, faceCol) {
+  for (let i = 0; i < 7600; i++) {
+    const p = genHeadPoint(female);
+    pushPt(out, p[0] + rand(-.004, .004), p[1] + rand(-.004, .004), p[2] + rand(-.004, .004), faceCol, p[3], 1);
+  }
+  // ঠোঁটে বাড়তি ঘনত্ব
+  let lip = 0, guard = 0;
+  while (lip < 500 && guard++ < 60000) {
+    const p = genHeadPoint(female);
+    if (p[1] > 1.615 && p[1] < 1.74 && Math.abs(p[0]) < 0.17 && p[2] > 0.12) {
+      pushPt(out, p[0], p[1], p[2], faceCol, p[3] * 1.06, 1);
+      lip++;
+    }
   }
 }
 
-function sampleRings(out, n, yMin, yMax, profile, zScale, col, headWFn) {
-  const rAt = (y) => {
-    for (let i = 0; i < profile.length - 1; i++) {
-      const [y1, r1] = profile[i], [y2, r2] = profile[i + 1];
-      if (y <= y1 && y >= y2) return r1 + (r2 - r1) * ((y1 - y) / (y1 - y2));
+function sampleEyesBrows(out, female, faceCol, hairCol) {
+  const rows = female ? HEAD_ROWS.female : HEAD_ROWS.male;
+  const [rxE, rzE] = rowAt(rows, 2.03);
+  const eyeCol = faceCol.clone().lerp(new THREE.Color(0xffffff), 0.72);
+  for (const s of [1, -1]) {
+    const cx = s * EYE.x;
+    const zSock = rzE * Math.sqrt(Math.max(.05, 1 - (cx / rxE) ** 2)) - 0.05;
+    // চোখের বল + আইরিস
+    for (let i = 0; i < 150; i++) {
+      const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random());
+      const ex = cx + Math.cos(a) * rr * 0.052;
+      const ey = EYE.y + Math.sin(a) * rr * 0.029;
+      const ez = zSock + 0.006 + (1 - rr * rr) * 0.026;
+      pushPt(out, ex, ey, ez, eyeCol, rr < 0.38 ? 1.85 : 1.25, 1);
     }
-    return y > profile[0][0] ? profile[0][1] : profile[profile.length - 1][1];
+    // চোখের পাতার বাঁক (+মেয়েদের পাপড়ির দ্বিতীয় বাঁক)
+    const arcs = female ? [0, 0.013] : [0];
+    for (const off of arcs) {
+      for (let i = 0; i < 45; i++) {
+        const t = rand(0.12, 0.88) * Math.PI;
+        const ex = cx + Math.cos(t) * (0.058 + off * 0.4);
+        const ey = EYE.y + 0.006 + Math.sin(t) * (0.034 + off);
+        pushPt(out, ex, ey, zSock + 0.012 + Math.sin(t) * 0.012, faceCol, 1.3, 1);
+      }
+    }
+    // ভ্রু
+    const [rxB, rzB] = rowAt(rows, 2.13);
+    for (let i = 0; i < 200; i++) {
+      const t = rand(-1, 1);
+      const bx = cx + t * (female ? 0.082 : 0.096);
+      const by = (female ? 2.155 : 2.142) + (female ? 0.03 : 0.014) * (1 - t * t) + rand(-1, 1) * (female ? 0.004 : 0.009);
+      const bz = rzB * Math.sqrt(Math.max(.05, 1 - (bx / rxB) ** 2)) + (female ? 0.03 : 0.045);
+      pushPt(out, bx, by, bz, hairCol, 1.18, 1);
+    }
+  }
+  // কান (ছোট খোলস)
+  const [rxEar] = rowAt(rows, 1.95);
+  for (const s of [1, -1]) {
+    for (let i = 0; i < 125; i++) {
+      const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random());
+      pushPt(out,
+        s * (rxEar + 0.004 + rr * 0.02),
+        1.95 + Math.sin(a) * rr * 0.085,
+        -0.01 + Math.cos(a) * rr * 0.052,
+        faceCol, 0.68, 1);
+    }
+  }
+}
+
+/* --- চুল --- */
+function sampleHairCap(out, n, female, hairCol) {
+  const rows = female ? HEAD_ROWS.female : HEAD_ROWS.male;
+  let placed = 0, guard = 0;
+  while (placed < n && guard++ < n * 60) {
+    const y = rand(1.96, 2.66);
+    const [rx, rz, cz] = rowAt(rows, Math.min(y, 2.62));
+    const th = Math.random() * Math.PI * 2;
+    const fr = Math.sin(th);
+    const x0 = rx * Math.cos(th);
+    if (fr > 0.22) {
+      // কপালের চুলের লাইন — এর নিচে মুখ
+      let hl;
+      if (female) hl = 2.34 - 0.42 * Math.pow(clamp(Math.abs(x0) / 0.46, 0, 1), 1.6);
+      else hl = 2.285 + 0.085 * Math.exp(-Math.pow((Math.abs(x0) - 0.27) / 0.09, 2));
+      if (y < hl && guard < n * 45) continue;
+    }
+    const taper = y < 2.12 ? 1.045 : (female ? 1.1 : 1.09);
+    let hx = x0 * taper + rand(-.01, .01);
+    let hy = y + 0.03 + rand(-.01, .01);
+    let hz = cz + rz * fr * taper - 0.012 + rand(-.01, .01);
+    if (!female && fr > 0.3 && Math.abs(hx) < 0.3 && hy > 2.3) hy += 0.045 * (1 - Math.abs(hx) / 0.3); // ছেলেদের সামনের উঁচু ভাব
+    const b = shade(hx * 1.6, (hy - 2.0), hz * 1.4) * 0.9;
+    pushPt(out, hx, hy, hz, hairCol, b, 1);
+    placed++;
+  }
+}
+
+function sampleHairFemaleLong(out, hairCol) {
+  // পেছনের ভলিউম খোলস
+  let placed = 0, guard = 0;
+  while (placed < 900 && guard++ < 60000) {
+    const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, s = Math.sqrt(1 - u * u);
+    const px = 0.52 * s * Math.cos(th), py = 1.82 + 0.8 * u, pz = -0.15 + 0.42 * s * Math.sin(th);
+    if (pz > 0.1 || py < 1.02) continue;
+    pushPt(out, px, py, pz, hairCol, shade(px * 1.5, py - 1.8, pz * 1.3) * 0.8, clamp((py - 0.9) / 1.3, 0.15, 1));
+    placed++;
+  }
+  // ঢেউখেলানো গোছা (strands)
+  const strands = [];
+  for (let i = 0; i < 22; i++) {
+    const phi = rand(-2.85, 2.85);
+    if (Math.abs(phi) < 0.55) continue;               // মুখের সামনে ফাঁকা
+    strands.push({ phi, len: rand(0.95, 1.35), waveF: rand(4.5, 7), waveP: rand(0, 6.28), hi: rand(0.82, 1.18), front: false });
+  }
+  strands.push({ phi: 0.66, len: 1.5, waveF: 5.2, waveP: 1.2, hi: 1.12, front: true });   // মুখের দুপাশের গোছা
+  strands.push({ phi: -0.66, len: 1.5, waveF: 5.6, waveP: 4.0, hi: 1.12, front: true });
+  const per = Math.floor(3000 / strands.length);
+  strands.forEach((st) => {
+    const ay = 2.32, R = 0.48;
+    const ax = Math.sin(st.phi) * R, az = Math.cos(st.phi) * R * 0.92 - 0.03;
+    const yEnd = ay - st.len;
+    for (let i = 0; i < per; i++) {
+      const t = Math.pow(Math.random(), 0.92);
+      const y = ay + (yEnd - ay) * t;
+      const radial = 1 + 0.14 * Math.sin(Math.min(t * 2.2, 1) * Math.PI * 0.5);
+      let cx = ax * radial, cz = az * radial - 0.02 * t;
+      if (st.front) { // কাঁধের সামনে এসে ঝোলে
+        const k = clamp((t - 0.5) / 0.5, 0, 1);
+        cz = lerp(cz, 0.3, k * k);
+        cx = lerp(cx, Math.sign(ax) * 0.39, k * 0.6);
+      }
+      const wav = Math.sin(t * st.waveF + st.waveP) * 0.05 * (0.3 + t);
+      cx += wav; cz += Math.cos(t * st.waveF + st.waveP) * 0.028 * (0.3 + t);
+      const tubeR = 0.088 * (1 - t * 0.55);
+      const ox = rand(-1, 1) * tubeR, oz = rand(-1, 1) * tubeR;
+      const b = shade(cx * 1.5, (y - 1.9) * 0.8, cz * 1.4) * st.hi;
+      pushPt(out, cx + ox, y + rand(-.02, .02), cz + oz, hairCol, b, clamp(1.12 - t * 1.02, 0.1, 1));
+    }
+  });
+}
+
+/* --- ঘাড় ও বুক (loft) --- */
+function sampleLoft(out, n, rows, zScale, col, brightMul, headWFn, frontBumpFn) {
+  const yMin = rows[rows.length - 1][0], yMax = rows[0][0];
+  const rAt = (y) => {
+    for (let i = 0; i < rows.length - 1; i++) {
+      const a = rows[i], b = rows[i + 1];
+      if (y <= a[0] && y >= b[0]) return lerp(a[1], b[1], (a[0] - y) / (a[0] - b[0]));
+    }
+    return rows[rows.length - 1][1];
   };
   for (let i = 0; i < n; i++) {
     const y = rand(yMin, yMax);
-    const r = rAt(y) * rand(0.97, 1.03);
-    const a = Math.random() * Math.PI * 2;
-    out.push([
-      r * Math.cos(a) + rand(-.008, .008),
-      y,
-      r * zScale * Math.sin(a) + rand(-.008, .008),
-      col, headWFn ? headWFn(y) : 0]);
+    const r = rAt(y) * rand(0.98, 1.02);
+    const th = Math.random() * Math.PI * 2;
+    const fr = Math.sin(th);
+    let x = r * Math.cos(th), z = r * zScale * fr;
+    if (frontBumpFn && fr > 0.25) z += frontBumpFn(x, y) * clamp((fr - 0.25) / 0.5, 0, 1);
+    const b = shade(Math.cos(th), 0.14, fr) * brightMul;
+    const dim = y < 0.48 ? 0.55 + (y - 0.3) * 2.0 : 1;
+    pushPt(out, x + rand(-.006, .006), y, z + rand(-.006, .006), col, b * clamp(dim, 0.5, 1), headWFn ? headWFn(y) : 0);
   }
+  return rAt;
 }
 
-/* সম্পূর্ণ বাস্টের target অবস্থান + রঙ + head-weight বানায় */
 function buildBust(gender) {
   const female = gender === 'female';
   const base = new THREE.Color(COLORS[gender]);
-  const faceCol = base.clone().multiplyScalar(1.12);
-  const hairCol = base.clone(); hairCol.offsetHSL(female ? -0.035 : 0.02, 0.04, female ? -0.03 : 0.05);
-  const chestCol = base.clone().multiplyScalar(0.8);
+  const faceCol = base.clone().multiplyScalar(1.08);
+  const hairCol = base.clone(); hairCol.offsetHSL(female ? -0.035 : 0.02, 0.05, female ? -0.02 : 0.04);
+  const chestCol = base.clone().multiplyScalar(0.85);
 
-  const headCfg = {
-    cx: 0, cy: 1.95, cz: 0,
-    rx: female ? 0.47 : 0.50, ry: female ? 0.59 : 0.62, rz: female ? 0.52 : 0.55,
-    jaw: female ? 0.36 : 0.2,
-  };
   const pts = [];
-  sampleHead(pts, 4300, headCfg, faceCol);
-  if (female) sampleHairFemale(pts, 2800, headCfg, hairCol);
-  else sampleHairMale(pts, 1700, headCfg, hairCol);
-  // ঘাড়
-  const neckR = female ? 0.14 : 0.165;
-  sampleRings(pts, 500, 1.04, 1.44, [[1.44, neckR], [1.04, neckR * 1.12]], 0.88,
-    base.clone().multiplyScalar(0.95), (y) => 0.1 + 0.5 * clamp((y - 1.04) / 0.4, 0, 1));
-  // বুক + কাঁধ (ঢাল হয়ে ঘাড়ে মেশে)
-  const chestProfile = female
-    ? [[1.28, 0.5], [1.14, 0.84], [1.0, 0.91], [0.7, 0.81], [0.35, 0.63]]
-    : [[1.28, 0.58], [1.14, 0.96], [1.0, 1.05], [0.7, 0.93], [0.35, 0.72]];
-  sampleRings(pts, N - pts.length, 0.35, 1.28, chestProfile, 0.54, chestCol, null);
+  sampleHeadAll(pts, female, faceCol);                 // 7600 + ঠোঁট 500
+  sampleEyesBrows(pts, female, faceCol, hairCol);      // চোখ/পাতা/ভ্রু + কান
+  if (female) {
+    sampleHairCap(pts, 2100, true, hairCol);
+    sampleHairFemaleLong(pts, hairCol);                // 900 খোলস + ~3000 গোছা
+  } else {
+    sampleHairCap(pts, 2600, false, hairCol);
+  }
+
+  const neckRows = female
+    ? [[1.50, .135], [1.38, .14], [1.26, .165], [1.16, .26], [1.10, .34]]
+    : [[1.50, .155], [1.38, .165], [1.26, .19], [1.16, .30], [1.10, .38]];
+  sampleLoft(pts, 800, neckRows, 0.88, base.clone().multiplyScalar(0.95), 0.95,
+    (y) => 0.55 * clamp((y - 1.12) / 0.38, 0, 1), null);
+
+  const chestRows = female
+    ? [[1.12, .52], [1.06, .78], [1.00, .88], [0.88, .90], [0.72, .84], [0.55, .76], [0.40, .66], [0.30, .58]]
+    : [[1.12, .60], [1.06, .90], [1.00, 1.02], [0.88, 1.05], [0.72, .97], [0.55, .87], [0.40, .76], [0.30, .68]];
+  const bustBump = female
+    ? (x, y) => g2(x, y, .23, .72, .15, .13, .05) + g2(x, y, -.23, .72, .15, .13, .05)
+    : null;
+  const chestQuota = N - pts.length - 300;
+  const rChest = sampleLoft(pts, Math.max(chestQuota, 100), chestRows, 0.55, chestCol, 0.9, null, bustBump);
+
+  // কলারবোনের রেখা (উজ্জ্বল)
+  for (const s of [1, -1]) {
+    for (let i = 0; i < 150; i++) {
+      const t = Math.random();
+      const x = s * (0.07 + t * 0.52);
+      const y = 1.145 - t * 0.05 + rand(-.007, .007);
+      const rx = rChest(clamp(y, 0.3, 1.12));
+      const z = rx * 0.55 * Math.sqrt(Math.max(.04, 1 - (x / rx) ** 2)) + 0.01;
+      pushPt(pts, x, y, z, faceCol, 1.12, 0);
+    }
+  }
+  // ঠিক N সংখ্যায় মেলানো
+  while (pts.length > N) pts.pop();
+  while (pts.length < N) {
+    const p = genHeadPoint(female);
+    pushPt(pts, p[0], p[1], p[2], faceCol, p[3], 1);
+  }
 
   const targets = new Float32Array(N * 3);
   const colors = new Float32Array(N * 3);
   const headW = new Float32Array(N);
   const delay = new Float32Array(N);
   pts.forEach((p, i) => {
-    targets[i * 3] = p[0]; targets[i * 3 + 1] = p[1]; targets[i * 3 + 2] = p[2];
-    // বাস্টের নিচের কিনারা হালকা ফেড
-    const dim = p[1] < 0.52 ? 0.55 + (p[1] - 0.35) * 2.2 : 1;
-    colors[i * 3] = p[3].r * dim; colors[i * 3 + 1] = p[3].g * dim; colors[i * 3 + 2] = p[3].b * dim;
-    headW[i] = p[4];
-    delay[i] = clamp((p[1] - 0.35) / 2.2, 0, 1) * 0.5 + Math.random() * 0.5; // নিচ থেকে উপরে গঠন
+    targets[i * 3] = p.x; targets[i * 3 + 1] = p.y; targets[i * 3 + 2] = p.z;
+    colors[i * 3] = p.r; colors[i * 3 + 1] = p.g; colors[i * 3 + 2] = p.b;
+    headW[i] = p.headW;
+    delay[i] = clamp((p.y - 0.3) / 2.35, 0, 1) * 0.5 + Math.random() * 0.5;
   });
   return { targets, colors, headW, delay };
 }
 
+/* --- Three.js দৃশ্য --- */
 function initHologram() {
   if (typeof THREE === 'undefined') {
-    setHoloStatus('⚠️ Three.js লোড হয়নি — ui/vendor/three.min.js ফাইলটি আছে কিনা দেখো');
+    setHoloStatus('⚠️ Three.js লোড হয়নি — ui/vendor/three.min.js আছে কিনা দেখো');
     return;
   }
   const canvas = $('holoCanvas');
   const wrap = canvas.parentElement;
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.6)); // 8GB RAM-এ পারফরম্যান্স
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.6));
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
-  camera.position.set(0, 1.62, 4.4);
-  camera.lookAt(0, 1.32, 0);
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+  camera.position.set(0, 1.74, 4.05);
+  camera.lookAt(0, 1.42, 0);
 
-  const world = new THREE.Group();   // ড্র্যাগ/অটো-রোটেশন এখানে
+  const world = new THREE.Group();
   scene.add(world);
 
-  /* তারা */
-  {
+  { // তারা
     const sp = [];
     for (let i = 0; i < 420; i++) sp.push(rand(-8, 8), rand(-0.4, 6.4), rand(-6, 2.5));
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
     const m = new THREE.PointsMaterial({ color: 0x7dd3fc, size: 0.02, transparent: true, opacity: 0.5, depthWrite: false });
-    m.userData.baseOp = 0.5;
+    m.userData.baseOp = 0.5; m.userData.lockColor = true;
     HOLO.accentMats.push(m);
     scene.add(new THREE.Points(g, m));
   }
 
-  /* প্রজেক্টর ডিস্ক + ঘূর্ণায়মান আর্ক + আলোর বীম */
   const accentMat = (op) => {
     const m = new THREE.MeshBasicMaterial({ color: COLORS[HOLO.gender], transparent: true, opacity: op, side: THREE.DoubleSide, depthWrite: false });
     m.userData.baseOp = op;
@@ -221,35 +408,33 @@ function initHologram() {
   };
   const disc = new THREE.Group();
   const mkRing = (inner, outer, op, thetaLen) => {
-    const mesh = new THREE.Mesh(
-      new THREE.RingGeometry(inner, outer, 72, 1, 0, thetaLen || Math.PI * 2), accentMat(op));
+    const mesh = new THREE.Mesh(new THREE.RingGeometry(inner, outer, 72, 1, 0, thetaLen || Math.PI * 2), accentMat(op));
     mesh.rotation.x = -Math.PI / 2;
     disc.add(mesh);
     return mesh;
   };
-  mkRing(1.18, 1.25, 0.85);
-  mkRing(0.86, 0.9, 0.5);
-  const arc1 = mkRing(1.02, 1.08, 0.9, Math.PI * 0.7);
-  const arc2 = mkRing(0.68, 0.73, 0.9, Math.PI * 0.5);
-  const glowDisc = new THREE.Mesh(new THREE.CircleGeometry(0.66, 48), accentMat(0.1));
+  mkRing(1.16, 1.23, 0.85);
+  mkRing(0.85, 0.89, 0.5);
+  const arc1 = mkRing(1.0, 1.06, 0.9, Math.PI * 0.7);
+  const arc2 = mkRing(0.66, 0.71, 0.9, Math.PI * 0.5);
+  const glowDisc = new THREE.Mesh(new THREE.CircleGeometry(0.64, 48), accentMat(0.1));
   glowDisc.rotation.x = -Math.PI / 2; glowDisc.position.y = 0.005;
   disc.add(glowDisc);
   const beam = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.98, 0.3, 0.38, 48, 1, true),
+    new THREE.CylinderGeometry(0.95, 0.3, 0.34, 48, 1, true),
     new THREE.MeshBasicMaterial({ color: COLORS[HOLO.gender], transparent: true, opacity: 0.05, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
   beam.material.userData.baseOp = 0.05;
   HOLO.accentMats.push(beam.material);
-  beam.position.y = 0.19;
+  beam.position.y = 0.17;
   disc.add(beam);
   world.add(disc);
 
-  /* স্ক্যান রিং */
-  const scan = new THREE.Mesh(new THREE.RingGeometry(1.12, 1.16, 72), accentMat(0.5));
+  const scan = new THREE.Mesh(new THREE.RingGeometry(1.14, 1.18, 72), accentMat(0.5));
   scan.rotation.x = -Math.PI / 2;
   world.add(scan);
   HOLO.scanMat = scan.material;
 
-  /* --- পার্টিকেল বাস্ট --- */
+  /* পার্টিকেল বাস্ট */
   const built = buildBust(HOLO.gender);
   let targets = built.targets, headW = built.headW, delay = built.delay;
 
@@ -260,9 +445,9 @@ function initHologram() {
     const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, s = Math.sqrt(1 - u * u);
     const r = rand(1.7, 3.3);
     scatter[i * 3] = r * s * Math.cos(th);
-    scatter[i * 3 + 1] = 1.45 + r * u * 0.78;
+    scatter[i * 3 + 1] = 1.5 + r * u * 0.78;
     scatter[i * 3 + 2] = r * s * Math.sin(th);
-    orbit[i] = rand(2.2, 4.6);              // একই দিকে ঘূর্ণি
+    orbit[i] = rand(2.2, 4.6);
     phase[i] = Math.random() * Math.PI * 2;
   }
 
@@ -271,14 +456,12 @@ function initHologram() {
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(built.colors, 3));
   const pMat = new THREE.PointsMaterial({
-    size: 0.032, vertexColors: true, transparent: true, opacity: 0.95,
+    size: 0.0235, vertexColors: true, transparent: true, opacity: 0.95,
     blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
   });
   const bust = new THREE.Points(geo, pMat);
   world.add(bust);
-  HOLO.bustGroup = world;
 
-  /* gender বদলে নতুন টার্গেট বসানো (ভাঙার পর ডাকা হয়) */
   HOLO.applyBust = (gender) => {
     const b = buildBust(gender);
     targets = b.targets; headW = b.headW; delay = b.delay;
@@ -286,7 +469,6 @@ function initHologram() {
     geo.attributes.color.needsUpdate = true;
   };
 
-  /* ড্র্যাগ রোটেশন */
   let lastX = 0;
   canvas.addEventListener('pointerdown', (e) => { HOLO.dragging = true; lastX = e.clientX; canvas.setPointerCapture(e.pointerId); });
   canvas.addEventListener('pointermove', (e) => {
@@ -300,6 +482,7 @@ function initHologram() {
 
   const resize = () => {
     const w = wrap.clientWidth, h = wrap.clientHeight;
+    if (!w || !h) return;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -317,7 +500,6 @@ function initHologram() {
     const dt = Math.min(clock.getDelta(), 0.05);
     const t = clock.elapsedTime;
 
-    /* --- গঠন/ভাঙা স্টেট মেশিন --- */
     if (!HOLO.power) {
       HOLO.formT = Math.max(0, HOLO.formT - dt * 1.4);
     } else if (HOLO.mode === 'out') {
@@ -328,48 +510,42 @@ function initHologram() {
         HOLO.mode = 'in';
       }
     } else {
-      HOLO.formT = Math.min(1, HOLO.formT + dt * 0.42);
+      HOLO.formT = Math.min(1, HOLO.formT + dt * 0.4);
     }
     const formT = HOLO.formT;
-    const formed = clamp((formT - 0.72) / 0.28, 0, 1); // মাথা নড়া শুরু হয় গঠন শেষের দিকে
+    const formed = clamp((formT - 0.72) / 0.28, 0, 1);
 
-    /* speaking ব্লেন্ড */
     const sTarget = (HOLO.speaking && HOLO.power) ? 1 : 0;
     HOLO.speakBlend += (sTarget - HOLO.speakBlend) * 0.07;
     const sb = HOLO.speakBlend;
 
-    /* মাথার নড়াচড়া কোণ */
-    const nodA = (0.02 * Math.sin(t * 1.2) + sb * 0.09 * Math.sin(t * 7.3)) * formed;
-    const tiltA = (0.015 * Math.sin(t * 0.9 + 1) + sb * 0.05 * Math.sin(t * 3.0)) * formed;
+    const nodA = (0.018 * Math.sin(t * 1.15) + sb * 0.08 * Math.sin(t * 7.3)) * formed;
+    const tiltA = (0.014 * Math.sin(t * 0.85 + 1) + sb * 0.045 * Math.sin(t * 3.0)) * formed;
     const cosN = Math.cos(nodA), sinN = Math.sin(nodA);
     const cosT2 = Math.cos(tiltA), sinT2 = Math.sin(tiltA);
-    const PIVOT_Y = 1.3;
+    const PIVOT_Y = 1.42;
 
-    /* --- প্রতিটা পার্টিকেলের অবস্থান --- */
     const pos = geo.attributes.position.array;
     for (let i = 0; i < N; i++) {
       const i3 = i * 3;
-      let p = clamp((formT - delay[i] * 0.45) / 0.55, 0, 1);
+      const p = clamp((formT - delay[i] * 0.45) / 0.55, 0, 1);
       const e = 1 - Math.pow(1 - p, 3);
       let x = scatter[i3] + (targets[i3] - scatter[i3]) * e;
       let y = scatter[i3 + 1] + (targets[i3 + 1] - scatter[i3 + 1]) * e;
       let z = scatter[i3 + 2] + (targets[i3 + 2] - scatter[i3 + 2]) * e;
 
-      /* ঘূর্ণি: গঠনের পথে প্যাঁচ খেয়ে আসে */
       const sw = (1 - e) * (1 - e) * orbit[i];
       if (sw > 0.001) {
         const c = Math.cos(sw), s2 = Math.sin(sw);
         const nx = x * c - z * s2, nz = x * s2 + z * c;
         x = nx; z = nz;
       }
-      /* জীবন্ত ঝিলিক */
       const ph = phase[i];
-      const shim = Math.sin(t * 2.3 + ph) * (0.006 + sb * 0.012 * headW[i]) * e;
+      const shim = Math.sin(t * 2.3 + ph) * (0.0045 + sb * 0.01 * headW[i]) * e;
       const rl = Math.sqrt(x * x + z * z) || 1e-4;
       x += (x / rl) * shim; z += (z / rl) * shim;
-      y += Math.sin(t * 1.7 + ph * 1.3) * 0.004 * e;
+      y += Math.sin(t * 1.7 + ph * 1.3) * 0.0032 * e;
 
-      /* মাথার অংশে নড/টিল্ট প্রয়োগ */
       const w = headW[i];
       if (w > 0.01 && formed > 0) {
         const cN = 1 + (cosN - 1) * w, sN = sinN * w;
@@ -386,19 +562,16 @@ function initHologram() {
     }
     geo.attributes.position.needsUpdate = true;
 
-    /* ভাসমান গতি + রোটেশন */
-    bust.position.y = Math.sin(t * 1.15) * 0.03;
-    if (!HOLO.dragging && HOLO.power) HOLO.autoRot += dt * 0.1;
+    bust.position.y = Math.sin(t * 1.12) * 0.028;
+    if (!HOLO.dragging && HOLO.power) HOLO.autoRot += dt * 0.09;
     world.rotation.y += ((HOLO.targetRotY + HOLO.autoRot) - world.rotation.y) * 0.08;
     arc1.rotation.z = t * 0.5;
     arc2.rotation.z = -t * 0.7;
 
-    /* স্ক্যান রিং */
-    const cyc = (t * 0.4) % 1;
-    scan.position.y = 0.35 + cyc * 2.3;
+    const cyc = (t * 0.38) % 1;
+    scan.position.y = 0.3 + cyc * 2.4;
     HOLO.scanMat.opacity = (HOLO.power ? 0.5 : 0) * Math.sin(cyc * Math.PI) * formT;
 
-    /* পাওয়ার অফ → সব ম্লান */
     pMat.opacity += ((HOLO.power ? 0.95 : 0.04) - pMat.opacity) * 0.08;
     HOLO.accentMats.forEach((m) => {
       if (m === HOLO.scanMat) return;
@@ -406,22 +579,17 @@ function initHologram() {
       m.opacity += ((HOLO.power ? bse : bse * 0.06) - m.opacity) * 0.08;
     });
 
-    /* স্টেট চিপ */
     setHoloState(!HOLO.power ? 'OFFLINE' : (formT < 0.985 ? 'FORMING…' : (sb > 0.35 ? 'SPEAKING' : 'IDLE // LISTENING')));
-
     renderer.render(scene, camera);
   })();
 }
 
-/* Male/Female বদল: ডটগুলো ভেঙে ছড়িয়ে নতুন আকারে গড়বে */
 function syncGenderUI() {
   document.querySelectorAll('[data-gender]').forEach((el) => {
     el.classList.toggle('active', el.dataset.gender === HOLO.gender);
   });
   document.body.classList.toggle('female', HOLO.gender === 'female');
-  HOLO.accentMats.forEach((m) => { if (m.color && m !== HOLO.scanMat) m.color.setHex(COLORS[HOLO.gender]); });
-  if (HOLO.scanMat) HOLO.scanMat.color.setHex(COLORS[HOLO.gender]);
-  if (window.GLOBE_MATS) window.GLOBE_MATS.forEach((m) => m.color && m.color.setHex(COLORS[HOLO.gender]));
+  HOLO.accentMats.forEach((m) => { if (m.color && !m.userData.lockColor) m.color.setHex(COLORS[HOLO.gender]); });
 }
 function setGender(gender) {
   if (gender === HOLO.gender && HOLO.mode === 'in' && HOLO.formT > 0.9) return;
@@ -430,128 +598,107 @@ function setGender(gender) {
   HOLO.pendingGender = gender;
   HOLO.mode = 'out';
   syncGenderUI();
-  drawWires();
   setHoloStatus(gender === 'female'
-    ? '👩 Female কোর — ডটগুলো নতুন করে গঠন হচ্ছে…'
-    : '👨 Male কোর — ডটগুলো নতুন করে গঠন হচ্ছে…');
+    ? '👩 Female কোর — নতুন মুখে গঠন হচ্ছে…'
+    : '👨 Male কোর — নতুন মুখে গঠন হচ্ছে…');
 }
 function reform() {
-  if (!HOLO.power) { toast('⏻ আগে Main সুইচ ON করো, তারপর আমি আবার গঠন হবো!'); return; }
+  if (!HOLO.power) { toast('⏻ আগে ACTIVATE চেপে চালু করো, তারপর আবার গঠন হবো!'); return; }
   HOLO.pendingGender = HOLO.gender;
   HOLO.mode = 'out';
   setHoloStatus('✨ আবার গঠন হচ্ছি… ডটগুলোর খেলা দেখো!');
 }
 
 /* =========================================================
-   SAT-LINK মিনি গ্লোব (World Monitor প্যানেলের সাজ — ধাপ ১০-এ লাইভ)
+   SAT-LINK ডটেড বিশ্ব মানচিত্র (নিজস্ব সরল মহাদেশ-রেখা)
    ========================================================= */
-function initGlobe() {
-  const cv = $('globeCanvas');
-  if (!cv || typeof THREE === 'undefined') return;
-  const renderer = new THREE.WebGLRenderer({ canvas: cv, alpha: true, antialias: false });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.6));
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 50);
-  camera.position.set(0, 0.4, 3.2);
-  camera.lookAt(0, 0, 0);
-  const group = new THREE.Group();
-  group.rotation.x = 0.35;
-  scene.add(group);
-  window.GLOBE_MATS = [];
-
-  const pts = [];
-  const GA = Math.PI * (3 - Math.sqrt(5));
-  for (let i = 0; i < 1500; i++) {
-    const y = 1 - (i / 1499) * 2, r = Math.sqrt(1 - y * y), th = GA * i;
-    pts.push(Math.cos(th) * r, y, Math.sin(th) * r);
+const CONTINENTS = [
+  [[6,30],[14,20],[28,12],[44,8],[60,10],[74,6],[88,10],[96,18],[92,26],[84,30],[90,38],[84,46],[74,48],[66,55],[58,62],[52,58],[50,50],[42,47],[34,50],[24,47],[14,40],[8,34]],
+  [[86,4],[100,6],[102,13],[92,18],[83,11]],
+  [[54,64],[62,60],[72,62],[80,68],[78,80],[70,93],[63,97],[59,84],[52,74]],
+  [[96,28],[100,19],[108,13],[118,12],[128,16],[127,25],[120,30],[112,29],[106,34],[99,35],[94,31]],
+  [[96,20],[99,19],[99,24],[96,24]],
+  [[97,42],[107,38],[120,39],[131,46],[133,58],[126,72],[118,84],[110,88],[102,78],[97,62],[93,50]],
+  [[126,18],[140,9],[158,7],[176,10],[190,16],[194,26],[186,36],[174,36],[168,29],[160,36],[156,46],[150,56],[145,60],[141,49],[136,42],[130,33],[124,26]],
+  [[182,32],[187,30],[188,36],[183,38]],
+  [[148,63],[160,61],[168,65],[160,70],[148,69]],
+  [[170,62],[180,64],[178,69],[170,68]],
+  [[166,74],[180,71],[190,78],[185,89],[170,90],[163,82]],
+];
+function inPoly(poly, x, y) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
   }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-  const gm = new THREE.PointsMaterial({ color: COLORS[HOLO.gender], size: 0.032, transparent: true, opacity: 0.9, depthWrite: false });
-  window.GLOBE_MATS.push(gm);
-  group.add(new THREE.Points(g, gm));
-
-  const ring1 = new THREE.Mesh(new THREE.TorusGeometry(1.28, 0.008, 8, 90),
-    new THREE.MeshBasicMaterial({ color: COLORS[HOLO.gender], transparent: true, opacity: 0.55 }));
-  ring1.rotation.x = Math.PI / 2.4;
-  window.GLOBE_MATS.push(ring1.material);
-  group.add(ring1);
-  const ring2 = ring1.clone();
-  ring2.rotation.x = Math.PI / 1.6; ring2.rotation.y = 0.8;
-  group.add(ring2);
-
-  const hot = [];
-  for (let i = 0; i < 9; i++) {
-    const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, s = Math.sqrt(1 - u * u);
-    hot.push(s * Math.cos(th), u, s * Math.sin(th));
-  }
-  const hg = new THREE.BufferGeometry();
-  hg.setAttribute('position', new THREE.Float32BufferAttribute(hot, 3));
-  group.add(new THREE.Points(hg, new THREE.PointsMaterial({ color: 0xffffff, size: 0.07, transparent: true, opacity: 0.95, depthWrite: false })));
-
-  const resize = () => {
-    const w = cv.clientWidth || 260, h = cv.clientHeight || 168;
-    renderer.setSize(w, h, false);
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
+  return inside;
+}
+function initMap() {
+  const cv = $('mapCanvas');
+  if (!cv) return;
+  const box = cv.parentElement;
+  const draw = () => {
+    const w = box.clientWidth, h = box.clientHeight;
+    if (!w || !h) return;
+    cv.width = w; cv.height = h;
+    const ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
+    const sx = w / 200, sy = h / 100;
+    const step = 3.4;
+    for (let gy = 2; gy < h - 2; gy += step) {
+      for (let gx = 2; gx < w - 2; gx += step) {
+        const mx = gx / sx, my = gy / sy;
+        let land = false;
+        for (const poly of CONTINENTS) { if (inPoly(poly, mx, my)) { land = true; break; } }
+        ctx.fillStyle = land ? 'rgba(94,234,212,0.55)' : 'rgba(94,234,212,0.05)';
+        ctx.beginPath();
+        ctx.arc(gx, gy, land ? 1.05 : 0.55, 0, 6.2832);
+        ctx.fill();
+      }
+    }
   };
-  new ResizeObserver(resize).observe(cv);
-  resize();
-
-  let vis = true;
-  document.addEventListener('visibilitychange', () => { vis = !document.hidden; });
-  const ck = new THREE.Clock();
-  (function anim() {
-    requestAnimationFrame(anim);
-    if (!vis) return;
-    group.rotation.y += ck.getDelta() * 0.28;
-    renderer.render(scene, camera);
-  })();
+  new ResizeObserver(draw).observe(box);
+  draw();
 }
 
 /* =========================================================
-   সার্কিট লাইন — মডিউল কার্ড থেকে CORE স্টেজে সংযোগ
+   সার্কিট লাইন — মডিউল চিপ → হলোগ্রাম ফ্রেম
    ========================================================= */
+const CHIP_COLORS = { memory: '#22d3ee', skills: '#4ade80', character: '#fb7185', setting: '#e2e8f0' };
 function drawWires() {
-  const layout = $('layout'), svg = $('wires'), stage = $('stage');
-  if (!layout || !svg || !stage) return;
-  if (window.innerWidth <= 1150) { svg.innerHTML = ''; return; }
-  const lr = layout.getBoundingClientRect();
+  const zone = $('stageZone'), svg = $('wires'), stage = $('stage');
+  if (!zone || !svg || !stage) return;
+  const zr = zone.getBoundingClientRect();
+  if (zr.width < 480) { svg.innerHTML = ''; return; }
   const sr = stage.getBoundingClientRect();
-  svg.setAttribute('viewBox', `0 0 ${lr.width} ${lr.height}`);
-  const col = HOLO.gender === 'female' ? '#e879f9' : '#22d3ee';
-  const fracs = { left: [0.22, 0.52], right: [0.2, 0.46, 0.72] };
-  const count = { left: 0, right: 0 };
+  svg.setAttribute('viewBox', `0 0 ${zr.width} ${zr.height}`);
+  const fracs = [0.18, 0.4, 0.62, 0.84];
   let s = '';
-  document.querySelectorAll('[data-wire]').forEach((card) => {
-    const side = card.dataset.wire;
-    const r = card.getBoundingClientRect();
-    const idx = count[side]++;
-    const f = (fracs[side] && fracs[side][idx]) || 0.5;
-    const x1 = (side === 'left' ? r.right : r.left) - lr.left;
-    const y1 = r.top - lr.top + 30;
-    const x2 = (side === 'left' ? sr.left : sr.right) - lr.left;
-    const y2 = sr.top - lr.top + sr.height * f;
+  document.querySelectorAll('.mod-chip').forEach((chip, i) => {
+    const r = chip.getBoundingClientRect();
+    const col = CHIP_COLORS[chip.dataset.pop] || '#22d3ee';
+    const x1 = r.right - zr.left, y1 = r.top - zr.top + r.height / 2;
+    const x2 = sr.left - zr.left, y2 = sr.top - zr.top + sr.height * (fracs[i] || 0.5);
     const mx = (x1 + x2) / 2;
     s += `<path d="M${x1},${y1} L${mx},${y1} L${mx},${y2} L${x2},${y2}" stroke="${col}"/>`;
-    s += `<circle cx="${x1}" cy="${y1}" r="3.5" fill="${col}"/><circle cx="${x2}" cy="${y2}" r="3" fill="${col}"/>`;
+    s += `<circle cx="${x1}" cy="${y1}" r="3.2" fill="${col}"/><circle cx="${x2}" cy="${y2}" r="2.8" fill="${col}"/>`;
   });
   svg.innerHTML = s;
 }
 
 /* =========================================================
-   কথা বলার ডেমো (ধাপ ৫/৬-এর আভাস) — ব্রাউজারের ফ্রি TTS
+   কথা বলার ডেমো (ধাপ ৫/৬-এর আভাস)
    ========================================================= */
 function speakDemo(text) {
   if (!HOLO.power) return;
   HOLO.speaking = true;
-  setHoloStatus('🗣️ Stonic AI কথা বলছে…');
+  setHoloStatus('🗣️ Stonic কথা বলছে…');
   let done = false;
   const finish = () => {
     if (done) return;
     done = true;
     HOLO.speaking = false;
-    setHoloStatus('🟢 প্রস্তুত — Stonic AI শুনছে');
+    setHoloStatus('🟢 Stonic শুনছে…');
   };
   setTimeout(finish, Math.min(900 + text.length * 65, 9000));
   if ('speechSynthesis' in window) {
@@ -575,12 +722,12 @@ function speakDemo(text) {
 }
 
 /* =========================================================
-   চ্যাট (ধাপ ১: ডেমো উত্তর — ধাপ ৩-এ আসল AI)
+   চ্যাট ডেমো (আসল AI ধাপ ৩-এ)
    ========================================================= */
 const demoReplies = [
-  'তোমার বার্তা পেয়েছি! তবে আমি এখনো শেখার পর্যায়ে আছি — ধাপ ৩-এ Gemini আর Groq যুক্ত হলেই সত্যিকারের উত্তর দিতে পারবো। আমার নতুন আকারটা কেমন লাগলো?',
-  'দেখলে, কথা বলার সময় আমার মাথাটা নড়ে! ধাপ ৫-এ আসল ভয়েস আর ধাপ ৬-এ সম্পূর্ণ সিঙ্ক অ্যানিমেশন পাবো।',
-  'একটু খেয়াল করো — ওপরের ♀ FEMALE / ♂ MALE বদলালে আমার ডটগুলো ভেঙে আবার নতুন রূপে গড়ে ওঠে। চেষ্টা করে দেখো!',
+  'তোমার বার্তা পেয়েছি! এখন আমি শেখার পর্যায়ে আছি — ধাপ ৩-এ Gemini আর Groq যুক্ত হলেই সত্যিকারের উত্তর দিতে পারবো। নতুন মুখটা কেমন লাগলো?',
+  'দেখলে, কথা বলার সময় আমার মাথাটা নড়ে! ধাপ ৫-এ আসল ভয়েস আর ধাপ ৬-এ পুরো সিঙ্ক অ্যানিমেশন পাবো।',
+  'ওপরের ♀ FEMALE / ♂ MALE বদলে দেখো — আমার ডটগুলো ভেঙে আবার নতুন মুখে গড়ে ওঠে!',
   'ধাপ ৪ থেকে তুমি যা বলবে — তোমার নাম, পছন্দ, অনুভূতি — সব মনে রাখবো, ঠিক তোমার ল্যাপটপের ভেতরে, নিরাপদে।',
 ];
 let demoIdx = 0;
@@ -612,7 +759,7 @@ function sendChat() {
   if (!text || !HOLO.power) return;
   addMsg(text, 'user');
   input.value = '';
-  setHoloStatus('🤔 Stonic AI ভাবছে…');
+  setHoloStatus('🤔 Stonic ভাবছে…');
   setHoloState('THINKING…');
   const typing = addMsg('', 'ai');
   typing.innerHTML = '<span class="typing">•••</span>';
@@ -630,11 +777,81 @@ function sendChat() {
 }
 
 /* =========================================================
+   পাওয়ার / TERMINATE
+   ========================================================= */
+function setPower(on) {
+  HOLO.power = on;
+  document.body.classList.toggle('power-off', !on);
+  const btn = $('terminateBtn');
+  if (btn) {
+    btn.textContent = on ? '⏻ TERMINATE — বন্ধ করো' : '▶ ACTIVATE — চালু করো';
+    btn.classList.toggle('is-off', !on);
+  }
+  if (!on) {
+    HOLO.speaking = false;
+    if ('speechSynthesis' in window) speechSynthesis.cancel();
+    closePopover();
+    setHoloStatus('⏻ সিস্টেম বন্ধ — ACTIVATE চাপলেই ডটগুলো আবার গঠন হবে');
+    toast('⏻ Stonic বন্ধ হলো — ডটগুলো ছড়িয়ে যাচ্ছে। আবার জাগাতে ACTIVATE চাপো।');
+  } else {
+    setHoloStatus('✨ ফিরে এসেছি — ডটগুলো জড়ো হচ্ছে…');
+    toast('🤖 Stonic চালু! মুখটা গঠন হতে দেখো।');
+  }
+}
+
+/* =========================================================
+   পপওভার (মডিউল চিপ)
+   ========================================================= */
+const POP_TITLES = {
+  memory: 'MEMORY — স্মৃতি',
+  skills: 'SKILLS — দক্ষতা',
+  character: 'CHARACTER — চরিত্র',
+  setting: 'SETTING — সেটিংস',
+};
+let openPopName = null;
+function openPopover(name) {
+  openPopName = name;
+  $('popover').classList.remove('hidden');
+  $('popoverTitle').textContent = POP_TITLES[name] || name;
+  document.querySelectorAll('.pop-body').forEach((el) => el.classList.add('hidden'));
+  const body = $('pop-' + name);
+  if (body) body.classList.remove('hidden');
+  document.querySelectorAll('.mod-chip').forEach((c) => c.classList.toggle('active', c.dataset.pop === name));
+}
+function closePopover() {
+  openPopName = null;
+  const p = $('popover');
+  if (p) p.classList.add('hidden');
+  document.querySelectorAll('.mod-chip').forEach((c) => c.classList.remove('active'));
+}
+
+/* =========================================================
+   Visual Hub — ক্যামেরা/স্ক্রিন স্টেট (আসল অ্যাক্সেস ধাপ ৯)
+   ========================================================= */
+function setVisual(kind, on, silent) {
+  const camT = $('cameraToggle'), scrT = $('screenToggle');
+  if (kind === 'cam') camT.checked = on; else scrT.checked = on;
+  const cam = camT.checked, scr = scrT.checked;
+  $('camIndicator').classList.toggle('hidden', !(cam || scr));
+  $('camChip').textContent = 'CAM · ' + (cam ? 'ON' : 'OFF');
+  $('camChip').classList.toggle('on', cam);
+  $('scrChip').textContent = 'SCREEN · ' + (scr ? 'ON' : 'OFF');
+  $('scrChip').classList.toggle('on', scr);
+  $('vhCamBtn').classList.toggle('on', cam);
+  $('vhScrBtn').classList.toggle('on', scr);
+  if (!silent) {
+    toast(on
+      ? '🔴 এখন এটি শুধু ইন্ডিকেটর ডেমো — ক্যামেরা/স্ক্রিন সত্যিই চালু হচ্ছে না। আসল অনুমতি-ভিত্তিক অ্যাক্সেস ধাপ ৯-এ আসবে, তখনও ON থাকলে এই লাল সতর্কতা জ্বলবে।'
+      : '✅ বন্ধ করা হয়েছে — এখন আমি কিছুই দেখতে পাচ্ছি না।', 4600);
+  }
+}
+
+/* =========================================================
    ইভেন্ট ওয়্যারিং
    ========================================================= */
 document.addEventListener('DOMContentLoaded', () => {
   initHologram();
-  initGlobe();
+  initMap();
   syncGenderUI();
   setTimeout(drawWires, 350);
   let rT = null;
@@ -662,33 +879,30 @@ document.addEventListener('DOMContentLoaded', () => {
   checkHealth();
   setInterval(checkHealth, 20000);
 
-  /* Main Power */
-  $('powerSwitch').addEventListener('change', (e) => {
-    HOLO.power = e.target.checked;
-    document.body.classList.toggle('power-off', !HOLO.power);
-    if (!HOLO.power) {
-      HOLO.speaking = false;
-      if ('speechSynthesis' in window) speechSynthesis.cancel();
-      setHoloStatus('⏻ বন্ধ আছে — Main সুইচ ON করলেই ডটগুলো আবার গঠন হবে');
-      toast('⏻ Stonic AI বন্ধ হলো — ডটগুলো ছড়িয়ে হারিয়ে গেছে। আবার চালু করতে Main সুইচ ON করো।');
-    } else {
-      setHoloStatus('✨ ফিরে এসেছি — ডটগুলো জড়ো হচ্ছে…');
-      toast('🤖 Stonic AI চালু! ডটগুলো আকার গঠন করতে দেখো।');
-    }
-  });
+  /* TERMINATE / ACTIVATE */
+  $('terminateBtn').addEventListener('click', () => setPower(!HOLO.power));
 
-  /* Female/Male — টপবার পিল + Character বাটন দুটোই */
+  /* Female/Male — পিল + পপওভারের বাটন */
   document.querySelectorAll('[data-gender]').forEach((el) => {
     el.addEventListener('click', () => {
+      if (!HOLO.power) { toast('⏻ সিস্টেম বন্ধ আছে — আগে ACTIVATE চাপো!'); return; }
       setGender(el.dataset.gender);
       toast(el.dataset.gender === 'female'
-        ? '👩 Female কোর — ডটগুলো ভেঙে মেয়ের আকারে গড়ে উঠছে!'
-        : '👨 Male কোর — ডটগুলো ভেঙে ছেলের আকারে গড়ে উঠছে!');
+        ? '👩 Female কোর — ডটগুলো ভেঙে মেয়ের মুখে গড়ে উঠছে!'
+        : '👨 Male কোর — ডটগুলো ভেঙে ছেলের মুখে গড়ে উঠছে!');
     });
   });
-
-  /* আবার গঠন হও বাটন */
   $('reformBtn').addEventListener('click', reform);
+
+  /* মডিউল চিপ → পপওভার */
+  document.querySelectorAll('.mod-chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      if (openPopName === chip.dataset.pop) closePopover();
+      else openPopover(chip.dataset.pop);
+    });
+  });
+  $('popoverClose').addEventListener('click', closePopover);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePopover(); });
 
   /* মোড ট্যাব */
   document.querySelectorAll('.mode-tab').forEach((tab) => {
@@ -697,16 +911,15 @@ document.addEventListener('DOMContentLoaded', () => {
       document.querySelectorAll('.mode-panel').forEach((p) => p.classList.remove('active'));
       tab.classList.add('active');
       $('mode-' + tab.dataset.mode).classList.add('active');
-      setTimeout(drawWires, 60);
     });
   });
 
-  /* চ্যাট */
+  /* চ্যাট + মাইক */
   $('sendBtn').addEventListener('click', sendChat);
   $('chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChat(); });
-  $('micBtn').addEventListener('click', () => {
-    toast('🎤 ভয়েস সিস্টেম ধাপ ৫-এ আসবে — তখন মুখে বললেই হবে, কথা শেষ হলে তবেই আমি উত্তর দেবো!');
-  });
+  const micNotice = () => toast('🎤 ভয়েস সিস্টেম ধাপ ৫-এ আসবে — তখন মুখে বললেই হবে, কথা শেষ হলে তবেই আমি উত্তর দেবো!');
+  $('micBtn').addEventListener('click', micNotice);
+  $('bigMicBtn').addEventListener('click', micNotice);
 
   /* Agent ডেমো */
   const runAgentDemo = () => {
@@ -743,21 +956,17 @@ document.addEventListener('DOMContentLoaded', () => {
     toast('⚠️ ধাপ ১-এ Key কোথাও সেভ হচ্ছে না — সেভ সিস্টেম ধাপ ২-এ আসবে। নিরাপত্তার জন্য ইনপুট খালি করে দিলাম। আসল Key কারো সাথে শেয়ার কোরো না!', 5200);
   });
 
-  /* ক্যামেরা/স্ক্রিন টগল — ইন্ডিকেটর ডেমো (আসল অ্যাক্সেস ধাপ ৯) */
-  const syncVisualHub = () => {
-    const cam = $('cameraToggle').checked, scr = $('screenToggle').checked;
-    $('camIndicator').classList.toggle('hidden', !(cam || scr));
-    $('camChip').textContent = 'CAM · ' + (cam ? 'ON' : 'OFF');
-    $('camChip').classList.toggle('on', cam);
-    $('scrChip').textContent = 'SCREEN · ' + (scr ? 'ON' : 'OFF');
-    $('scrChip').classList.toggle('on', scr);
-  };
-  [$('cameraToggle'), $('screenToggle')].forEach((tg) => {
-    tg.addEventListener('change', () => {
-      syncVisualHub();
-      toast(tg.checked
-        ? '🔴 এটি এখন শুধু ইন্ডিকেটর ডেমো — ক্যামেরা/স্ক্রিন অ্যাক্সেস হচ্ছে না। আসল অনুমতি-ভিত্তিক অ্যাক্সেস ধাপ ৯-এ আসবে, তখনও এই সতর্কতা জ্বলবে।'
-        : '✅ বন্ধ করা হয়েছে।', 4600);
+  /* ক্যামেরা/স্ক্রিন — সেটিংসের সুইচ ও Visual Hub বাটন একই স্টেট */
+  $('cameraToggle').addEventListener('change', (e) => setVisual('cam', e.target.checked));
+  $('screenToggle').addEventListener('change', (e) => setVisual('scr', e.target.checked));
+  $('vhCamBtn').addEventListener('click', () => setVisual('cam', !$('cameraToggle').checked));
+  $('vhScrBtn').addEventListener('click', () => setVisual('scr', !$('screenToggle').checked));
+  document.querySelectorAll('.vh-suggest').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelector('[data-mode="voice"]').click();
+      $('chatInput').value = btn.dataset.vh;
+      $('chatInput').focus();
+      toast('👁️ Visual Hub-এর আসল দেখার ক্ষমতা ধাপ ৯-এ আসবে — নির্দেশটা চ্যাটবাক্সে বসিয়ে দিলাম, চাইলে পাঠিয়ে ডেমো দেখো!');
     });
   });
 
@@ -772,9 +981,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  /* World Monitor রিফ্রেশ (ধাপ ১০) */
+  /* World ফিড রিফ্রেশ (ধাপ ১০) */
   $('refreshNews').addEventListener('click', () => {
-    toast('🌍 লাইভ নিউজ ধাপ ১০-এ আসবে — তখন SAT-LINK গ্লোবে হটস্পট আর নিচে আসল হেডলাইন থাকবে, চাইলে আমি পড়েও শোনাবো!');
+    toast('🌍 লাইভ নিউজ ধাপ ১০-এ আসবে — তখন মানচিত্রের হটস্পটে আসল ঘটনা আর নিচে সত্যিকারের হেডলাইন থাকবে, চাইলে পড়েও শোনাবো!');
   });
 
   /* Personality */
@@ -782,5 +991,5 @@ document.addEventListener('DOMContentLoaded', () => {
     toast(`🎭 ব্যক্তিত্ব সিলেক্ট: "${e.target.value}" — এই সেটিং ধাপ ৩ থেকে আমার উত্তরে প্রভাব ফেলবে।`);
   });
 
-  toast('✨ দেখো — হাজার হাজার ডট জড়ো হয়ে আমার নতুন আকার গঠন করছে! ♀/♂ বদলে দেখো, "আবার গঠন হও" চাপো।', 5600);
+  toast('✨ নতুন CORE জাগছে — ডটগুলো মুখের আকারে গঠন হওয়া দেখো! বামের চিপগুলোতে (MEMORY / SKILLS / CHARACTER / SETTING) চেপে প্যানেল খুলতে পারো।', 6200);
 });
