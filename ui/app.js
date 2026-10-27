@@ -391,6 +391,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   /* সার্ভার হেলথ চেক */
   const checkHealth = () => {
+    if (location.protocol === 'file:') {
+      // সার্ভার ছাড়াই সরাসরি ফাইল খোলা হলে (এক-ফাইলের প্রিভিউ)
+      $('serverDot').className = 'dot dot-on';
+      $('serverText').textContent = 'প্রিভিউ মোড — UI দেখার জন্য (সার্ভার ছাড়া)';
+      return;
+    }
     fetch('/api/health').then((r) => r.json()).then((d) => {
       $('serverDot').className = 'dot dot-on';
       $('serverText').textContent = `সার্ভার: সংযুক্ত ✅ (ধাপ ${d.stage})`;
