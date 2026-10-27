@@ -52,7 +52,7 @@
 |---|---|---|
 | ব্যাকএন্ড | **Python (stdlib-first)** — `http.server` | অতিরিক্ত ডিপেন্ডেন্সি ছাড়াই UI সার্ভ; হালকা |
 | ফ্রন্টএন্ড/UI | HTML + CSS + JavaScript (ভ্যানিলা) | ব্রাউজার/ডেস্কটপ উইন্ডোতে চলবে |
-| 3D হলোগ্রাম | **Three.js** (CDN, r128 non-module বিল্ড) | পয়েন্ট-ক্লাউড মানব আকৃতি |
+| 3D হলোগ্রাম | **Three.js r128** (লোকাল `ui/vendor/` — অফলাইনেও চলে) | খোদাই-করা মুখের পার্টিকেল বাস্ট |
 | ডেটাবেস | **SQLite** (Python built-in) | মেমোরি, নোটস, সেটিংস |
 | AI API | Gemini REST + Groq REST (`urllib`) | কোনো ভারী SDK নয় |
 | ভয়েস শোনা (STT) | Web Speech API (ব্রাউজার built-in) | ফ্রি, ইনস্টল ছাড়া |
