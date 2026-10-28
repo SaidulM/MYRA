@@ -1,10 +1,12 @@
 /* =========================================================
-   MYRA — System Core UI (Stage 1, v5)
-   Three particle characters (CORE / MALE / FEMALE) formed
-   by ~34,000 fine dots flowing in waves. Smooth futuristic
-   silhouettes — identity comes from body shape & hair, not
-   carved facial details. A scan-light sweeps through the
-   dots bottom-to-top. Themes tint the whole system.
+   MYRA — System Core UI (Stage 1, v6)
+   Three particle characters (CORE / MALE / FEMALE). The
+   great formation of ~34,000 dots happens ONCE when MYRA
+   first opens; after that, switching character smoothly
+   MORPHS the dots from one shape into the next, and power
+   off simply fades her out. The figure floats (dots
+   dissolve below the chest — no pedestal, no rings), lit
+   by a scan-light sweeping bottom-to-top.
    Real AI chat arrives in Stage 3; replies here are demo.
    ========================================================= */
 'use strict';
@@ -54,7 +56,7 @@ if (!THEME_HEX[themeName]) themeName = 'normal';
 
 /* =========================================================
    Particle figures — smooth silhouettes, grayscale light
-   (the theme color tints everything via material color)
+   (theme color tints everything via material color)
    ========================================================= */
 const N = 34000;
 function savedChar() {
@@ -69,14 +71,15 @@ const HOLO = {
   power: true,
   speaking: false,
   speakBlend: 0,
-  formT: 0,
-  mode: 'in',
-  pendingChar: null,
+  formT: 0,          // boot formation 0→1, happens once
+  bootDone: false,
+  morph: null,       // { fromPos, fromGray, t } while shape-shifting
   targetRotY: 0,
   autoRot: 0,
   dragging: false,
   accentMats: [],
   pMat: null,
+  startMorph: null,  // set inside initHologram
 };
 
 const LGT = (() => {
@@ -124,10 +127,10 @@ function profileAt(prof, y) {
   return prof[prof.length - 1][1];
 }
 function pushPt(arr, x, y, z, gray, headW) {
-  arr.push({ x, y, z, gray: clamp(gray, 0.05, 1.6), headW });
+  arr.push({ x, y, z, gray: clamp(gray, 0.04, 1.6), headW });
 }
 
-/* Smooth head — silhouette does the talking */
+/* Smooth head — the silhouette does the talking */
 function sampleSmoothHead(out, female) {
   const rows = female ? HEAD_ROWS.female : HEAD_ROWS.male;
   for (let i = 0; i < 11500; i++) {
@@ -139,13 +142,10 @@ function sampleSmoothHead(out, female) {
     const fr = Math.sin(th);
     const x = rx * Math.cos(th);
     let z = cz + rz * fr;
-    if (fr > 0.3) { // only a whisper of a nose so the profile isn't an egg
-      z += g2(x, y, 0, 1.9, 0.05, 0.17, 0.04) * clamp((fr - 0.3) / 0.5, 0, 1);
-    }
+    if (fr > 0.3) z += g2(x, y, 0, 1.9, 0.05, 0.17, 0.04) * clamp((fr - 0.3) / 0.5, 0, 1);
     const b = shade(x / (rx * rx), (y - 2.05) * 1.4, (z - cz) / (rz * rz));
     pushPt(out, x + rand(-.002, .002), y + rand(-.002, .002), z + rand(-.002, .002), b * 1.02, 1);
   }
-  // ears (smooth, small)
   const [rxEar] = rowAt(rows, 1.95);
   for (const s of [1, -1]) {
     for (let i = 0; i < 160; i++) {
@@ -187,14 +187,12 @@ function sampleHairFemaleLong(out) {
     const y = rand(1.05, 2.45);
     const th = Math.random() * Math.PI * 2;
     const fr = Math.sin(th);
-    if (fr > 0.38) continue;                    // keep the face window open
+    if (fr > 0.38) continue;
     const r = profileAt(prof, y) * rand(0.985, 1.02);
-    const x = r * Math.cos(th), z = r * 0.92 * fr - 0.045;
-    pushPt(out, x + rand(-.006, .006), y, z + rand(-.006, .006),
+    pushPt(out, r * Math.cos(th) + rand(-.006, .006), y, r * 0.92 * fr - 0.045 + rand(-.006, .006),
       shade(Math.cos(th), (y - 1.9) * 0.7, fr) * 0.62, clamp((y - 0.95) / 1.35, 0.18, 1));
     placed++;
   }
-  // front falls over the chest (smooth ribbons)
   for (const s of [1, -1]) {
     for (let i = 0; i < 1300; i++) {
       const t = Math.random();
@@ -225,6 +223,20 @@ function sampleLoft(out, n, rows, zScale, brightMul, headWFn, frontBumpFn) {
   }
 }
 
+/* Dots dissolving below the chest — she floats, no statue base */
+function sampleDissipation(out, n, chestRows) {
+  const baseY = 0.46;
+  const baseR = profileAt(chestRows, baseY);
+  for (let i = 0; i < n; i++) {
+    const drop = Math.pow(Math.random(), 1.7) * 0.62;
+    const th = Math.random() * Math.PI * 2;
+    const r = baseR * rand(0.5, 1.0) * (1 + drop * 1.1);
+    const y = baseY - drop;
+    const g = rand(0.05, 0.24) * (1 - drop * 1.15);
+    pushPt(out, r * Math.cos(th) + rand(-.02, .02), y, r * 0.55 * Math.sin(th) + rand(-.02, .02), Math.max(g, 0.02), 0);
+  }
+}
+
 function buildBustPoints(female) {
   const pts = [];
   sampleSmoothHead(pts, female);
@@ -244,7 +256,8 @@ function buildBustPoints(female) {
   const bustBump = female
     ? (x, y) => g2(x, y, .23, .72, .15, .13, .045) + g2(x, y, -.23, .72, .15, .13, .045)
     : null;
-  sampleLoft(pts, Math.max(N - pts.length, 200), chestRows, 0.55, 0.85, null, bustBump);
+  sampleLoft(pts, Math.max(N - pts.length - 1800, 200), chestRows, 0.55, 0.85, null, bustBump);
+  sampleDissipation(pts, 1800, chestRows);
   return pts;
 }
 
@@ -303,7 +316,7 @@ function buildFigure(charType) {
   return { targets, gray, headW, delay };
 }
 
-/* ----- Theme tint (material color over grayscale dots) ----- */
+/* ----- Theme tint ----- */
 const GLOBE_MATS = [];
 function applyTint() {
   const hex = THEME_HEX[themeName];
@@ -317,7 +330,7 @@ function applyTint() {
   if (window._redrawMap) window._redrawMap();
 }
 
-/* ----- Three.js scene ----- */
+/* ----- Three.js scene: floating figure, no pedestal ----- */
 function initHologram() {
   if (typeof THREE === 'undefined') {
     setHoloStatus('⚠️ Three.js failed to load — check ui/vendor/three.min.js');
@@ -329,15 +342,15 @@ function initHologram() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.6));
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
-  camera.position.set(0, 1.74, 4.05);
-  camera.lookAt(0, 1.42, 0);
+  camera.position.set(0, 1.7, 4.15);
+  camera.lookAt(0, 1.48, 0);
 
   const world = new THREE.Group();
   scene.add(world);
 
-  { // stars
+  { // stars only — she floats in space
     const sp = [];
-    for (let i = 0; i < 420; i++) sp.push(rand(-8, 8), rand(-0.4, 6.4), rand(-6, 2.5));
+    for (let i = 0; i < 480; i++) sp.push(rand(-8, 8), rand(-0.6, 6.6), rand(-6, 2.5));
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
     const m = new THREE.PointsMaterial({ color: 0x9fd8e8, size: 0.02, transparent: true, opacity: 0.45, depthWrite: false });
@@ -346,29 +359,6 @@ function initHologram() {
     scene.add(new THREE.Points(g, m));
   }
 
-  /* Soft glow floor (no rings) + projector beam */
-  const accentMat = (op) => {
-    const m = new THREE.MeshBasicMaterial({ color: THEME_HEX[themeName], transparent: true, opacity: op, side: THREE.DoubleSide, depthWrite: false });
-    m.userData.baseOp = op;
-    HOLO.accentMats.push(m);
-    return m;
-  };
-  const disc = new THREE.Group();
-  const glowOuter = new THREE.Mesh(new THREE.CircleGeometry(1.2, 56), accentMat(0.07));
-  glowOuter.rotation.x = -Math.PI / 2; glowOuter.position.y = 0.004;
-  const glowInner = new THREE.Mesh(new THREE.CircleGeometry(0.6, 48), accentMat(0.14));
-  glowInner.rotation.x = -Math.PI / 2; glowInner.position.y = 0.008;
-  disc.add(glowOuter, glowInner);
-  const beam = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.95, 0.3, 0.34, 48, 1, true),
-    new THREE.MeshBasicMaterial({ color: THEME_HEX[themeName], transparent: true, opacity: 0.045, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
-  beam.material.userData.baseOp = 0.045;
-  HOLO.accentMats.push(beam.material);
-  beam.position.y = 0.17;
-  disc.add(beam);
-  world.add(disc);
-
-  /* Particle figure */
   const built = buildFigure(HOLO.char);
   HOLO.formedChar = HOLO.char;
   let targets = built.targets, gray = built.gray, headW = built.headW, delay = built.delay;
@@ -388,7 +378,6 @@ function initHologram() {
 
   const positions = new Float32Array(scatter);
   const colArr = new Float32Array(N * 3);
-  for (let i = 0; i < N; i++) { colArr[i * 3] = colArr[i * 3 + 1] = colArr[i * 3 + 2] = gray[i]; }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(colArr, 3));
@@ -401,8 +390,21 @@ function initHologram() {
   world.add(figure);
   applyTint();
 
-  HOLO.applyFigure = (charType) => {
+  /* Shape-shift: snapshot where every dot is now, then flow to the new shape */
+  HOLO.startMorph = (charType) => {
+    if (!HOLO.bootDone) {   // still in the one-time boot formation — just retarget
+      const b = buildFigure(charType);
+      targets = b.targets; gray = b.gray; headW = b.headW; delay = b.delay;
+      HOLO.formedChar = charType;
+      applyTint();
+      return;
+    }
     const b = buildFigure(charType);
+    HOLO.morph = {
+      fromPos: geo.attributes.position.array.slice(),
+      fromGray: gray.slice(),
+      t: 0,
+    };
     targets = b.targets; gray = b.gray; headW = b.headW; delay = b.delay;
     HOLO.formedChar = charType;
     applyTint();
@@ -439,104 +441,124 @@ function initHologram() {
     const dt = Math.min(clock.getDelta(), 0.05);
     const t = clock.elapsedTime;
 
-    if (!HOLO.power) {
-      HOLO.formT = Math.max(0, HOLO.formT - dt * 1.4);
-    } else if (HOLO.mode === 'out') {
-      HOLO.formT = Math.max(0, HOLO.formT - dt * 1.6);
-      if (HOLO.formT <= 0 && HOLO.pendingChar) {
-        HOLO.applyFigure(HOLO.pendingChar);
-        HOLO.pendingChar = null;
-        HOLO.mode = 'in';
-      }
-    } else {
+    /* One-time boot formation; pauses while powered off */
+    if (!HOLO.bootDone && HOLO.power) {
       HOLO.formT = Math.min(1, HOLO.formT + dt * 0.34);
+      if (HOLO.formT >= 1) {
+        HOLO.bootDone = true;
+        setHoloStatus(idleStatus());
+        logEvent('first formation complete');
+      }
+    }
+    if (HOLO.morph && HOLO.power) {
+      HOLO.morph.t += dt * 0.85;
+      if (HOLO.morph.t >= 1.4) HOLO.morph = null;
     }
     const formT = HOLO.formT;
-    const formed = clamp((formT - 0.72) / 0.28, 0, 1);
+    const ff = HOLO.bootDone ? 1 : clamp((formT - 0.72) / 0.28, 0, 1); // life factor
 
     const sTarget = (HOLO.speaking && HOLO.power) ? 1 : 0;
     HOLO.speakBlend += (sTarget - HOLO.speakBlend) * 0.07;
     const sb = HOLO.speakBlend;
 
-    const nodA = (0.018 * Math.sin(t * 1.15) + sb * 0.08 * Math.sin(t * 7.3)) * formed;
-    const tiltA = (0.014 * Math.sin(t * 0.85 + 1) + sb * 0.045 * Math.sin(t * 3.0)) * formed;
+    const nodA = (0.018 * Math.sin(t * 1.15) + sb * 0.08 * Math.sin(t * 7.3)) * ff;
+    const tiltA = (0.014 * Math.sin(t * 0.85 + 1) + sb * 0.045 * Math.sin(t * 3.0)) * ff;
     const cosN = Math.cos(nodA), sinN = Math.sin(nodA);
     const cosT2 = Math.cos(tiltA), sinT2 = Math.sin(tiltA);
     const PIVOT_Y = 1.42;
 
-    /* Scan-light: a bright band traveling through the dots, bottom → top */
     const scanCycle = t % 5.6;
     const scanY = scanCycle < 4.4 ? 0.05 + (scanCycle / 4.4) * 2.85 : -10;
     const scanOn = HOLO.power && formT > 0.25;
+    const morph = HOLO.morph;
 
     const pos = geo.attributes.position.array;
     const col = geo.attributes.color.array;
     for (let i = 0; i < N; i++) {
       const i3 = i * 3;
-      const p = clamp((formT - delay[i] * 0.45) / 0.55, 0, 1);
-      const e = 1 - Math.pow(1 - p, 3);
-      let x = scatter[i3] + (targets[i3] - scatter[i3]) * e;
-      let y = scatter[i3 + 1] + (targets[i3 + 1] - scatter[i3 + 1]) * e;
-      let z = scatter[i3 + 2] + (targets[i3 + 2] - scatter[i3 + 2]) * e;
 
-      const sw = (1 - e) * (1 - e) * orbit[i];
-      if (sw > 0.001) {
-        const c = Math.cos(sw), s2 = Math.sin(sw);
-        const nx = x * c - z * s2, nz = x * s2 + z * c;
-        x = nx; z = nz;
-      }
-      y += Math.sin(p * Math.PI) * (1 - p) * 0.12 * Math.sin(phase[i] * 3 + t * 2);
-
+      /* goal position: target + life shimmer + head motion */
+      let gx = targets[i3], gy = targets[i3 + 1], gz = targets[i3 + 2];
       const ph = phase[i];
-      const shim = Math.sin(t * 2.3 + ph) * (0.0036 + sb * 0.009 * headW[i]) * e;
-      const rl = Math.sqrt(x * x + z * z) || 1e-4;
-      x += (x / rl) * shim; z += (z / rl) * shim;
-      y += Math.sin(t * 1.7 + ph * 1.3) * 0.0026 * e;
-
-      const w = headW[i];
-      if (w > 0.01 && formed > 0) {
+      const shim = Math.sin(t * 2.3 + ph) * (0.0036 + sb * 0.009 * headW[i]) * ff;
+      const rl0 = Math.sqrt(gx * gx + gz * gz) || 1e-4;
+      gx += (gx / rl0) * shim; gz += (gz / rl0) * shim;
+      gy += Math.sin(t * 1.7 + ph * 1.3) * 0.0026 * ff;
+      const w = headW[i] * ff;
+      if (w > 0.01) {
         const cN = 1 + (cosN - 1) * w, sN = sinN * w;
-        const dy = y - PIVOT_Y;
-        y = PIVOT_Y + dy * cN - z * sN;
-        z = dy * sN + z * cN;
+        const dy = gy - PIVOT_Y;
+        gy = PIVOT_Y + dy * cN - gz * sN;
+        gz = dy * sN + gz * cN;
         const cT = 1 + (cosT2 - 1) * w, sT = sinT2 * w;
-        const dy2 = y - PIVOT_Y;
-        const nx = x * cT - dy2 * sT;
-        y = PIVOT_Y + x * sT + dy2 * cT;
-        x = nx;
+        const dy2 = gy - PIVOT_Y;
+        const nx = gx * cT - dy2 * sT;
+        gy = PIVOT_Y + gx * sT + dy2 * cT;
+        gx = nx;
+      }
+
+      let x, y, z, brightScale;
+      if (!HOLO.bootDone) {
+        /* the one-time gathering: scattered cloud → shape */
+        const p = clamp((formT - delay[i] * 0.45) / 0.55, 0, 1);
+        const e = 1 - Math.pow(1 - p, 3);
+        x = scatter[i3] + (gx - scatter[i3]) * e;
+        y = scatter[i3 + 1] + (gy - scatter[i3 + 1]) * e;
+        z = scatter[i3 + 2] + (gz - scatter[i3 + 2]) * e;
+        const sw = (1 - e) * (1 - e) * orbit[i];
+        if (sw > 0.001) {
+          const c = Math.cos(sw), s2 = Math.sin(sw);
+          const nx2 = x * c - z * s2, nz2 = x * s2 + z * c;
+          x = nx2; z = nz2;
+        }
+        y += Math.sin(p * Math.PI) * (1 - p) * 0.12 * Math.sin(ph * 3 + t * 2);
+        brightScale = 0.35 + 0.65 * e;
+      } else if (morph) {
+        /* shape-shift: dots flow from old shape into the new one */
+        const p = clamp((morph.t - delay[i] * 0.35) / 0.65, 0, 1);
+        const e = 1 - Math.pow(1 - p, 3);
+        x = morph.fromPos[i3] + (gx - morph.fromPos[i3]) * e;
+        y = morph.fromPos[i3 + 1] + (gy - morph.fromPos[i3 + 1]) * e + Math.sin(e * Math.PI) * 0.07;
+        z = morph.fromPos[i3 + 2] + (gz - morph.fromPos[i3 + 2]) * e;
+        brightScale = 0.75 + 0.45 * Math.sin(e * Math.PI);
+      } else {
+        x = gx; y = gy; z = gz;
+        brightScale = 1;
       }
       pos[i3] = x; pos[i3 + 1] = y; pos[i3 + 2] = z;
 
-      /* brightness incl. scan band */
-      let v = gray[i] * (0.35 + 0.65 * e);
+      let gVal = morph
+        ? lerp(morph.fromGray[i], gray[i], clamp((morph.t - delay[i] * 0.35) / 0.65, 0, 1))
+        : gray[i];
+      let v = gVal * brightScale;
       if (scanOn) {
         const dyS = targets[i3 + 1] - scanY;
-        v *= 1 + 0.95 * Math.exp(-(dyS * dyS) / 0.09) * e;
+        v *= 1 + 0.95 * Math.exp(-(dyS * dyS) / 0.09) * ff;
       }
       col[i3] = v; col[i3 + 1] = v; col[i3 + 2] = v;
     }
     geo.attributes.position.needsUpdate = true;
     geo.attributes.color.needsUpdate = true;
 
-    figure.position.y = Math.sin(t * 1.12) * 0.028;
+    figure.position.y = Math.sin(t * 1.12) * 0.03;   // gentle floating
     const pulse = HOLO.formedChar === 'core' ? 1 + sb * 0.045 * Math.sin(t * 9) + 0.012 * Math.sin(t * 2.2) : 1;
     figure.scale.setScalar(pulse);
 
     if (!HOLO.dragging && HOLO.power) HOLO.autoRot += dt * 0.09;
     world.rotation.y += ((HOLO.targetRotY + HOLO.autoRot) - world.rotation.y) * 0.08;
 
-    pMat.opacity += ((HOLO.power ? 0.88 : 0.04) - pMat.opacity) * 0.08;
+    pMat.opacity += ((HOLO.power ? 0.88 : 0.03) - pMat.opacity) * 0.07;
     HOLO.accentMats.forEach((m) => {
       const bse = m.userData.baseOp !== undefined ? m.userData.baseOp : 0.9;
-      m.opacity += ((HOLO.power ? bse : bse * 0.06) - m.opacity) * 0.08;
+      m.opacity += ((HOLO.power ? bse : bse * 0.25) - m.opacity) * 0.08;
     });
 
-    setHoloState(!HOLO.power ? 'OFFLINE' : (formT < 0.985 ? 'FORMING…' : (sb > 0.35 ? 'SPEAKING' : 'IDLE // LISTENING')));
+    setHoloState(!HOLO.power ? 'OFFLINE' : (!HOLO.bootDone ? 'BOOTING…' : (sb > 0.35 ? 'SPEAKING' : 'IDLE // LISTENING')));
     renderer.render(scene, camera);
   })();
 }
 
-/* ----- Character switching ----- */
+/* ----- Character switching (morph — no re-formation) ----- */
 const IDLE_STATUS = {
   core: '⬢ Core online — listening',
   male: '🎩 At your service. Listening…',
@@ -559,25 +581,18 @@ function syncCharUI() {
   applyTint();
 }
 function setChar(charType) {
-  if (charType === HOLO.char && HOLO.mode === 'in' && HOLO.formT > 0.9) return;
+  if (charType === HOLO.char && !HOLO.morph) return;
   HOLO.char = charType;
   localStorage.setItem('myra_char', charType);
-  HOLO.pendingChar = charType;
-  HOLO.mode = 'out';
   syncCharUI();
-  setHoloStatus('✨ Re-forming into ' + charType.toUpperCase() + '…');
-  logEvent('character → ' + charType.toUpperCase());
-}
-function reform() {
-  if (!HOLO.power) { toast('⏻ System is off — press ACTIVATE first!'); return; }
-  HOLO.pendingChar = HOLO.char;
-  HOLO.mode = 'out';
-  setHoloStatus('✨ Forming again — watch the waves of dots!');
-  logEvent('formation replay');
+  if (HOLO.startMorph) HOLO.startMorph(charType);
+  setHoloStatus('✨ Shifting into ' + charType.toUpperCase() + ' form…');
+  setTimeout(() => { if (HOLO.power && !HOLO.speaking) setHoloStatus(idleStatus()); }, 1700);
+  logEvent('character → ' + charType.toUpperCase() + ' (morph)');
 }
 
 /* =========================================================
-   SAT-LINK dotted world map (own coarse continent outlines)
+   SAT-LINK dotted world map (fallback visual, own outlines)
    ========================================================= */
 const CONTINENTS = [
   [[6,30],[14,20],[28,12],[44,8],[60,10],[74,6],[88,10],[96,18],[92,26],[84,30],[90,38],[84,46],[74,48],[66,55],[58,62],[52,58],[50,50],[42,47],[34,50],[24,47],[14,40],[8,34]],
@@ -627,6 +642,42 @@ function initMap() {
   window._redrawMap = draw;
   new ResizeObserver(draw).observe(box);
   draw();
+}
+
+/* ----- Attached live monitor (open-source worldmonitor.app) ----- */
+const WM_URL = 'https://worldmonitor.app';
+let wmMiniAttached = false, wmFullAttached = false, satLoaded = false;
+function attachWorldMonitor() {
+  if (!navigator.onLine) return;   // offline: canvas map + cached headlines carry the panel
+  /* mini live preview in the left panel (scaled-down site) */
+  if (!wmMiniAttached) {
+    wmMiniAttached = true;
+    const wrap = $('wmMiniWrap');
+    if (wrap) {
+      const ifr = document.createElement('iframe');
+      ifr.className = 'wm-mini-frame';
+      ifr.title = 'World Monitor — live preview';
+      ifr.setAttribute('sandbox', 'allow-scripts');
+      ifr.setAttribute('referrerpolicy', 'no-referrer');
+      ifr.loading = 'lazy';
+      ifr.src = WM_URL;
+      wrap.appendChild(ifr);
+      logEvent('world monitor: mini live preview attached');
+    }
+  }
+}
+function attachWorldMonitorFull() {
+  if (wmFullAttached) return;
+  wmFullAttached = true;
+  const ifr = document.createElement('iframe');
+  ifr.className = 'wm-live-frame';
+  ifr.title = 'World Monitor — live dashboard';
+  ifr.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+  ifr.setAttribute('referrerpolicy', 'no-referrer');
+  ifr.loading = 'lazy';
+  ifr.src = WM_URL;
+  $('liveBox').appendChild(ifr);
+  logEvent('world monitor: full live dashboard attached');
 }
 
 /* ----- 3D dotted Earth ----- */
@@ -719,16 +770,13 @@ function initGlobe() {
 
 /* =========================================================
    Live headlines — real feeds when online, cache offline
-   (the permanent backend feed lands in Stage 10)
    ========================================================= */
 const FEEDS = [
   { src: 'BBC', url: 'https://feeds.bbci.co.uk/news/world/rss.xml' },
   { src: 'Al Jazeera', url: 'https://www.aljazeera.com/xml/rss/all.xml' },
 ];
-const DEMO_NEWS = [
-  { title: 'Demo headline — real world news will stream here when online', link: '#', src: 'DEMO', ts: Date.now() },
-  { title: 'Demo headline — ask MYRA and she will read the top stories aloud (Stage 10)', link: '#', src: 'DEMO', ts: Date.now() },
-  { title: 'Demo headline — map hotspots will flash where events happen', link: '#', src: 'DEMO', ts: Date.now() },
+const OFFLINE_NEWS = [
+  { title: "You're offline — live headlines will appear here the moment internet returns.", link: '#', src: 'OFFLINE', ts: Date.now() },
 ];
 let newsItems = [], newsLive = false, newsRegion = 'all';
 
@@ -739,8 +787,8 @@ function timeAgo(ts) {
   const h = Math.floor(m / 60);
   return h < 24 ? h + 'h ago' : Math.floor(h / 24) + 'd ago';
 }
-function setLiveBadge(state) { // 'live' | 'cached' | 'off'
-  [['liveBadge'], ['liveBadgeFull']].forEach(([id]) => {
+function setLiveBadge(state) {
+  ['liveBadge', 'liveBadgeFull'].forEach((id) => {
     const el = $(id);
     if (!el) return;
     el.className = 'live-badge' + (state === 'live' ? ' on' : state === 'cached' ? ' cached' : '');
@@ -761,7 +809,7 @@ function filterNews(items) {
   return hit.length >= 2 ? hit : items;
 }
 function renderNews() {
-  const items = newsItems.length ? newsItems : DEMO_NEWS;
+  const items = newsItems.length ? newsItems : OFFLINE_NEWS;
   const mini = $('miniHeadlines');
   mini.innerHTML = '';
   items.slice(0, 3).forEach((it) => {
@@ -857,7 +905,7 @@ async function fetchNews(manual) {
     setLiveBadge(had ? 'cached' : 'off');
     renderNews();
     logEvent('news: fetch failed, fallback shown');
-    if (manual) toast('📡 Could not reach the news service — showing ' + (had ? 'cached' : 'demo') + ' headlines.');
+    if (manual) toast('📡 Could not reach the news service right now — showing ' + (had ? 'cached' : 'offline') + ' headlines.');
   }
 }
 
@@ -881,7 +929,7 @@ function drawWires() {
     const x2 = sr.left - zr.left, y2 = sr.top - zr.top + sr.height * (fracs[i] || 0.5);
     const mx = (x1 + x2) / 2;
     s += `<path d="M${x1},${y1} L${mx},${y1} L${mx},${y2} L${x2},${y2}" stroke="${col}"/>`;
-    s += `<circle cx="${x1}" cy="${y1}" r="3.2" fill="${col}"/><circle cx="${x2}" cy="${y2}" r="2.8" fill="${col}"/>`;
+    s += `<circle cx="${x1}" cy="${y1}" r="3" fill="${col}"/><circle cx="${x2}" cy="${y2}" r="2.6" fill="${col}"/>`;
   });
   svg.innerHTML = s;
 }
@@ -889,15 +937,16 @@ function drawWires() {
 /* =========================================================
    Full-screen windows navigation
    ========================================================= */
-let satLoaded = false;
 function setWorldTab(tab) {
-  const isGlobe = tab !== 'sat';
-  $('wmTabGlobe').classList.toggle('active', isGlobe);
-  $('wmTabSat').classList.toggle('active', !isGlobe);
-  $('globeBox').classList.toggle('hidden', !isGlobe);
-  $('satBox').classList.toggle('hidden', isGlobe);
-  globeActive = isGlobe && !$('view-world').classList.contains('hidden');
-  if (!isGlobe && !satLoaded) {
+  const tabs = { live: 'wmTabLive', globe: 'wmTabGlobe', sat: 'wmTabSat' };
+  const boxes = { live: 'liveBox', globe: 'globeBox', sat: 'satBox' };
+  Object.entries(tabs).forEach(([k, id]) => $(id).classList.toggle('active', k === tab));
+  Object.entries(boxes).forEach(([k, id]) => $(id).classList.toggle('hidden', k !== tab));
+  const worldOpen = !$('view-world').classList.contains('hidden');
+  globeActive = tab === 'globe' && worldOpen;
+  if (tab === 'live') attachWorldMonitorFull();
+  if (tab === 'globe') initGlobe();
+  if (tab === 'sat' && !satLoaded) {
     satLoaded = true;
     const ifr = document.createElement('iframe');
     ifr.className = 'sat-frame';
@@ -917,9 +966,8 @@ function openView(name, opt) {
   document.body.classList.add('view-open');
   globeActive = false;
   if (name === 'world') {
-    initGlobe();
-    setWorldTab(opt && opt.tab === 'sat' ? 'sat' : 'globe');
-    globeActive = !(opt && opt.tab === 'sat');
+    const tab = opt && opt.tab ? opt.tab : (navigator.onLine ? 'live' : 'globe');
+    setWorldTab(tab);
   }
   if (name === 'history') renderHistory();
   if (name === 'console') logEvent('console opened');
@@ -999,13 +1047,13 @@ function stopSpeaking() {
 }
 
 /* =========================================================
-   Chat demo (real AI brain in Stage 3)
+   Chat (real AI brain in Stage 3)
    ========================================================= */
 const demoReplies = {
   core: [
     'Message received. My neural core is not connected yet — Gemini and Groq link up in Stage 3, then I can truly think with you.',
     'Systems nominal. Interface only, for now. In Stage 4 I will begin remembering everything you tell me.',
-    'Try switching me to MALE or FEMALE above — my particles will scatter and re-form into a new shape.',
+    'Try switching me to MALE or FEMALE above — watch my dots flow from one shape into the next.',
   ],
   male: [
     'Very good, sir. I have noted that. My full intelligence arrives in Stage 3 — until then, I remain at your service in demo form.',
@@ -1019,7 +1067,7 @@ const demoReplies = {
   ],
 };
 const GREETINGS = {
-  core: '⬢ Core online. All interface systems ready. My real brain connects in Stage 3 — until then, try my modules and watch me form.',
+  core: '⬢ Core online. All interface systems ready. My real brain connects in Stage 3 — until then, try my modules and watch me shift shape.',
   male: 'Good day, sir. 🎩 I am MYRA, at your service. This is only my interface for now — my full intelligence arrives in Stage 3.',
   female: "Hello, I'm MYRA — your personal desktop companion. 💗 Right now only my interface is alive (Stage 1) — my real brain arrives in Stage 3. Type something below and watch me respond!",
 };
@@ -1083,7 +1131,7 @@ function newChat() {
 }
 
 /* =========================================================
-   Power / TERMINATE
+   Power / TERMINATE — fade out/in (formation is once-only)
    ========================================================= */
 function setPower(on) {
   HOLO.power = on;
@@ -1097,12 +1145,12 @@ function setPower(on) {
     stopSpeaking();
     setMic(false, true);
     closeViews();
-    setHoloStatus('⏻ System offline — press ACTIVATE and the dots will form again');
-    toast('⏻ MYRA powered down — particles scattered. Press ACTIVATE to wake her.');
+    setHoloStatus('⏻ System offline — press ACTIVATE to bring MYRA back');
+    toast('⏻ MYRA powered down. Press ACTIVATE to wake her.');
     logEvent('power OFF (terminated)');
   } else {
-    setHoloStatus('✨ Waking up — particles gathering…');
-    toast('🤖 MYRA online! Watch the figure form.');
+    setHoloStatus(HOLO.bootDone ? idleStatus() : '✨ MYRA is waking up…');
+    toast('🤖 MYRA online!');
     logEvent('power ON');
   }
 }
@@ -1145,14 +1193,14 @@ function setVisual(kind, on) {
   $('scrChip').classList.toggle('on', VIS.scr);
   $('vhCamBtn').classList.toggle('on', VIS.cam);
   $('vhScrBtn').classList.toggle('on', VIS.scr);
-  logEvent('visual hub: ' + kind + ' ' + (on ? 'ON (demo)' : 'OFF'));
+  logEvent('visual hub: ' + kind + ' ' + (on ? 'ON (preview)' : 'OFF'));
   toast(on
-    ? '🔴 Indicator demo only — no real camera/screen access yet. Permission-based vision arrives in Stage 9, and this red warning will glow whenever it is on.'
+    ? '🔴 Preview indicator only — no real camera/screen access yet. Permission-based vision arrives in Stage 9, and this red warning will glow whenever it is on.'
     : '✅ Turned off — MYRA cannot see anything now.', 4600);
 }
 
 /* =========================================================
-   Memory demo (plugs into SQLite in Stage 4)
+   Memory window (plugs into SQLite in Stage 4)
    ========================================================= */
 function loadMemories() {
   try { return JSON.parse(localStorage.getItem('myra_memories_demo') || '[]'); }
@@ -1213,9 +1261,9 @@ document.addEventListener('DOMContentLoaded', () => {
   renderMemories();
   loadNewsCache();
   renderNews();
-  setTimeout(() => fetchNews(false), 700);
+  setTimeout(() => { fetchNews(false); attachWorldMonitor(); }, 900);
   setInterval(() => fetchNews(false), 10 * 60 * 1000);
-  window.addEventListener('online', () => { fetchNews(false); logEvent('network online'); });
+  window.addEventListener('online', () => { fetchNews(false); attachWorldMonitor(); logEvent('network online'); });
   window.addEventListener('offline', () => { setLiveBadge('cached'); logEvent('network offline — cache mode'); });
   setTimeout(drawWires, 350);
   let rT = null;
@@ -1266,7 +1314,7 @@ document.addEventListener('DOMContentLoaded', () => {
   aw.addEventListener('change', () => {
     localStorage.setItem('myra_awareness', aw.checked ? '1' : '0');
     toast(aw.checked
-      ? '👁️ Awareness ON — in Stages 5 & 9 MYRA will proactively notice things, always within the permissions you grant. It is just a setting for now.'
+      ? '👁️ Awareness ON — in Stages 5 & 9 MYRA will proactively notice things, always within the permissions you grant.'
       : '👁️ Awareness OFF — MYRA will only respond when you talk to her.', 4800);
     logEvent('awareness ' + (aw.checked ? 'ON' : 'OFF'));
   });
@@ -1280,7 +1328,7 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('myra_theme', themeName);
     applyTint();
     drawWires();
-    toast(themeName === 'normal' ? '⬛ Normal black theme.' : themeName === 'friendly' ? '💚 Friendly green theme — soft and warm.' : '🔴 Hacker red theme — alert mode vibes (looks only!).');
+    toast(themeName === 'normal' ? '⬛ Normal black theme.' : themeName === 'friendly' ? '💚 Friendly green theme — soft and warm.' : '🔴 Hacker red theme — alert-mode looks only!');
     logEvent('theme → ' + themeName);
   });
 
@@ -1311,7 +1359,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   /* Stage controls */
   $('terminateBtn').addEventListener('click', () => setPower(!HOLO.power));
-  $('reformBtn').addEventListener('click', reform);
   $('stageMicBtn').addEventListener('click', () => {
     if (!HOLO.power) { toast('⏻ System is off — press ACTIVATE first!'); return; }
     setMic(!MIC_ARMED);
@@ -1325,8 +1372,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const c = el.dataset.char;
       setChar(c);
       toast(c === 'core' ? '⬢ CORE form — pure AI light.'
-        : c === 'male' ? '♂ MALE form — your JARVIS-style assistant is taking shape.'
-        : '♀ FEMALE form — your companion is taking shape. 💗');
+        : c === 'male' ? '♂ MALE form — your JARVIS-style assistant.'
+        : '♀ FEMALE form — your companion. 💗');
     });
   });
 
@@ -1339,7 +1386,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.wm-chip').forEach((b) => {
     b.addEventListener('click', (e) => { e.stopPropagation(); openView('world', { tab: b.dataset.wmtab }); });
   });
-  $('wmTabGlobe').addEventListener('click', () => { setWorldTab('globe'); globeActive = true; });
+  $('wmTabLive').addEventListener('click', () => setWorldTab('live'));
+  $('wmTabGlobe').addEventListener('click', () => setWorldTab('globe'));
   $('wmTabSat').addEventListener('click', () => setWorldTab('sat'));
   document.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', closeViews));
   document.addEventListener('keydown', (e) => {
@@ -1395,14 +1443,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const task = $('agentInput').value.trim() || '(empty task)';
     const log = $('agentLog');
     log.textContent = `📝 Task received: "${task}"\n`;
-    logEvent('agent task (demo): ' + task.slice(0, 60));
+    logEvent('agent task received: ' + task.slice(0, 60));
     setTimeout(() => { log.textContent += '⏳ In Stage 8, I would now open the browser myself…\n'; }, 600);
-    setTimeout(() => { log.textContent += '🔍 …search, read the results, and hand you a summary report.\n✅ For now this is a demo layout.'; }, 1400);
+    setTimeout(() => { log.textContent += '🔍 …search, read the results, and hand you a summary report.\n✅ The browser engine arrives in Stage 8.'; }, 1400);
   };
   $('agentBtn').addEventListener('click', runAgentDemo);
   $('agentInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') runAgentDemo(); });
 
-  /* Notes demo */
+  /* Notes */
   const addNote = () => {
     const v = $('noteInput').value.trim();
     if (!v) return;
@@ -1428,15 +1476,15 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('myra_memories_demo', JSON.stringify(arr));
     $('memoryInput').value = '';
     renderMemories();
-    toast('🧠 Noted! (Demo memory — the permanent SQLite brain arrives in Stage 4.)');
-    logEvent('memory added (demo)');
+    toast('🧠 Noted! (The permanent SQLite memory arrives in Stage 4.)');
+    logEvent('memory added');
   };
   $('memoryAdd').addEventListener('click', addMemory);
   $('memoryInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') addMemory(); });
   $('clearMemory').addEventListener('click', () => {
     localStorage.removeItem('myra_memories_demo');
     renderMemories();
-    toast('🗑️ All demo memories erased.');
+    toast('🗑️ All memories erased.');
   });
 
   /* API keys (Stage 2) */
@@ -1462,7 +1510,7 @@ document.addEventListener('DOMContentLoaded', () => {
       document.querySelector('[data-mode="voice"]').click();
       $('chatInput').value = btn.dataset.vh;
       $('chatInput').focus();
-      toast('👁️ Real vision arrives in Stage 9 — I placed your request in the chat box; send it to see the demo.');
+      toast('👁️ Real vision arrives in Stage 9 — I placed your request in the chat box.');
     });
   });
 
@@ -1498,7 +1546,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   pushHistory('ai', GREETINGS[HOLO.char] || GREETINGS.core);
-  setHoloStatus(idleStatus());
-  logEvent('shell ready · stage 1 interface');
-  toast('✨ MYRA v0.5 — smoother new faces, themes up top, and a living World Monitor. Try CORE / MALE / FEMALE and spin the Earth!', 6400);
+  logEvent('shell ready · stage 1 interface v0.6');
+  toast('✨ MYRA v0.6 — compact new shell. She forms once at startup, then morphs between CORE / MALE / FEMALE. Try the themes up top!', 6400);
 });

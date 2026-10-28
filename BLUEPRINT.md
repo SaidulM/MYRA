@@ -60,17 +60,21 @@
    Headlines come from free public RSS while online and are **cached
    locally** so the panel still shows the last copy offline (backend feed
    in Stage 10); on request MYRA reads today's headlines aloud.
-9. **Interface layout (one screen, no sprawling panels):**
-   - Left: SAT-LINK feed (mini world map + a few headlines + full-view button)
+9. **Interface layout (one compact screen, small dense labels — nothing
+   oversized):**
+   - Left: SAT-LINK feed (live monitor mini-preview + a few headlines +
+     quick tabs into the full World Monitor)
    - Center: the particle CORE stage; module chips **MEMORY / SKILLS /
      CHARACTER / SETTING** wired into the frame with colored circuit lines;
-     a **TERMINATE / ACTIVATE** power button; below it the Visual Hub
-   - Top bar: app name + **Feedback** + **Support**; version chip;
-     **Awareness** ON/OFF toggle; **Theme** picker; **Profile** menu
+     a **TERMINATE / ACTIVATE** power button sitting directly under the
+     frame; below it the Visual Hub
+   - Slim top bar: left = app name + **Feedback** + **Support**; right
+     (compact, opposite them) = version, **Awareness** ON/OFF switch,
+     **Theme** picker, **Profile** menu, server status, clock
    - Beside TERMINATE: mic ON/OFF + voice mute/stop buttons
-   - Right: conversation panel with 3 tabs — **Voice / Agent / Notes** —
-     plus a toolbar (new chat ＋, history, session console </>, full-view
-     expand, collapse-panel)
+   - Right: a narrow conversation panel with 3 tabs — **Voice / Agent /
+     Notes** — plus a toolbar (new chat ＋, history, session console </>,
+     full-view expand, and a clearly labelled **HIDE** button)
    - Every module (World, Memory, Skills, Character, Settings) opens its own
      **full-screen window** with a **← BACK** button returning to the main view
 
@@ -105,6 +109,7 @@ MYRA/ (repo root)
 ├── requirements.txt      ← Playwright joins in Stage 8
 ├── run.py                ← one-command launcher (server + app window)
 ├── start.bat             ← Windows double-click launcher
+├── auto_setup.py         ← Stage 11: oneouble-click launcher
 ├── auto_setup.py         ← Stage 11: one-run setup + desktop shortcut
 ├── backend/
 │   ├── server.py         ← light stdlib HTTP server (UI + API)
