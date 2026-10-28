@@ -137,8 +137,8 @@ MYRA/ (repo root)
 
 | Stage | Work | How the owner verifies | Status |
 |---|---|---|---|
-| **1** | Folder structure + **complete UI** (3 particle characters with wave-formation, TERMINATE power, module chips + full-screen windows, SAT-LINK map + 3D Earth shell, Visual Hub, 3 conversation tabs) | `run.py` opens the window; characters form and can be rotated/switched; every window opens and goes Back (backend features are placeholders) | 🔄 In review |
-| **2** | Settings: save API keys (Gemini/Groq) via `.env` + UI | Keys persist across app restarts | ⏳ |
+| **1** | Folder structure + **complete UI** (3 particle characters with wave-formation, TERMINATE power, module chips + full-screen windows, SAT-LINK map + 3D Earth shell, Visual Hub, 3 conversation tabs) | `run.py` opens the window; characters form and can be rotated/switched; every window opens and goes Back (backend features are placeholders) | ✅ Approved (owner, Oct 2026) |
+| **2** | Settings: save API keys (Gemini/Groq) via `.env` + UI (`backend/config.py`, `/api/settings`; UI only ever sees masked key status) | Keys persist across app restarts | 🔄 In review |
 | **3** | Text chat: Gemini first, Groq fallback; graceful offline notice | Chat answers like a real AI | ⏳ |
 | **4** | Local memory (SQLite) — saves facts, uses them in replies | "My name is X" is remembered next session | ⏳ |
 | **5** | Voice: listening (silence detection) + speaking (male/female voice) | Speak and hear a spoken reply | ⏳ |

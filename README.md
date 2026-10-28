@@ -28,9 +28,10 @@ Then open http://127.0.0.1:8765 in your browser.
 ### Just want to see the UI?
 Open **`MYRA-Preview.html`** in any browser — the whole interface (including the particle character) is inside that single file. No server needed.
 
-## 🔑 API Keys (from Stage 2)
-Copy `.env.example` to `.env` and paste your free Gemini/Groq keys.
-⚠️ **Never commit real keys to GitHub** — `.env` is git-ignored.
+## 🔑 API Keys (Stage 2 ✅)
+Easiest way: open MYRA → **SETTING** window → paste your free Gemini & Groq keys → **SAVE KEYS**. They are stored on your laptop only in a private `.env` file, survive restarts, and afterwards only the last 4 characters are ever shown. (Manual route: copy `.env.example` to `.env` and paste the keys there.)
+Get them free: Gemini → aistudio.google.com → *Get API key*; Groq → console.groq.com → *API Keys*.
+⚠️ **Never commit real keys to GitHub** (`.env` is git-ignored) and never paste them into any chat or website.
 
 ## 📂 Project Layout
 - `backend/` — Python server & engines
