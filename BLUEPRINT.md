@@ -1,154 +1,179 @@
-# 🤖 Stonic AI — BLUEPRINT.md (মাস্টার প্ল্যান)
+# 🤖 MYRA — BLUEPRINT (Master Plan)
 
-> **এই ফাইলের কাজ:** প্রজেক্টের সম্পূর্ণ নীলনকশা। কোনো নতুন এজেন্ট/মানুষ এই ফাইল পড়লেই
-> বুঝে যাবে — কী বানাতে হবে, কীভাবে বানাতে হবে, কোন ধাপে কী কাজ হবে।
-> প্রজেক্টের মালিক (Saidul Islam Mondal) নিজে কোড লেখেন না — এজেন্ট কোড লেখে,
-> মালিক প্রতিটা ধাপ টেস্ট করে **অনুমোদন** দেন, তারপরই পরের ধাপ শুরু হয়।
+> **Purpose of this file:** the complete blueprint of the project. Any future
+> agent/developer reading this should know exactly what to build, how, and in
+> which stage. The owner (Saidul Islam Mondal) does not write code himself —
+> an AI coding agent writes code, the owner tests each stage and **approves**
+> it; only then does the next stage begin.
 
 ---
 
-## ১. প্রজেক্ট পরিচিতি
+## 1. Project Overview
 
-| বিষয় | বিবরণ |
+| Item | Detail |
 |---|---|
-| নাম | **Stonic AI** — পার্সোনাল ডেস্কটপ এআই অ্যাসিস্ট্যান্ট |
-| টার্গেট মেশিন | Windows ল্যাপটপ, **8GB RAM** — হালকা (Lightweight) হতে হবে, হ্যাং চলবে না |
-| খরচ | **১০০% ফ্রি** — তৈরিতে ও চালাতে কোনো টাকা নয় |
-| লোকাল AI মডেল | **না** — কোনো ভারী মডেল ল্যাপটপে ডাউনলোড হবে না |
-| এআই ব্রেন | ক্লাউড API — **Gemini (প্রাইমারি)** + **Groq (ফলব্যাক)**, দুটোই ফ্রি টিয়ার |
-| API Key | **মালিক দুটো ফ্রি API Key সরবরাহ করবেন** (Settings প্যানেল / `.env`-এ বসানো হবে) |
-| ইন্টারনেট থাকলে | ক্লাউড AI দিয়ে চ্যাট/ভয়েস/এজেন্ট কাজ |
-| ইন্টারনেট না থাকলে | লোকাল মেমোরি, নোটস, সেটিংস কাজ করবে (চ্যাটে "অফলাইন" নোটিস) |
+| Name | **MYRA** — Personal Desktop AI Assistant |
+| Target machine | Windows laptop, **8GB RAM** — must stay lightweight, no hanging |
+| Cost | **100% free** to build and to run |
+| Local AI model | **No** — no heavy model downloads on the laptop |
+| AI brain | Cloud APIs — **Gemini (primary)** + **Groq (fallback)**, both free tiers |
+| API keys | **The owner supplies both free API keys** (entered in the Settings window / `.env`) |
+| Online | Cloud AI chat / voice / agent work |
+| Offline | Local memory, notes, settings still work (chat shows an "offline" notice) |
+| UI language | **English** throughout the app and README |
 
 ---
 
-## ২. ফিচার লিস্ট (মালিকের চাহিদা)
+## 2. Feature List (Owner Requirements)
 
-1. **হলোগ্রাম (3D Avatar):** স্ক্রিনের মাঝখানে মানুষের আকৃতির **থ্রিডি ডটেড (পয়েন্ট-ক্লাউড)**
-   হলোগ্রাম (Three.js)। কথা বলার সময় অ্যানিমেট হবে — মনে হবে মানুষ কথা বলছে।
-   - **Male সিলেক্ট** → ছেলের আকৃতির হলোগ্রাম + ছেলের কণ্ঠ
-   - **Female সিলেক্ট** → মেয়ের আকৃতির হলোগ্রাম + মেয়ের কণ্ঠ
-2. **ভয়েস + টেক্সট দুটোই;** অ্যাসিস্ট্যান্ট সবসময় শুনবে, কিন্তু ব্যবহারকারীর
-   কথা **পুরো শেষ হওয়ার পরেই** উত্তর দেবে (smart silence detection)।
-3. **লোকাল মেমোরি (SQLite):** প্রতিদিনের কথা ও পছন্দ-অপছন্দ ল্যাপটপেই সেভ (ক্লাউডে নয়);
-   এর ভিত্তিতে অ্যাসিস্ট্যান্ট ব্যবহারকারীকে চিনবে, ইমোশনালি মিশবে।
-4. **Skills সিস্টেম:** নতুন স্কিল যোগ করার ব্যবস্থা; প্রতিটা আলাদা ON/OFF।
-5. **ক্যামেরা ও স্ক্রিন শেয়ার:** ডিফল্ট **OFF**; শুধু ব্যবহারকারী ON করলে দেখবে;
-   ON থাকলে স্ক্রিনে স্পষ্ট ইন্ডিকেটর জ্বলবে।
-6. **Agent Mode (ব্রাউজার কন্ট্রোল):** নির্দেশে নিজে ব্রাউজার খুলে সার্চ/কাজ করে
-   রিপোর্ট দেবে (Playwright)।
-7. **Notes Mode:** নোট তৈরি/দেখা/এডিট/ডিলিট, লোকালি সেভ।
-8. **World Monitor:** লাইভ বিশ্ব-হেডলাইন প্যানেল (ফ্রি নিউজ সোর্স/RSS);
-   বললে আজকের হেডলাইন পড়ে শোনাবে।
-9. **UI:** একটি **Main ON/OFF সুইচ**; **৩ মোড** — Voice / Agent / Notes;
-   **সাইড প্যানেল** — Memory, Skills, Character (ব্যক্তিত্ব + Male/Female সিলেকশন),
-   Settings (API Key, ক্যামেরা/স্ক্রিন টগল); পাশে World Monitor প্যানেল।
+1. **Particle character (3D hologram):** a **chest-up particle bust** (head +
+   neck + shoulders, no full body) made of ~34,000 fine dots (Three.js). The
+   dots flow in **waves** from a scattered cloud and **form** the figure;
+   switching character scatters them and they re-form. The face is sculpted
+   with real proportions (forehead, brows, nose, eyes, lips, jaw, chin) with
+   soft light shading so it reads like a real person, not a cartoon. Head
+   moves while speaking. Drag to rotate in 3D.
+   - **CORE** → pure AI core: a living sphere of light with orbit rings
+   - **MALE** → male bust (short hair, broad shoulders) + male voice;
+     personality: professional **JARVIS-style assistant**
+   - **FEMALE** → female bust (long wavy hair) + female voice;
+     personality: warm, caring **companion**
+   - The character switch lives in exactly ONE place: the selector above the
+     hologram frame. **No duplicated controls anywhere in the UI.**
+2. **Voice + text:** the assistant always listens, but replies only **after
+   the user fully finishes speaking** (smart silence detection).
+3. **Local memory (SQLite):** daily conversations and preferences stored on
+   the laptop (not in the cloud); the assistant recognizes the user and bonds
+   emotionally, improving over time.
+4. **Skills system:** add new skills over time; each skill has its own ON/OFF.
+5. **Camera & screen share:** **OFF by default**; only active when the user
+   turns them on (in the Visual Hub — their only home); a clear red LIVE
+   indicator shows while on.
+6. **Agent Mode (browser control):** on command, MYRA opens the browser
+   herself, searches/works and reports back (Playwright).
+7. **Notes Mode:** create / view / edit / delete notes, saved locally.
+8. **World Monitor:** dotted world map with hotspots; a full-screen window
+   with a spinnable **3D Earth**; live headlines (free news sources/RSS);
+   on request MYRA reads today's headlines aloud.
+9. **Interface layout (one screen, no sprawling panels):**
+   - Left: SAT-LINK feed (mini world map + a few headlines + full-view button)
+   - Center: the particle CORE stage; module chips **MEMORY / SKILLS /
+     CHARACTER / SETTING** wired into the frame with colored circuit lines;
+     a **TERMINATE / ACTIVATE** power button; below it the Visual Hub
+   - Right: conversation panel with 3 tabs — **Voice / Agent / Notes**
+   - Every module (World, Memory, Skills, Character, Settings) opens its own
+     **full-screen window** with a **← BACK** button returning to the main view
 
 ---
 
-## ৩. টেক স্ট্যাক (8GB RAM-এ হালকা)
+## 3. Tech Stack (light on 8GB RAM)
 
-| অংশ | টেকনোলজি | নোট |
+| Part | Technology | Notes |
 |---|---|---|
-| ব্যাকএন্ড | **Python (stdlib-first)** — `http.server` | অতিরিক্ত ডিপেন্ডেন্সি ছাড়াই UI সার্ভ; হালকা |
-| ফ্রন্টএন্ড/UI | HTML + CSS + JavaScript (ভ্যানিলা) | ব্রাউজার/ডেস্কটপ উইন্ডোতে চলবে |
-| 3D হলোগ্রাম | **Three.js r128** (লোকাল `ui/vendor/` — অফলাইনেও চলে) | খোদাই-করা মুখের পার্টিকেল বাস্ট |
-| ডেটাবেস | **SQLite** (Python built-in) | মেমোরি, নোটস, সেটিংস |
-| AI API | Gemini REST + Groq REST (`urllib`) | কোনো ভারী SDK নয় |
-| ভয়েস শোনা (STT) | Web Speech API (ব্রাউজার built-in) | ফ্রি, ইনস্টল ছাড়া |
-| ভয়েস বলা (TTS) | Web Speech API `speechSynthesis` | Male/Female কণ্ঠ OS ভয়েস থেকে |
-| ব্রাউজার অটোমেশন | **Playwright** (ধাপ ৮) | Agent Mode-এর জন্য |
-| লঞ্চার | `run.py` (সার্ভার + ব্রাউজার খোলে), `start.bat` | Windows ডবল-ক্লিক চালু |
+| Backend | **Python (stdlib-first)** — `http.server` | serves UI + API, no extra packages |
+| Frontend | HTML + CSS + vanilla JavaScript | runs in a browser / app window |
+| 3D hologram & Earth | **Three.js r128** (vendored in `ui/vendor/` — works offline) | fine-dot particle figures |
+| Database | **SQLite** (Python built-in) | memory, notes, settings |
+| AI APIs | Gemini REST + Groq REST via `urllib` | no heavy SDKs |
+| Speech-to-text | Web Speech API (browser built-in) | free, no install |
+| Text-to-speech | Web Speech API `speechSynthesis` | male/female OS voices |
+| Browser automation | **Playwright** (Stage 8) | Agent Mode |
+| Launcher | `run.py` (server + opens app window), `start.bat` | Windows double-click start |
 
 ---
 
-## ৪. ফোল্ডার স্ট্রাকচার
+## 4. Folder Structure
 
 ```
-MYRA/ (রিপো রুট)
-├── BLUEPRINT.md          ← এই ফাইল (মাস্টার প্ল্যান)
+MYRA/ (repo root)
+├── BLUEPRINT.md          ← this file (master plan)
 ├── README.md
-├── .env.example          ← খালি placeholder (আসল key কখনো Git-এ নয়)
-├── .env                  ← আসল API key (gitignore করা)
+├── MYRA-Preview.html     ← single-file UI preview (no server needed)
+├── .env.example          ← placeholders only (real keys are NEVER in Git)
+├── .env                  ← real API keys (git-ignored)
 ├── .gitignore
-├── requirements.txt      ← ধাপ ৮-এ Playwright যোগ হবে
-├── run.py                ← এক কমান্ডে চালু (সার্ভার + ব্রাউজার)
-├── start.bat             ← Windows ডবল-ক্লিক লঞ্চার
-├── auto_setup.py         ← ধাপ ১১: একবার রান করলেই সেটআপ + ডেস্কটপ শর্টকাট
+├── requirements.txt      ← Playwright joins in Stage 8
+├── run.py                ← one-command launcher (server + app window)
+├── start.bat             ← Windows double-click launcher
+├── auto_setup.py         ← Stage 11: one-run setup + desktop shortcut
 ├── backend/
-│   ├── server.py         ← হালকা HTTP সার্ভার (stdlib), UI + API
-│   ├── config.py         ← .env থেকে সেটিংস লোড (ধাপ ২)
-│   ├── chat.py           ← Gemini + Groq ফলব্যাক (ধাপ ৩)
-│   ├── memory.py         ← SQLite মেমোরি (ধাপ ৪)
-│   ├── notes.py          ← নোটস CRUD (ধাপ ৭)
-│   ├── skills_manager.py ← স্কিল ON/OFF রেজিস্ট্রি (ধাপ ৭)
-│   ├── agent.py          ← Playwright ব্রাউজার অটোমেশন (ধাপ ৮)
-│   └── news.py           ← World Monitor RSS ফিড (ধাপ ১০)
+│   ├── server.py         ← light stdlib HTTP server (UI + API)
+│   ├── config.py         ← loads settings from .env (Stage 2)
+│   ├── chat.py           ← Gemini + Groq fallback (Stage 3)
+│   ├── memory.py         ← SQLite memory (Stage 4)
+│   ├── notes.py          ← notes CRUD (Stage 7)
+│   ├── skills_manager.py ← skill ON/OFF registry (Stage 7)
+│   ├── agent.py          ← Playwright browser automation (Stage 8)
+│   └── news.py           ← World Monitor RSS feed (Stage 10)
 ├── ui/
-│   ├── index.html        ← সম্পূর্ণ ইন্টারফেস
+│   ├── index.html        ← full interface (incl. full-screen windows)
 │   ├── style.css
-│   └── app.js            ← UI লজিক + Three.js হলোগ্রাম
-├── skills/               ← প্রতিটা স্কিল আলাদা পাইথন ফাইল (ধাপ ৭+)
-└── data/                 ← stonic.db (gitignore — প্রাইভেট ডেটা)
+│   └── app.js            ← UI logic + Three.js particle characters + Earth
+├── skills/               ← one .py file per skill (Stage 7+)
+└── data/                 ← myra.db (git-ignored — private data)
 ```
 
 ---
 
-## ৫. ধাপ অনুযায়ী কাজ (STRICT ORDER — ধাপ স্কিপ করা যাবে না)
+## 5. Build Stages (STRICT ORDER — never skip a stage)
 
-> **নিয়ম: প্রতিটা ধাপ শেষে এজেন্ট থামবে → মালিক টেস্ট করবেন → মালিক
-> "ঠিক আছে / approved" বললেই কেবল পরের ধাপ।**
+> **Rule: at the end of every stage the agent STOPS → the owner tests → only
+> after the owner says "approved" does the next stage begin.**
 
-| ধাপ | কাজ | কীভাবে মালিক চেক করবেন | অবস্থা |
+| Stage | Work | How the owner verifies | Status |
 |---|---|---|---|
-| **১** | ফোল্ডার স্ট্রাকচার + **সম্পূর্ণ UI** (হলোগ্রাম অ্যানিমেশন, Main সুইচ, ৩ মোড, সব প্যানেল, Male/Female সিলুয়েট পরিবর্তন) — ডেস্কটপে/ব্রাউজারে খুলে দেখা যায় | `run.py` চালালে উইন্ডো খুলবে; হলোগ্রাম ঘুরবে; সব বাটন দেখা যাবে (ব্যাকএন্ড ফিচার এখন প্লেসহোল্ডার) | ✅ চলমান |
-| **২** | Settings: API Key (Gemini/Groq) সেভ — `.env` + UI থেকে | সেটিংসে key বসালে সেভ হয়; অ্যাপ রিস্টার্টেও থাকে | ⏳ |
-| **৩** | টেক্সট চ্যাট: Gemini, ফেল করলে Groq ফলব্যাক; অফলাইনে সদবারতা | চ্যাটে লিখলে AI উত্তর দেয় | ⏳ |
-| **৪** | লোকাল মেমোরি (SQLite) — কথা ও ফ্যাক্ট সেভ, পরের উত্তরে ব্যবহার | "আমার নাম X" বললে পরের সেশনে মনে রাখে | ⏳ |
-| **৫** | ভয়েস: শোনা (silence detection) + বলা (Male/Female কণ্ঠ) | মুখে বললে উত্তর কণ্ঠে আসে | ⏳ |
-| **৬** | হলোগ্রাম কথা-সিঙ্ক অ্যানিমেশন (speaking state-এ মুভমেন্ট) | বলার সময় নড়ে, চুপ থাকলে শান্ত | ⏳ |
-| **৭** | Notes Mode (CRUD) + Skills প্যানেল (ON/OFF) | নোট লেখা/মোছা যায়; স্কিল টগল কাজ করে | ⏳ |
-| **৮** | Agent Mode — Playwright: সার্চ → সামারি রিপোর্ট | "সার্চ করো" বললে ব্রাউজার নিজে চলে | ⏳ |
-| **৯** | ক্যামেরা ও স্ক্রিন শেয়ার (দুটোই ডিফল্ট OFF, ON-এ ইন্ডিকেটর) | টগল ছাড়া কিছু দেখে না; ON-এ লাল ইন্ডিকেটর | ⏳ |
-| **১০** | World Monitor — লাইভ হেডলাইন + পড়ে শোনানো | প্যানেলে আজকের খবর; বললে পাঠ করে | ⏳ |
-| **১১** | `auto_setup.py` + Windows ডেস্কটপ শর্টকাট | এক রানে সেটআপ সম্পন্ন, ডবল-ক্লিকে চালু | ⏳ |
+| **1** | Folder structure + **complete UI** (3 particle characters with wave-formation, TERMINATE power, module chips + full-screen windows, SAT-LINK map + 3D Earth shell, Visual Hub, 3 conversation tabs) | `run.py` opens the window; characters form and can be rotated/switched; every window opens and goes Back (backend features are placeholders) | 🔄 In review |
+| **2** | Settings: save API keys (Gemini/Groq) via `.env` + UI | Keys persist across app restarts | ⏳ |
+| **3** | Text chat: Gemini first, Groq fallback; graceful offline notice | Chat answers like a real AI | ⏳ |
+| **4** | Local memory (SQLite) — saves facts, uses them in replies | "My name is X" is remembered next session | ⏳ |
+| **5** | Voice: listening (silence detection) + speaking (male/female voice) | Speak and hear a spoken reply | ⏳ |
+| **6** | Hologram speech sync (movement while speaking) | Moves while talking, calm while silent | ⏳ |
+| **7** | Notes Mode (CRUD) + Skills engine (ON/OFF) | Notes persist; skill toggles work | ⏳ |
+| **8** | Agent Mode — Playwright: search → summary report | "Search this" makes the browser work alone | ⏳ |
+| **9** | Camera & screen share (both default OFF, LIVE indicator when on) | Sees nothing until toggled; red indicator on | ⏳ |
+| **10** | World Monitor — live headlines + read-aloud | Real news in the panel; reads on request | ⏳ |
+| **11** | `auto_setup.py` + Windows desktop shortcut | One run sets up everything; double-click starts | ⏳ |
 
 ---
 
-## ৬. সিকিউরিটি নিয়ম (অবশ্যই মানতে হবে)
+## 6. Security Rules (mandatory)
 
-- API Key **কখনো** GitHub-এ কমিট হবে না — `.env` ফাইল `.gitignore`-এ।
-- রিপোতে শুধু `.env.example` (খালি placeholder) থাকবে।
-- `data/` ফোল্ডার (মেমোরি DB) Git-এ যাবে না — প্রাইভেট ডেটা।
-- ক্যামেরা/স্ক্রিন ডিফল্ট OFF; ON হলে UI-তে স্পষ্ট 🔴 ইন্ডিকেটর।
-- সার্ভার ডিফল্টে `127.0.0.1`-এ বাইন্ড (শুধু নিজের ল্যাপটপ থেকে অ্যাক্সেস)।
-
----
-
-## ৭. UI কাস্টমাইজেশন
-
-- মালিক UI নিজের মতো বদলাতে পারবেন: দরকারি প্যানেল/বাটন রাখা, অদরকারি সরানো।
-- প্রতিটা ধাপে এজেন্ট ব্যাখ্যা করবে — কোন বাটন/প্যানেল কী করে, ব্যাকএন্ড ইনস্টল হলে কী কী দেখা যাবে/কাজ করবে।
+- API keys are **never** committed to GitHub — `.env` is in `.gitignore`.
+- The repo only contains `.env.example` (empty placeholders).
+- The `data/` folder (memory DB) never goes to Git — private data.
+- Camera/screen default OFF; a clear 🔴 indicator shows while ON.
+- The server binds to `127.0.0.1` by default (only this laptop can reach it).
+- **Nobody needs the owner's GitHub password/token — ever.** Development
+  happens through Arena's built-in GitHub connection on session branches,
+  and the owner merges pull requests after reviewing them.
 
 ---
 
-## ৮. auto_setup.py (ধাপ ১১)
+## 7. UI Customization
 
-একবার রান করলেই: ফোল্ডার/ফাইল তৈরি (না থাকলে) → ডিপেন্ডেন্সি ইনস্টল →
-ডেস্কটপ শর্টকাট তৈরি (এক ক্লিকে Stonic AI চালু)।
-
----
-
-## ৯. ভবিষ্যৎ (এখনকার বিল্ডে নয়)
-
-- **GitHub Control Skill** — পরে আলাদা স্কিল হিসেবে যোগ হবে: অ্যাসিস্ট্যান্ট নিজে
-  GitHub রিপো ম্যানেজ করবে। আর্কিটেকচারে স্কিল রেজিস্ট্রি থাকায় পরে সহজে প্লাগ-ইন হবে।
+- The owner can reshape the UI freely: keep what's needed, remove what isn't.
+- Each stage, the agent explains what every button/panel does and what will
+  start working once that stage's backend lands.
 
 ---
 
-## ১০. পরিচয় ও কাজের ধারা (পরবর্তী এজেন্টদের জন্য)
+## 8. auto_setup.py (Stage 11)
 
-- এই প্রজেক্টে **একটি AI কোডিং এজেন্ট (এই এজেন্টই)** কোড লেখে; Stonic AI নিজে
-  নিজেকে তৈরি করে না।
-- যোগাযোগের ভাষা: মালিকের সাথে **বাংলায়**, ধাপে ধাপে, টেস্ট-নির্দেশনা সহ।
-- প্রতিটা ধাপ শেষে: থামো → টেস্ট নির্দেশনা দাও → অনুমোদনের অপেক্ষা করো।
+One run: creates any missing folders/files → installs dependencies →
+creates a desktop shortcut (one double-click starts MYRA).
+
+---
+
+## 9. Future (not in the current build)
+
+- **GitHub Control Skill** — added later as a separate skill so MYRA can
+  manage GitHub repos herself. The skill registry keeps this pluggable.
+
+---
+
+## 10. Working Method (for future agents)
+
+- One AI coding agent writes the code; MYRA does not build herself.
+- Talk to the owner in **Bengali**, step by step, with clear test instructions.
+  The app UI itself is in **English**.
+- End of every stage: stop → give test steps → wait for approval.

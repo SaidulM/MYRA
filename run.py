@@ -1,7 +1,7 @@
-"""Stonic AI — এক কমান্ডে চালু করো 🚀
+"""MYRA — launch with one command 🚀
 
-ব্যবহার:  python run.py
-সার্ভার চালু হয়ে ব্রাউজারে ডেস্কটপ উইন্ডোর মতো UI নিজে খুলে যাবে।
+Usage:  python run.py
+Starts the server and opens the UI in a desktop-like app window.
 """
 import os
 import subprocess
@@ -12,14 +12,14 @@ import webbrowser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-HOST = os.environ.get("STONIC_HOST", "127.0.0.1")
-PORT = os.environ.get("STONIC_PORT", "8765")
+HOST = os.environ.get("MYRA_HOST", os.environ.get("STONIC_HOST", "127.0.0.1"))
+PORT = os.environ.get("MYRA_PORT", os.environ.get("STONIC_PORT", "8765"))
 
 
 def open_browser():
-    time.sleep(1.2)  # সার্ভার প্রস্তুত হওয়ার জন্য সামান্য অপেক্ষা
+    time.sleep(1.2)  # give the server a moment to come up
     url = f"http://127.0.0.1:{PORT}"
-    # Edge/Chrome থাকলে "app window" মোডে খোলা হবে (ডেস্কটপ অ্যাপের মতো লাগবে)
+    # If Edge/Chrome exists, open in "app window" mode (feels like a desktop app)
     for exe in ("msedge", "chrome", "google-chrome", "chromium"):
         try:
             subprocess.Popen(
@@ -29,7 +29,7 @@ def open_browser():
             return
         except FileNotFoundError:
             continue
-    webbrowser.open(url)  # ফলব্যাক: ডিফল্ট ব্রাউজার
+    webbrowser.open(url)  # fallback: default browser
 
 
 if __name__ == "__main__":

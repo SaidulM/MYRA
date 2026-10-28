@@ -1,3 +1,3 @@
-# ধাপ ১: কোনো অতিরিক্ত প্যাকেজ লাগে না — শুধু Python standard library 🎉
-# ধাপ ৮ (Agent Mode) এলে এখানে Playwright যোগ হবে:
+# Stage 1: no extra packages needed — Python standard library only 🎉
+# Stage 8 (Agent Mode) will add Playwright:
 # playwright>=1.44

@@ -1,27 +1,38 @@
-# MYRA — Stonic AI 🤖
+# MYRA 🤖 — Personal Desktop AI Assistant
 
-**Stonic AI** — একটি পার্সোনাল ডেস্কটপ এআই অ্যাসিস্ট্যান্ট (8GB RAM ল্যাপটপে চলার মতো হালকা, ১০০% ফ্রি)।
+**MYRA** is a personal desktop AI companion built to run light on an **8GB RAM** laptop — **100% free** to build and use, with no heavy local AI models.
 
-- 🧠 ব্রেন: **Gemini API** (প্রাইমারি) + **Groq API** (ফলব্যাক) — ফ্রি টিয়ার, কোনো ভারী লোকাল মডেল না
-- 🧍 স্ক্রিনের মাঝখানে **থ্রিডি ডটেড হলোগ্রাম** (Male/Female আকৃতি ও কণ্ঠ বদলানো যায়)
-- 💾 **লোকাল মেমোরি** (SQLite) — স্মৃতি ল্যাপটপেই থাকে, ক্লাউডে নয়
-- 🎤 ভয়েস + টেক্সট দুটোই | 🤖 ব্রাউজার Agent Mode | 📝 Notes | 🌍 World Monitor (লাইভ নিউজ)
-- 📷 ক্যামেরা/স্ক্রিন: ডিফল্ট OFF, শুধু অনুমতি দিলে ON
+- 🧠 **Brain:** Gemini API (primary) + Groq API (backup) on free tiers — the owner supplies both keys
+- ✨ **Particle character in 3 forms:** `CORE` (a living orb of light) · `MALE` (JARVIS-style assistant) · `FEMALE` (warm companion) — ~34,000 fine dots flow in waves and form the figure; drag to rotate in 3D
+- 💾 **Local memory** (SQLite) — remembers you, and everything stays on your laptop, never in the cloud
+- 🎤 Voice + text conversation (smart silence detection) · 🤖 Browser Agent Mode · 📝 Notes
+- 🌍 **World Monitor:** dotted world map + a spinnable 3D Earth with live headlines
+- 📷 Camera / screen: **OFF by default** — only with your permission, with a clear red LIVE indicator
+- 🪟 Every module (Memory, Skills, Character, Settings, World) opens its own full-screen window with a Back button
 
-📄 **সম্পূর্ণ প্ল্যান:** [BLUEPRINT.md](BLUEPRINT.md) — ১১ ধাপে তৈরি হচ্ছে, প্রতি ধাপে মালিকের টেস্ট + অনুমোদন।
+📄 **Full plan:** [BLUEPRINT.md](BLUEPRINT.md) — built in 11 stages; the owner tests and approves each stage before the next begins.
 
-## 🚀 কীভাবে চালাবে
+## 🚀 Run it
 
-### Windows (সহজ):
-1. Python 3.10+ ইনস্টল করো (python.org — "Add Python to PATH"-এ টিক দিও)
-2. `start.bat`-এ **ডবল-ক্লিক** করো — অ্যাপ উইন্ডো খুলে যাবে
+### Windows (easiest)
+1. Install Python 3.10+ from python.org (tick **"Add Python to PATH"**)
+2. Double-click **`start.bat`** — an app-like window opens
 
-### যেকোনো OS:
+### Any OS
 ```bash
 python run.py
 ```
-তারপর ব্রাউজারে যাও: http://127.0.0.1:8765
+Then open http://127.0.0.1:8765 in your browser.
 
-## 📂 স্ট্রাকচার
-- `backend/` — Python সার্ভার ও ইঞ্জিন  •  `ui/` — ইন্টারফেস + হলোগ্রাম
-- `skills/` — যোগ করা যায় এমন স্কিল  •  `data/` — প্রাইভেট ডেটা (Git-এ যায় না)
+### Just want to see the UI?
+Open **`MYRA-Preview.html`** in any browser — the whole interface (including the particle character) is inside that single file. No server needed.
+
+## 🔑 API Keys (from Stage 2)
+Copy `.env.example` to `.env` and paste your free Gemini/Groq keys.
+⚠️ **Never commit real keys to GitHub** — `.env` is git-ignored.
+
+## 📂 Project Layout
+- `backend/` — Python server & engines
+- `ui/` — interface + particle hologram (Three.js, vendored locally — works offline)
+- `skills/` — pluggable skills (Stage 7+)
+- `data/` — private local data (git-ignored, never uploaded)
