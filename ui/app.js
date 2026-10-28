@@ -1,9 +1,10 @@
 /* =========================================================
-   MYRA — System Core UI (Stage 1, v4)
-   Three particle characters (CORE / MALE / FEMALE), each
-   formed by ~34,000 fine dots flowing in waves out of a
-   scattered cloud. Face is sculpted with real proportions
-   (brow, nose, eyes, lips, jaw, chin) + soft light shading.
+   MYRA — System Core UI (Stage 1, v5)
+   Three particle characters (CORE / MALE / FEMALE) formed
+   by ~34,000 fine dots flowing in waves. Smooth futuristic
+   silhouettes — identity comes from body shape & hair, not
+   carved facial details. A scan-light sweeps through the
+   dots bottom-to-top. Themes tint the whole system.
    Real AI chat arrives in Stage 3; replies here are demo.
    ========================================================= */
 'use strict';
@@ -33,20 +34,38 @@ function setHoloState(txt) {
   const el = $('holoState'); if (el) el.textContent = txt;
 }
 
+/* ---------- Session console + history ---------- */
+const EVENTS = [];
+function logEvent(msg) {
+  EVENTS.push([new Date(), msg]);
+  const el = $('consoleLog');
+  if (el) el.textContent = EVENTS.map(([d, m]) => `[${d.toLocaleTimeString('en-GB')}] ${m}`).join('\n');
+}
+const HISTORY = [];
+function pushHistory(who, text) { HISTORY.push({ who, text, at: new Date() }); }
+
 /* =========================================================
-   CORE HOLOGRAM — particle figures with formation waves
+   Themes
+   ========================================================= */
+const THEME_HEX = { normal: 0x22d3ee, friendly: 0x4ade80, hacker: 0xf87171 };
+const THEME_MAP_RGB = { normal: '94,234,212', friendly: '134,239,172', hacker: '252,165,165' };
+let themeName = localStorage.getItem('myra_theme') || 'normal';
+if (!THEME_HEX[themeName]) themeName = 'normal';
+
+/* =========================================================
+   Particle figures — smooth silhouettes, grayscale light
+   (the theme color tints everything via material color)
    ========================================================= */
 const N = 34000;
-const CHAR_COLORS = { core: 0x22d3ee, male: 0x38bdf8, female: 0xe879f9 };
 function savedChar() {
   const c = localStorage.getItem('myra_char');
   if (c === 'core' || c === 'male' || c === 'female') return c;
-  const old = localStorage.getItem('stonic_gender'); // migrate from v3
+  const old = localStorage.getItem('stonic_gender');
   return old === 'male' ? 'male' : 'female';
 }
 const HOLO = {
   char: savedChar(),
-  formedChar: null,      // which figure is currently built into targets
+  formedChar: null,
   power: true,
   speaking: false,
   speakBlend: 0,
@@ -57,9 +76,9 @@ const HOLO = {
   autoRot: 0,
   dragging: false,
   accentMats: [],
+  pMat: null,
 };
 
-/* Soft fake lighting: key light + gentle rim */
 const LGT = (() => {
   const nrm = (x, y, z) => { const l = Math.hypot(x, y, z); return [x / l, y / l, z / l]; };
   return { key: nrm(-0.45, 0.78, 0.88), rim: nrm(0.85, 0.3, -0.72) };
@@ -69,10 +88,9 @@ function shade(nx, ny, nz) {
   nx /= l; ny /= l; nz /= l;
   const dKey = Math.max(0, nx * LGT.key[0] + ny * LGT.key[1] + nz * LGT.key[2]);
   const dRim = Math.max(0, nx * LGT.rim[0] + ny * LGT.rim[1] + nz * LGT.rim[2]);
-  return clamp(0.55 + 0.55 * dKey + 0.35 * Math.pow(dRim, 3), 0.3, 1.35);
+  return clamp(0.58 + 0.52 * dKey + 0.32 * Math.pow(dRim, 3), 0.32, 1.3);
 }
 
-/* ----- Head cross-sections [y, rx, rz, cz] chin → crown ----- */
 const HEAD_ROWS = {
   female: [
     [1.52, .15, .13, .10], [1.60, .245, .205, .055], [1.70, .315, .26, .03],
@@ -81,14 +99,12 @@ const HEAD_ROWS = {
     [2.52, .35, .30, -.05], [2.62, .17, .15, -.06],
   ],
   male: [
-    [1.52, .18, .15, .10], [1.60, .28, .23, .055], [1.70, .34, .275, .03],
-    [1.80, .385, .315, .012], [1.92, .42, .345, 0], [2.03, .43, .35, 0],
-    [2.13, .44, .36, .008], [2.26, .445, .365, -.012], [2.40, .44, .375, -.035],
-    [2.52, .36, .31, -.05], [2.62, .18, .16, -.06],
+    [1.52, .185, .155, .10], [1.60, .285, .235, .055], [1.70, .345, .28, .03],
+    [1.80, .39, .32, .012], [1.92, .425, .35, 0], [2.03, .435, .355, 0],
+    [2.13, .445, .365, .008], [2.26, .45, .37, -.012], [2.40, .445, .38, -.035],
+    [2.52, .365, .315, -.05], [2.62, .185, .165, -.06],
   ],
 };
-const EYE = { x: 0.168, y: 2.045 };
-
 function rowAt(rows, y) {
   if (y <= rows[0][0]) return rows[0].slice(1);
   for (let i = 0; i < rows.length - 1; i++) {
@@ -100,197 +116,104 @@ function rowAt(rows, y) {
   }
   return rows[rows.length - 1].slice(1);
 }
-
-/* Face feature height-field (gentle — over-carving looks cartoonish) */
-function faceFeatures(x, y, female) {
-  const soft = female ? 0.78 : 0.9;
-  let d = 0;
-  d += g2(x, y, 0, 1.855, .052, .068, .11 * soft);           // nose tip
-  d += g2(x, y, 0, 1.97, .04, .12, .055 * soft);             // nose bridge
-  d += g2(x, y, .06, 1.812, .046, .037, .036);               // nostril wings
-  d += g2(x, y, -.06, 1.812, .046, .037, .036);
-  d += g2(x, y, 0, 1.775, .07, .03, -.015);                  // under-nose shadow
-  d += g2(x, y, EYE.x, 2.05, .088, .055, -.036);             // eye sockets
-  d += g2(x, y, -EYE.x, 2.05, .088, .055, -.036);
-  const browA = female ? .03 : .048;
-  d += g2(x, y, EYE.x + .005, 2.135, .105, .042, browA);     // brow ridge
-  d += g2(x, y, -EYE.x - .005, 2.135, .105, .042, browA);
-  d += g2(x, y, 0, 2.125, .05, .05, .02);                    // glabella
-  d += g2(x, y, .265, 1.93, .105, .085, .03);                // cheekbones
-  d += g2(x, y, -.265, 1.93, .105, .085, .03);
-  d += g2(x, y, 0, 1.755, .045, .035, .011);                 // philtrum
-  d += g2(x, y, 0, 1.705, .08, .026, .035);                  // upper lip
-  d += g2(x, y, 0, 1.65, .066, .029, .044);                  // lower lip
-  d += g2(x, y, 0, 1.678, .086, .011, -.024);                // mouth line
-  d += g2(x, y, 0, 1.585, .07, .05, .034);                   // chin
-  return d;
+function profileAt(prof, y) {
+  for (let i = 0; i < prof.length - 1; i++) {
+    const a = prof[i], b = prof[i + 1];
+    if (y <= a[0] && y >= b[0]) return lerp(a[1], b[1], (a[0] - y) / (a[0] - b[0]));
+  }
+  return prof[prof.length - 1][1];
+}
+function pushPt(arr, x, y, z, gray, headW) {
+  arr.push({ x, y, z, gray: clamp(gray, 0.05, 1.6), headW });
 }
 
-function genHeadPoint(female) {
+/* Smooth head — silhouette does the talking */
+function sampleSmoothHead(out, female) {
   const rows = female ? HEAD_ROWS.female : HEAD_ROWS.male;
-  const y = rand(1.52, 2.62);
-  const [rx, rz, cz] = rowAt(rows, y);
-  let th;
-  if (Math.random() < 0.58) th = Math.PI / 2 + rand(-0.88, 0.88);  // face denser
-  else th = Math.random() * Math.PI * 2;
-  const fr = Math.sin(th);
-  const x = rx * Math.cos(th);
-  let z = cz + rz * fr;
-  if (fr > 0.2) z += faceFeatures(x, y, female) * clamp((fr - 0.2) / 0.5, 0, 1);
-  let b = shade(x * 1.7, (y - 2.02) * 0.85, z * 1.5);
-  const de = Math.min(Math.hypot(x - EYE.x, y - 2.05), Math.hypot(x + EYE.x, y - 2.05));
-  if (fr > 0.4 && de < 0.085) b *= 0.78;
-  if (fr > 0.4 && Math.abs(y - 1.678) < 0.013 && Math.abs(x) < 0.15) b *= 0.55;
-  return [x, y, z, b];
-}
-
-function pushPt(arr, x, y, z, col, bright, headW) {
-  arr.push({
-    x, y, z, headW,
-    r: clamp(col.r * bright, 0, 2), g: clamp(col.g * bright, 0, 2), b: clamp(col.b * bright, 0, 2),
-  });
-}
-
-function sampleHeadAll(out, female, faceCol) {
-  const J = 0.0022;
-  for (let i = 0; i < 13000; i++) {
-    const p = genHeadPoint(female);
-    pushPt(out, p[0] + rand(-J, J), p[1] + rand(-J, J), p[2] + rand(-J, J), faceCol, p[3], 1);
+  for (let i = 0; i < 11500; i++) {
+    const y = rand(1.52, 2.62);
+    const [rx, rz, cz] = rowAt(rows, y);
+    let th;
+    if (Math.random() < 0.5) th = Math.PI / 2 + rand(-0.9, 0.9);
+    else th = Math.random() * Math.PI * 2;
+    const fr = Math.sin(th);
+    const x = rx * Math.cos(th);
+    let z = cz + rz * fr;
+    if (fr > 0.3) { // only a whisper of a nose so the profile isn't an egg
+      z += g2(x, y, 0, 1.9, 0.05, 0.17, 0.04) * clamp((fr - 0.3) / 0.5, 0, 1);
+    }
+    const b = shade(x / (rx * rx), (y - 2.05) * 1.4, (z - cz) / (rz * rz));
+    pushPt(out, x + rand(-.002, .002), y + rand(-.002, .002), z + rand(-.002, .002), b * 1.02, 1);
   }
-  let lip = 0, guard = 0;
-  while (lip < 900 && guard++ < 90000) {
-    const p = genHeadPoint(female);
-    if (p[1] > 1.615 && p[1] < 1.74 && Math.abs(p[0]) < 0.17 && p[2] > 0.12) {
-      pushPt(out, p[0], p[1], p[2], faceCol, p[3] * 1.05, 1);
-      lip++;
-    }
-  }
-}
-
-function sampleEyesBrows(out, female, faceCol, hairCol) {
-  const rows = female ? HEAD_ROWS.female : HEAD_ROWS.male;
-  const [rxE, rzE] = rowAt(rows, 2.03);
-  const eyeCol = faceCol.clone().lerp(new THREE.Color(0xffffff), 0.55);
-  for (const s of [1, -1]) {
-    const cx = s * EYE.x;
-    const zSock = rzE * Math.sqrt(Math.max(.05, 1 - (cx / rxE) ** 2)) - 0.036;
-    for (let i = 0; i < 230; i++) {           // eyeball + iris (subtle)
-      const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random());
-      pushPt(out,
-        cx + Math.cos(a) * rr * 0.052,
-        EYE.y + Math.sin(a) * rr * 0.029,
-        zSock + 0.004 + (1 - rr * rr) * 0.024,
-        eyeCol, rr < 0.38 ? 1.45 : 1.02, 1);
-    }
-    const arcs = female ? [0, 0.012] : [0];
-    for (const off of arcs) {                 // eyelid / lashes
-      for (let i = 0; i < 70; i++) {
-        const t = rand(0.12, 0.88) * Math.PI;
-        pushPt(out,
-          cx + Math.cos(t) * (0.058 + off * 0.4),
-          EYE.y + 0.006 + Math.sin(t) * (0.034 + off),
-          zSock + 0.01 + Math.sin(t) * 0.011,
-          faceCol, 1.18, 1);
-      }
-    }
-    const [rxB, rzB] = rowAt(rows, 2.13);
-    for (let i = 0; i < 320; i++) {           // brows
-      const t = rand(-1, 1);
-      const bx = cx + t * (female ? 0.082 : 0.096);
-      const by = (female ? 2.155 : 2.142) + (female ? 0.03 : 0.014) * (1 - t * t) + rand(-1, 1) * (female ? 0.0035 : 0.008);
-      const bz = rzB * Math.sqrt(Math.max(.05, 1 - (bx / rxB) ** 2)) + (female ? 0.024 : 0.038);
-      pushPt(out, bx, by, bz, hairCol, 1.1, 1);
-    }
-  }
+  // ears (smooth, small)
   const [rxEar] = rowAt(rows, 1.95);
   for (const s of [1, -1]) {
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < 160; i++) {
       const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random());
-      pushPt(out, s * (rxEar + 0.004 + rr * 0.02), 1.95 + Math.sin(a) * rr * 0.085, -0.01 + Math.cos(a) * rr * 0.052, faceCol, 0.7, 1);
+      pushPt(out, s * (rxEar + 0.002 + rr * 0.018), 1.95 + Math.sin(a) * rr * 0.08, -0.01 + Math.cos(a) * rr * 0.05, 0.68, 1);
     }
   }
 }
 
-function sampleHairCap(out, n, female, hairCol) {
+function hairlineOK(x0, y, female) {
+  if (female) return y >= 2.34 - 0.42 * Math.pow(clamp(Math.abs(x0) / 0.46, 0, 1), 1.6);
+  return y >= 2.285 + 0.085 * Math.exp(-Math.pow((Math.abs(x0) - 0.27) / 0.09, 2));
+}
+function sampleHairCap(out, n, female) {
   const rows = female ? HEAD_ROWS.female : HEAD_ROWS.male;
   let placed = 0, guard = 0;
   while (placed < n && guard++ < n * 60) {
-    const y = rand(1.96, 2.66);
+    const y = rand(1.98, 2.66);
     const [rx, rz, cz] = rowAt(rows, Math.min(y, 2.62));
     const th = Math.random() * Math.PI * 2;
     const fr = Math.sin(th);
     const x0 = rx * Math.cos(th);
-    if (fr > 0.22) {
-      let hl;
-      if (female) hl = 2.34 - 0.42 * Math.pow(clamp(Math.abs(x0) / 0.46, 0, 1), 1.6);
-      else hl = 2.285 + 0.085 * Math.exp(-Math.pow((Math.abs(x0) - 0.27) / 0.09, 2));
-      if (y < hl && guard < n * 45) continue;
-    }
-    const taper = y < 2.12 ? 1.045 : (female ? 1.1 : 1.09);
-    const hx = x0 * taper + rand(-.008, .008);
-    let hy = y + 0.03 + rand(-.008, .008);
-    const hz = cz + rz * fr * taper - 0.012 + rand(-.008, .008);
-    if (!female && fr > 0.3 && Math.abs(hx) < 0.3 && hy > 2.3) hy += 0.045 * (1 - Math.abs(hx) / 0.3);
-    pushPt(out, hx, hy, hz, hairCol, shade(hx * 1.6, hy - 2.0, hz * 1.4) * 0.92, 1);
+    if (fr > 0.22 && !hairlineOK(x0, y, female) && guard < n * 45) continue;
+    const taper = y < 2.12 ? 1.05 : (female ? 1.11 : 1.09);
+    const hx = x0 * taper + rand(-.007, .007);
+    let hy = y + 0.032 + rand(-.007, .007);
+    const hz = cz + rz * fr * taper - 0.012 + rand(-.007, .007);
+    if (!female && fr > 0.3 && Math.abs(hx) < 0.3 && hy > 2.3) hy += 0.04 * (1 - Math.abs(hx) / 0.3);
+    pushPt(out, hx, hy, hz, shade(hx * 1.6, hy - 2.0, hz * 1.4) * 0.66, 1);
     placed++;
   }
 }
 
-function sampleHairFemaleLong(out, hairCol) {
+/* Female long hair as smooth sheets: back curtain + two front falls */
+function sampleHairFemaleLong(out) {
+  const prof = [[2.45, .47], [2.1, .55], [1.7, .585], [1.35, .555], [1.05, .48]];
   let placed = 0, guard = 0;
-  while (placed < 1600 && guard++ < 90000) {   // back volume shell
-    const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, s = Math.sqrt(1 - u * u);
-    const px = 0.52 * s * Math.cos(th), py = 1.82 + 0.8 * u, pz = -0.15 + 0.42 * s * Math.sin(th);
-    if (pz > 0.1 || py < 1.02) continue;
-    pushPt(out, px, py, pz, hairCol, shade(px * 1.5, py - 1.8, pz * 1.3) * 0.82, clamp((py - 0.9) / 1.3, 0.15, 1));
+  while (placed < 6200 && guard++ < 6200 * 30) {
+    const y = rand(1.05, 2.45);
+    const th = Math.random() * Math.PI * 2;
+    const fr = Math.sin(th);
+    if (fr > 0.38) continue;                    // keep the face window open
+    const r = profileAt(prof, y) * rand(0.985, 1.02);
+    const x = r * Math.cos(th), z = r * 0.92 * fr - 0.045;
+    pushPt(out, x + rand(-.006, .006), y, z + rand(-.006, .006),
+      shade(Math.cos(th), (y - 1.9) * 0.7, fr) * 0.62, clamp((y - 0.95) / 1.35, 0.18, 1));
     placed++;
   }
-  const strands = [];
-  for (let i = 0; i < 34; i++) {
-    const phi = rand(-2.85, 2.85);
-    if (Math.abs(phi) < 0.55) continue;
-    strands.push({ phi, len: rand(0.95, 1.4), waveF: rand(4.5, 7), waveP: rand(0, 6.28), hi: rand(0.82, 1.18), front: false });
-  }
-  strands.push({ phi: 0.66, len: 1.52, waveF: 5.2, waveP: 1.2, hi: 1.12, front: true });
-  strands.push({ phi: -0.66, len: 1.52, waveF: 5.6, waveP: 4.0, hi: 1.12, front: true });
-  strands.push({ phi: 0.45, len: 0.95, waveF: 6.2, waveP: 2.4, hi: 1.05, front: true });
-  strands.push({ phi: -0.45, len: 0.95, waveF: 6.0, waveP: 5.1, hi: 1.05, front: true });
-  const per = Math.floor(5600 / strands.length);
-  strands.forEach((st) => {
-    const ay = 2.32, R = 0.48;
-    const ax = Math.sin(st.phi) * R, az = Math.cos(st.phi) * R * 0.92 - 0.03;
-    const yEnd = ay - st.len;
-    for (let i = 0; i < per; i++) {
-      const t = Math.pow(Math.random(), 0.92);
-      const y = ay + (yEnd - ay) * t;
-      const radial = 1 + 0.14 * Math.sin(Math.min(t * 2.2, 1) * Math.PI * 0.5);
-      let cx = ax * radial, cz = az * radial - 0.02 * t;
-      if (st.front) {
-        const k = clamp((t - 0.5) / 0.5, 0, 1);
-        cz = lerp(cz, 0.3, k * k);
-        cx = lerp(cx, Math.sign(ax) * 0.39, k * 0.6);
-      }
-      cx += Math.sin(t * st.waveF + st.waveP) * 0.05 * (0.3 + t);
-      cz += Math.cos(t * st.waveF + st.waveP) * 0.028 * (0.3 + t);
-      const tubeR = 0.062 * (1 - t * 0.5);
-      const b = shade(cx * 1.5, (y - 1.9) * 0.8, cz * 1.4) * st.hi;
-      pushPt(out, cx + rand(-1, 1) * tubeR, y + rand(-.018, .018), cz + rand(-1, 1) * tubeR, hairCol, b, clamp(1.12 - t * 1.02, 0.1, 1));
+  // front falls over the chest (smooth ribbons)
+  for (const s of [1, -1]) {
+    for (let i = 0; i < 1300; i++) {
+      const t = Math.random();
+      const w = rand(-1, 1);
+      const y = 2.18 - t * 1.33;
+      const cx = s * (0.4 - 0.02 * t + 0.045 * Math.sin(t * 2.3 + (s > 0 ? 0 : 2)));
+      const cz = 0.2 + 0.16 * Math.sin(t * Math.PI * 0.78);
+      const x = cx + w * 0.085 * (1 - 0.3 * t) + Math.sin(t * 7 + w * 2) * 0.011;
+      const z = cz + (1 - Math.abs(w)) * 0.035 + rand(-.008, .008);
+      pushPt(out, x, y + rand(-.01, .01), z, shade(x * 1.4, (y - 1.9) * 0.7, z * 1.3) * 0.7, clamp(1.05 - t * 0.88, 0.18, 1));
     }
-  });
+  }
 }
 
-function sampleLoft(out, n, rows, zScale, col, brightMul, headWFn, frontBumpFn) {
+function sampleLoft(out, n, rows, zScale, brightMul, headWFn, frontBumpFn) {
   const yMin = rows[rows.length - 1][0], yMax = rows[0][0];
-  const rAt = (y) => {
-    for (let i = 0; i < rows.length - 1; i++) {
-      const a = rows[i], b = rows[i + 1];
-      if (y <= a[0] && y >= b[0]) return lerp(a[1], b[1], (a[0] - y) / (a[0] - b[0]));
-    }
-    return rows[rows.length - 1][1];
-  };
   for (let i = 0; i < n; i++) {
     const y = rand(yMin, yMax);
-    const r = rAt(y) * rand(0.985, 1.015);
+    const r = profileAt(rows, y) * rand(0.985, 1.015);
     const th = Math.random() * Math.PI * 2;
     const fr = Math.sin(th);
     const x = r * Math.cos(th);
@@ -298,124 +221,100 @@ function sampleLoft(out, n, rows, zScale, col, brightMul, headWFn, frontBumpFn) 
     if (frontBumpFn && fr > 0.25) z += frontBumpFn(x, y) * clamp((fr - 0.25) / 0.5, 0, 1);
     const b = shade(Math.cos(th), 0.14, fr) * brightMul;
     const dim = y < 0.48 ? 0.55 + (y - 0.3) * 2.0 : 1;
-    pushPt(out, x + rand(-.004, .004), y, z + rand(-.004, .004), col, b * clamp(dim, 0.5, 1), headWFn ? headWFn(y) : 0);
+    pushPt(out, x + rand(-.004, .004), y, z + rand(-.004, .004), b * clamp(dim, 0.5, 1), headWFn ? headWFn(y) : 0);
   }
-  return rAt;
 }
 
-function buildBustPoints(female, baseCol) {
-  const base = baseCol;
-  const faceCol = base.clone().multiplyScalar(1.05);
-  const hairCol = base.clone(); hairCol.offsetHSL(female ? -0.035 : 0.02, 0.05, female ? -0.02 : 0.04);
-  const chestCol = base.clone().multiplyScalar(0.85);
-
+function buildBustPoints(female) {
   const pts = [];
-  sampleHeadAll(pts, female, faceCol);
-  sampleEyesBrows(pts, female, faceCol, hairCol);
+  sampleSmoothHead(pts, female);
   if (female) {
-    sampleHairCap(pts, 3800, true, hairCol);
-    sampleHairFemaleLong(pts, hairCol);
+    sampleHairCap(pts, 5200, true);
+    sampleHairFemaleLong(pts);
   } else {
-    sampleHairCap(pts, 4600, false, hairCol);
+    sampleHairCap(pts, 5400, false);
   }
-
   const neckRows = female
     ? [[1.50, .135], [1.38, .14], [1.26, .165], [1.16, .26], [1.10, .34]]
-    : [[1.50, .155], [1.38, .165], [1.26, .19], [1.16, .30], [1.10, .38]];
-  sampleLoft(pts, 1400, neckRows, 0.88, base.clone().multiplyScalar(0.95), 0.95,
-    (y) => 0.55 * clamp((y - 1.12) / 0.38, 0, 1), null);
-
+    : [[1.50, .16], [1.38, .17], [1.26, .195], [1.16, .305], [1.10, .385]];
+  sampleLoft(pts, 1500, neckRows, 0.88, 0.92, (y) => 0.55 * clamp((y - 1.12) / 0.38, 0, 1), null);
   const chestRows = female
     ? [[1.12, .52], [1.06, .78], [1.00, .88], [0.88, .90], [0.72, .84], [0.55, .76], [0.40, .66], [0.30, .58]]
-    : [[1.12, .60], [1.06, .90], [1.00, 1.02], [0.88, 1.05], [0.72, .97], [0.55, .87], [0.40, .76], [0.30, .68]];
+    : [[1.12, .62], [1.06, .92], [1.00, 1.04], [0.88, 1.07], [0.72, .99], [0.55, .89], [0.40, .78], [0.30, .70]];
   const bustBump = female
     ? (x, y) => g2(x, y, .23, .72, .15, .13, .045) + g2(x, y, -.23, .72, .15, .13, .045)
     : null;
-  const chestQuota = N - pts.length - 500;
-  const rChest = sampleLoft(pts, Math.max(chestQuota, 200), chestRows, 0.55, chestCol, 0.9, null, bustBump);
-
-  for (const s of [1, -1]) {   // collarbones
-    for (let i = 0; i < 250; i++) {
-      const t = Math.random();
-      const x = s * (0.07 + t * 0.52);
-      const y = 1.145 - t * 0.05 + rand(-.006, .006);
-      const rx = rChest(clamp(y, 0.3, 1.12));
-      const z = rx * 0.55 * Math.sqrt(Math.max(.04, 1 - (x / rx) ** 2)) + 0.01;
-      pushPt(pts, x, y, z, faceCol, 1.08, 0);
-    }
-  }
+  sampleLoft(pts, Math.max(N - pts.length, 200), chestRows, 0.55, 0.85, null, bustBump);
   return pts;
 }
 
-function buildCorePoints(baseCol) {
+function buildCorePoints() {
   const pts = [];
   const CY = 1.55, R = 0.95;
-  const white = baseCol.clone().lerp(new THREE.Color(0xffffff), 0.6);
-  // Outer shell
   for (let i = 0; i < 15000; i++) {
     const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, s = Math.sqrt(1 - u * u);
     const r = R * rand(0.96, 1.03);
     const x = r * s * Math.cos(th), y = CY + r * u, z = r * s * Math.sin(th);
-    pushPt(pts, x, y, z, baseCol, shade(x, u, z), 0);
+    pushPt(pts, x, y, z, shade(x, u, z), 0);
   }
-  // Inner glowing heart (denser & brighter toward center)
   for (let i = 0; i < 7000; i++) {
     const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, s = Math.sqrt(1 - u * u);
     const r = R * 0.55 * Math.pow(Math.random(), 0.6);
-    const bright = lerp(1.6, 0.7, r / (R * 0.55));
-    pushPt(pts, r * s * Math.cos(th), CY + r * u, r * s * Math.sin(th), white, bright, 0);
+    pushPt(pts, r * s * Math.cos(th), CY + r * u, r * s * Math.sin(th), lerp(1.55, 0.7, r / (R * 0.55)), 0);
   }
-  // Three orbit rings
-  const rings = [
-    { tiltX: 1.25, tiltZ: 0.3, rad: 1.28 },
-    { tiltX: 0.5, tiltZ: -0.7, rad: 1.38 },
-    { tiltX: 1.8, tiltZ: 1.1, rad: 1.22 },
-  ];
-  rings.forEach((rg) => {
+  [[1.25, 0.3, 1.28], [0.5, -0.7, 1.38], [1.8, 1.1, 1.22]].forEach(([tiltX, tiltZ, rad]) => {
     for (let i = 0; i < 3000; i++) {
       const a = Math.random() * Math.PI * 2;
-      let x = Math.cos(a) * rg.rad, y = 0, z = Math.sin(a) * rg.rad;
-      let y1 = y * Math.cos(rg.tiltX) - z * Math.sin(rg.tiltX);
-      let z1 = y * Math.sin(rg.tiltX) + z * Math.cos(rg.tiltX);
-      const x2 = x * Math.cos(rg.tiltZ) - y1 * Math.sin(rg.tiltZ);
-      const y2 = x * Math.sin(rg.tiltZ) + y1 * Math.cos(rg.tiltZ);
-      pushPt(pts, x2 + rand(-.015, .015), CY + y2 + rand(-.015, .015), z1 + rand(-.015, .015), baseCol, 1.15, 0);
+      const x = Math.cos(a) * rad, z = Math.sin(a) * rad;
+      const y1 = -z * Math.sin(tiltX), z1 = z * Math.cos(tiltX);
+      const x2 = x * Math.cos(tiltZ) - y1 * Math.sin(tiltZ);
+      const y2 = x * Math.sin(tiltZ) + y1 * Math.cos(tiltZ);
+      pushPt(pts, x2 + rand(-.015, .015), CY + y2 + rand(-.015, .015), z1 + rand(-.015, .015), 1.1, 0);
     }
   });
-  // Equatorial sparkle disc
   for (let i = 0; i < 3000; i++) {
     const a = Math.random() * Math.PI * 2, r = rand(1.0, 1.55);
-    pushPt(pts, Math.cos(a) * r, CY + rand(-.05, .05), Math.sin(a) * r, baseCol, rand(0.35, 0.8), 0);
+    pushPt(pts, Math.cos(a) * r, CY + rand(-.05, .05), Math.sin(a) * r, rand(0.35, 0.75), 0);
   }
   return pts;
 }
 
 function buildFigure(charType) {
-  const base = new THREE.Color(CHAR_COLORS[charType]);
   let pts;
-  if (charType === 'core') pts = buildCorePoints(base);
-  else pts = buildBustPoints(charType === 'female', base);
-
+  if (charType === 'core') pts = buildCorePoints();
+  else pts = buildBustPoints(charType === 'female');
   while (pts.length > N) pts.pop();
-  while (pts.length < N) {   // pad with faint halo sparks
+  while (pts.length < N) {
     const a = Math.random() * Math.PI * 2, r = rand(1.3, 1.9);
-    pushPt(pts, Math.cos(a) * r, rand(0.4, 2.6), Math.sin(a) * r, base, 0.3, 0);
+    pushPt(pts, Math.cos(a) * r, rand(0.4, 2.6), Math.sin(a) * r, 0.28, 0);
   }
-
   const targets = new Float32Array(N * 3);
-  const colors = new Float32Array(N * 3);
+  const gray = new Float32Array(N);
   const headW = new Float32Array(N);
   const delay = new Float32Array(N);
   pts.forEach((p, i) => {
     targets[i * 3] = p.x; targets[i * 3 + 1] = p.y; targets[i * 3 + 2] = p.z;
-    colors[i * 3] = p.r; colors[i * 3 + 1] = p.g; colors[i * 3 + 2] = p.b;
+    gray[i] = p.gray;
     headW[i] = p.headW;
-    // Wave delay: rises bottom-up with diagonal ripples
     const normY = clamp((p.y - 0.3) / 2.35, 0, 1);
     const rr = Math.hypot(p.x, p.z);
     delay[i] = clamp(normY * 0.5 + (Math.sin(p.y * 3.2 + rr * 2.5) * 0.5 + 0.5) * 0.26 + Math.random() * 0.24, 0, 1);
   });
-  return { targets, colors, headW, delay };
+  return { targets, gray, headW, delay };
+}
+
+/* ----- Theme tint (material color over grayscale dots) ----- */
+const GLOBE_MATS = [];
+function applyTint() {
+  const hex = THEME_HEX[themeName];
+  if (HOLO.pMat) {
+    const c = new THREE.Color(hex);
+    if (HOLO.char === 'female') c.offsetHSL(-0.02, 0.04, 0.03);
+    HOLO.pMat.color.copy(c);
+  }
+  HOLO.accentMats.forEach((m) => { if (m.color && !m.userData.lockColor) m.color.setHex(hex); });
+  GLOBE_MATS.forEach((m) => { if (m.color) m.color.setHex(hex); });
+  if (window._redrawMap) window._redrawMap();
 }
 
 /* ----- Three.js scene ----- */
@@ -441,50 +340,38 @@ function initHologram() {
     for (let i = 0; i < 420; i++) sp.push(rand(-8, 8), rand(-0.4, 6.4), rand(-6, 2.5));
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
-    const m = new THREE.PointsMaterial({ color: 0x7dd3fc, size: 0.02, transparent: true, opacity: 0.5, depthWrite: false });
-    m.userData.baseOp = 0.5; m.userData.lockColor = true;
+    const m = new THREE.PointsMaterial({ color: 0x9fd8e8, size: 0.02, transparent: true, opacity: 0.45, depthWrite: false });
+    m.userData.baseOp = 0.45; m.userData.lockColor = true;
     HOLO.accentMats.push(m);
     scene.add(new THREE.Points(g, m));
   }
 
+  /* Soft glow floor (no rings) + projector beam */
   const accentMat = (op) => {
-    const m = new THREE.MeshBasicMaterial({ color: CHAR_COLORS[HOLO.char], transparent: true, opacity: op, side: THREE.DoubleSide, depthWrite: false });
+    const m = new THREE.MeshBasicMaterial({ color: THEME_HEX[themeName], transparent: true, opacity: op, side: THREE.DoubleSide, depthWrite: false });
     m.userData.baseOp = op;
     HOLO.accentMats.push(m);
     return m;
   };
   const disc = new THREE.Group();
-  const mkRing = (inner, outer, op, thetaLen) => {
-    const mesh = new THREE.Mesh(new THREE.RingGeometry(inner, outer, 72, 1, 0, thetaLen || Math.PI * 2), accentMat(op));
-    mesh.rotation.x = -Math.PI / 2;
-    disc.add(mesh);
-    return mesh;
-  };
-  mkRing(1.16, 1.23, 0.85);
-  mkRing(0.85, 0.89, 0.5);
-  const arc1 = mkRing(1.0, 1.06, 0.9, Math.PI * 0.7);
-  const arc2 = mkRing(0.66, 0.71, 0.9, Math.PI * 0.5);
-  const glowDisc = new THREE.Mesh(new THREE.CircleGeometry(0.64, 48), accentMat(0.1));
-  glowDisc.rotation.x = -Math.PI / 2; glowDisc.position.y = 0.005;
-  disc.add(glowDisc);
+  const glowOuter = new THREE.Mesh(new THREE.CircleGeometry(1.2, 56), accentMat(0.07));
+  glowOuter.rotation.x = -Math.PI / 2; glowOuter.position.y = 0.004;
+  const glowInner = new THREE.Mesh(new THREE.CircleGeometry(0.6, 48), accentMat(0.14));
+  glowInner.rotation.x = -Math.PI / 2; glowInner.position.y = 0.008;
+  disc.add(glowOuter, glowInner);
   const beam = new THREE.Mesh(
     new THREE.CylinderGeometry(0.95, 0.3, 0.34, 48, 1, true),
-    new THREE.MeshBasicMaterial({ color: CHAR_COLORS[HOLO.char], transparent: true, opacity: 0.05, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
-  beam.material.userData.baseOp = 0.05;
+    new THREE.MeshBasicMaterial({ color: THEME_HEX[themeName], transparent: true, opacity: 0.045, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
+  beam.material.userData.baseOp = 0.045;
   HOLO.accentMats.push(beam.material);
   beam.position.y = 0.17;
   disc.add(beam);
   world.add(disc);
 
-  const scan = new THREE.Mesh(new THREE.RingGeometry(1.14, 1.18, 72), accentMat(0.5));
-  scan.rotation.x = -Math.PI / 2;
-  world.add(scan);
-  HOLO.scanMat = scan.material;
-
   /* Particle figure */
   const built = buildFigure(HOLO.char);
   HOLO.formedChar = HOLO.char;
-  let targets = built.targets, headW = built.headW, delay = built.delay;
+  let targets = built.targets, gray = built.gray, headW = built.headW, delay = built.delay;
 
   const scatter = new Float32Array(N * 3);
   const orbit = new Float32Array(N);
@@ -500,22 +387,25 @@ function initHologram() {
   }
 
   const positions = new Float32Array(scatter);
+  const colArr = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) { colArr[i * 3] = colArr[i * 3 + 1] = colArr[i * 3 + 2] = gray[i]; }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geo.setAttribute('color', new THREE.BufferAttribute(built.colors, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colArr, 3));
   const pMat = new THREE.PointsMaterial({
-    size: 0.0165, vertexColors: true, transparent: true, opacity: 0.9,
+    size: 0.0155, vertexColors: true, transparent: true, opacity: 0.88,
     blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
   });
+  HOLO.pMat = pMat;
   const figure = new THREE.Points(geo, pMat);
   world.add(figure);
+  applyTint();
 
   HOLO.applyFigure = (charType) => {
     const b = buildFigure(charType);
-    targets = b.targets; headW = b.headW; delay = b.delay;
-    geo.attributes.color.array.set(b.colors);
-    geo.attributes.color.needsUpdate = true;
+    targets = b.targets; gray = b.gray; headW = b.headW; delay = b.delay;
     HOLO.formedChar = charType;
+    applyTint();
   };
 
   let lastX = 0;
@@ -559,7 +449,7 @@ function initHologram() {
         HOLO.mode = 'in';
       }
     } else {
-      HOLO.formT = Math.min(1, HOLO.formT + dt * 0.4);
+      HOLO.formT = Math.min(1, HOLO.formT + dt * 0.34);
     }
     const formT = HOLO.formT;
     const formed = clamp((formT - 0.72) / 0.28, 0, 1);
@@ -574,7 +464,13 @@ function initHologram() {
     const cosT2 = Math.cos(tiltA), sinT2 = Math.sin(tiltA);
     const PIVOT_Y = 1.42;
 
+    /* Scan-light: a bright band traveling through the dots, bottom → top */
+    const scanCycle = t % 5.6;
+    const scanY = scanCycle < 4.4 ? 0.05 + (scanCycle / 4.4) * 2.85 : -10;
+    const scanOn = HOLO.power && formT > 0.25;
+
     const pos = geo.attributes.position.array;
+    const col = geo.attributes.color.array;
     for (let i = 0; i < N; i++) {
       const i3 = i * 3;
       const p = clamp((formT - delay[i] * 0.45) / 0.55, 0, 1);
@@ -589,14 +485,13 @@ function initHologram() {
         const nx = x * c - z * s2, nz = x * s2 + z * c;
         x = nx; z = nz;
       }
-      // gentle wave while flying in
       y += Math.sin(p * Math.PI) * (1 - p) * 0.12 * Math.sin(phase[i] * 3 + t * 2);
 
       const ph = phase[i];
-      const shim = Math.sin(t * 2.3 + ph) * (0.0038 + sb * 0.009 * headW[i]) * e;
+      const shim = Math.sin(t * 2.3 + ph) * (0.0036 + sb * 0.009 * headW[i]) * e;
       const rl = Math.sqrt(x * x + z * z) || 1e-4;
       x += (x / rl) * shim; z += (z / rl) * shim;
-      y += Math.sin(t * 1.7 + ph * 1.3) * 0.0028 * e;
+      y += Math.sin(t * 1.7 + ph * 1.3) * 0.0026 * e;
 
       const w = headW[i];
       if (w > 0.01 && formed > 0) {
@@ -611,26 +506,27 @@ function initHologram() {
         x = nx;
       }
       pos[i3] = x; pos[i3 + 1] = y; pos[i3 + 2] = z;
+
+      /* brightness incl. scan band */
+      let v = gray[i] * (0.35 + 0.65 * e);
+      if (scanOn) {
+        const dyS = targets[i3 + 1] - scanY;
+        v *= 1 + 0.95 * Math.exp(-(dyS * dyS) / 0.09) * e;
+      }
+      col[i3] = v; col[i3 + 1] = v; col[i3 + 2] = v;
     }
     geo.attributes.position.needsUpdate = true;
+    geo.attributes.color.needsUpdate = true;
 
     figure.position.y = Math.sin(t * 1.12) * 0.028;
-    // CORE pulses while speaking (it has no head to nod)
     const pulse = HOLO.formedChar === 'core' ? 1 + sb * 0.045 * Math.sin(t * 9) + 0.012 * Math.sin(t * 2.2) : 1;
     figure.scale.setScalar(pulse);
 
     if (!HOLO.dragging && HOLO.power) HOLO.autoRot += dt * 0.09;
     world.rotation.y += ((HOLO.targetRotY + HOLO.autoRot) - world.rotation.y) * 0.08;
-    arc1.rotation.z = t * 0.5;
-    arc2.rotation.z = -t * 0.7;
 
-    const cyc = (t * 0.38) % 1;
-    scan.position.y = 0.3 + cyc * 2.4;
-    HOLO.scanMat.opacity = (HOLO.power ? 0.5 : 0) * Math.sin(cyc * Math.PI) * formT;
-
-    pMat.opacity += ((HOLO.power ? 0.9 : 0.04) - pMat.opacity) * 0.08;
+    pMat.opacity += ((HOLO.power ? 0.88 : 0.04) - pMat.opacity) * 0.08;
     HOLO.accentMats.forEach((m) => {
-      if (m === HOLO.scanMat) return;
       const bse = m.userData.baseOp !== undefined ? m.userData.baseOp : 0.9;
       m.opacity += ((HOLO.power ? bse : bse * 0.06) - m.opacity) * 0.08;
     });
@@ -652,9 +548,6 @@ function syncCharUI() {
   document.querySelectorAll('[data-char]').forEach((el) => {
     el.classList.toggle('active', el.dataset.char === HOLO.char);
   });
-  document.body.classList.toggle('char-male', HOLO.char === 'male');
-  document.body.classList.toggle('char-female', HOLO.char === 'female');
-  HOLO.accentMats.forEach((m) => { if (m.color && !m.userData.lockColor) m.color.setHex(CHAR_COLORS[HOLO.char]); });
   ['core', 'male', 'female'].forEach((c) => {
     const card = $('card-' + c);
     if (card) {
@@ -663,6 +556,7 @@ function syncCharUI() {
       if (badge) badge.classList.toggle('hidden', c !== HOLO.char);
     }
   });
+  applyTint();
 }
 function setChar(charType) {
   if (charType === HOLO.char && HOLO.mode === 'in' && HOLO.formT > 0.9) return;
@@ -672,12 +566,14 @@ function setChar(charType) {
   HOLO.mode = 'out';
   syncCharUI();
   setHoloStatus('✨ Re-forming into ' + charType.toUpperCase() + '…');
+  logEvent('character → ' + charType.toUpperCase());
 }
 function reform() {
   if (!HOLO.power) { toast('⏻ System is off — press ACTIVATE first!'); return; }
   HOLO.pendingChar = HOLO.char;
   HOLO.mode = 'out';
   setHoloStatus('✨ Forming again — watch the waves of dots!');
+  logEvent('formation replay');
 }
 
 /* =========================================================
@@ -716,22 +612,24 @@ function initMap() {
     cv.width = w; cv.height = h;
     const ctx = cv.getContext('2d');
     ctx.clearRect(0, 0, w, h);
+    const rgb = THEME_MAP_RGB[themeName] || THEME_MAP_RGB.normal;
     const sx = w / 200, sy = h / 100, step = 3.4;
     for (let gy = 2; gy < h - 2; gy += step) {
       for (let gx = 2; gx < w - 2; gx += step) {
         const land = isLand(gx / sx, gy / sy);
-        ctx.fillStyle = land ? 'rgba(94,234,212,0.55)' : 'rgba(94,234,212,0.05)';
+        ctx.fillStyle = land ? `rgba(${rgb},0.55)` : `rgba(${rgb},0.05)`;
         ctx.beginPath();
         ctx.arc(gx, gy, land ? 1.05 : 0.55, 0, 6.2832);
         ctx.fill();
       }
     }
   };
+  window._redrawMap = draw;
   new ResizeObserver(draw).observe(box);
   draw();
 }
 
-/* ----- 3D dotted Earth (World Monitor full view) ----- */
+/* ----- 3D dotted Earth ----- */
 let globeBuilt = false, globeActive = false;
 function initGlobe() {
   if (globeBuilt || typeof THREE === 'undefined') return;
@@ -763,23 +661,23 @@ function initGlobe() {
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(landPts, 3));
-  const landMat = new THREE.PointsMaterial({ color: 0x2dd4bf, size: 0.021, transparent: true, opacity: 0.95, depthWrite: false });
+  const landMat = new THREE.PointsMaterial({ color: THEME_HEX[themeName], size: 0.021, transparent: true, opacity: 0.95, depthWrite: false });
+  GLOBE_MATS.push(landMat);
   group.add(new THREE.Points(g, landMat));
 
-  // faint ocean sphere + graticule rings
   const ocean = new THREE.Mesh(
     new THREE.SphereGeometry(0.985, 40, 28),
-    new THREE.MeshBasicMaterial({ color: 0x0a2e2a, transparent: true, opacity: 0.5 }));
+    new THREE.MeshBasicMaterial({ color: 0x0a2422, transparent: true, opacity: 0.5 }));
   group.add(ocean);
   [[1.18, Math.PI / 2.3, 0.4], [1.3, Math.PI / 1.7, -0.6]].forEach(([rad, rx, ry]) => {
     const ring = new THREE.Mesh(
       new THREE.TorusGeometry(rad, 0.004, 8, 110),
-      new THREE.MeshBasicMaterial({ color: 0x2dd4bf, transparent: true, opacity: 0.4 }));
+      new THREE.MeshBasicMaterial({ color: THEME_HEX[themeName], transparent: true, opacity: 0.4 }));
+    GLOBE_MATS.push(ring.material);
     ring.rotation.set(rx, ry, 0);
     group.add(ring);
   });
 
-  // hotspots (lon, lat)
   const spots = [[-100, 40], [-60, -15], [12, 50], [20, 5], [47, 28], [80, 22], [105, 32], [134, -25]];
   const hotPts = [];
   spots.forEach(([lon, lat]) => {
@@ -812,10 +710,155 @@ function initGlobe() {
     requestAnimationFrame(anim);
     if (!globeActive || document.hidden) return;
     const dt = Math.min(ck.getDelta(), 0.05);
-    if (!dragging) userRot += dt * 0.12;
+    const spin = $('globeSpin');
+    if (!dragging && (!spin || spin.checked)) userRot += dt * 0.12;
     group.rotation.y = userRot;
     renderer.render(scene, camera);
   })();
+}
+
+/* =========================================================
+   Live headlines — real feeds when online, cache offline
+   (the permanent backend feed lands in Stage 10)
+   ========================================================= */
+const FEEDS = [
+  { src: 'BBC', url: 'https://feeds.bbci.co.uk/news/world/rss.xml' },
+  { src: 'Al Jazeera', url: 'https://www.aljazeera.com/xml/rss/all.xml' },
+];
+const DEMO_NEWS = [
+  { title: 'Demo headline — real world news will stream here when online', link: '#', src: 'DEMO', ts: Date.now() },
+  { title: 'Demo headline — ask MYRA and she will read the top stories aloud (Stage 10)', link: '#', src: 'DEMO', ts: Date.now() },
+  { title: 'Demo headline — map hotspots will flash where events happen', link: '#', src: 'DEMO', ts: Date.now() },
+];
+let newsItems = [], newsLive = false, newsRegion = 'all';
+
+function timeAgo(ts) {
+  const m = Math.floor((Date.now() - ts) / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + 'm ago';
+  const h = Math.floor(m / 60);
+  return h < 24 ? h + 'h ago' : Math.floor(h / 24) + 'd ago';
+}
+function setLiveBadge(state) { // 'live' | 'cached' | 'off'
+  [['liveBadge'], ['liveBadgeFull']].forEach(([id]) => {
+    const el = $(id);
+    if (!el) return;
+    el.className = 'live-badge' + (state === 'live' ? ' on' : state === 'cached' ? ' cached' : '');
+    el.textContent = state === 'live' ? '● LIVE' : state === 'cached' ? '○ OFFLINE · CACHED' : '○ CONNECTING';
+  });
+}
+const REGION_KEYS = {
+  asia: ['asia', 'china', 'india', 'japan', 'korea', 'pakistan', 'bangladesh', 'taiwan', 'beijing', 'delhi', 'tokyo', 'modi'],
+  europe: ['europe', 'britain', ' uk ', 'france', 'german', 'ukraine', 'russia', 'london', 'paris', 'berlin', 'eu '],
+  america: ['america', 'washington', 'canada', 'mexico', 'brazil', 'new york', 'trump', 'white house', 'congress'],
+  'middle east': ['gaza', 'israel', 'iran', 'iraq', 'saudi', 'lebanon', 'syria', 'yemen', 'middle east'],
+  tech: ['ai ', 'artificial intelligence', 'tech', 'software', 'chip', 'cyber', 'apple', 'google', 'microsoft', 'spacex', 'robot'],
+};
+function filterNews(items) {
+  if (newsRegion === 'all') return items;
+  const keys = REGION_KEYS[newsRegion] || [];
+  const hit = items.filter((it) => keys.some((k) => it.title.toLowerCase().includes(k)));
+  return hit.length >= 2 ? hit : items;
+}
+function renderNews() {
+  const items = newsItems.length ? newsItems : DEMO_NEWS;
+  const mini = $('miniHeadlines');
+  mini.innerHTML = '';
+  items.slice(0, 3).forEach((it) => {
+    const li = document.createElement('li');
+    const tag = document.createElement('span');
+    tag.className = 'hl-src'; tag.textContent = it.src;
+    li.appendChild(tag);
+    if (it.link && it.link !== '#') {
+      const a = document.createElement('a');
+      a.href = it.link; a.target = '_blank'; a.rel = 'noopener';
+      a.textContent = it.title;
+      li.appendChild(a);
+    } else li.appendChild(document.createTextNode(it.title));
+    const tm = document.createElement('span');
+    tm.className = 'hl-time'; tm.textContent = timeAgo(it.ts);
+    li.appendChild(tm);
+    mini.appendChild(li);
+  });
+  const full = $('fullHeadlines');
+  full.innerHTML = '';
+  filterNews(items).slice(0, 10).forEach((it) => {
+    const card = document.createElement('div');
+    card.className = 'news-card';
+    const tag = document.createElement('div');
+    tag.className = 'news-tag'; tag.textContent = it.src;
+    const title = document.createElement('div');
+    title.className = 'news-title';
+    if (it.link && it.link !== '#') {
+      const a = document.createElement('a');
+      a.href = it.link; a.target = '_blank'; a.rel = 'noopener';
+      a.textContent = it.title;
+      title.appendChild(a);
+    } else title.textContent = it.title;
+    const meta = document.createElement('div');
+    meta.className = 'news-meta';
+    meta.textContent = 'Source: ' + it.src + ' · ' + timeAgo(it.ts);
+    card.append(tag, title, meta);
+    full.appendChild(card);
+  });
+}
+function loadNewsCache() {
+  try {
+    const c = JSON.parse(localStorage.getItem('myra_news_cache') || 'null');
+    if (c && Array.isArray(c.items) && c.items.length) {
+      newsItems = c.items;
+      setLiveBadge('cached');
+      $('feedUpdated').textContent = '· cached ' + new Date(c.ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+      return true;
+    }
+  } catch (e) { /* ignore */ }
+  return false;
+}
+async function fetchOneFeed(feed) {
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), 9000);
+  try {
+    const res = await fetch('https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(feed.url), { signal: ctrl.signal });
+    const data = await res.json();
+    if (data.status !== 'ok' || !Array.isArray(data.items)) throw new Error('bad feed');
+    return data.items.map((it) => ({
+      title: (it.title || '').trim(),
+      link: it.link || '#',
+      src: feed.src,
+      ts: it.pubDate ? Date.parse(it.pubDate.replace(' ', 'T') + 'Z') || Date.now() : Date.now(),
+    })).filter((x) => x.title);
+  } finally { clearTimeout(to); }
+}
+async function fetchNews(manual) {
+  if (!navigator.onLine) {
+    setLiveBadge(loadNewsCache() ? 'cached' : 'off');
+    renderNews();
+    if (manual) toast('📡 You are offline — showing the last saved headlines.');
+    logEvent('news: offline, cache shown');
+    return;
+  }
+  try {
+    const results = await Promise.allSettled(FEEDS.map(fetchOneFeed));
+    let items = [];
+    results.forEach((r) => { if (r.status === 'fulfilled') items = items.concat(r.value); });
+    if (!items.length) throw new Error('no items');
+    items.sort((a, b) => b.ts - a.ts);
+    newsItems = items.slice(0, 16);
+    newsLive = true;
+    localStorage.setItem('myra_news_cache', JSON.stringify({ ts: Date.now(), items: newsItems }));
+    setLiveBadge('live');
+    $('feedUpdated').textContent = '· live ' + new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    renderNews();
+    logEvent('news: live headlines updated (' + newsItems.length + ')');
+    if (manual) toast('📰 Headlines refreshed — showing live news.');
+  } catch (e) {
+    newsLive = false;
+    const had = loadNewsCache();
+    setLiveBadge(had ? 'cached' : 'off');
+    renderNews();
+    logEvent('news: fetch failed, fallback shown');
+    if (manual) toast('📡 Could not reach the news service — showing ' + (had ? 'cached' : 'demo') + ' headlines.');
+  }
 }
 
 /* =========================================================
@@ -846,13 +889,41 @@ function drawWires() {
 /* =========================================================
    Full-screen windows navigation
    ========================================================= */
-function openView(name) {
+let satLoaded = false;
+function setWorldTab(tab) {
+  const isGlobe = tab !== 'sat';
+  $('wmTabGlobe').classList.toggle('active', isGlobe);
+  $('wmTabSat').classList.toggle('active', !isGlobe);
+  $('globeBox').classList.toggle('hidden', !isGlobe);
+  $('satBox').classList.toggle('hidden', isGlobe);
+  globeActive = isGlobe && !$('view-world').classList.contains('hidden');
+  if (!isGlobe && !satLoaded) {
+    satLoaded = true;
+    const ifr = document.createElement('iframe');
+    ifr.className = 'sat-frame';
+    ifr.title = 'Live satellite view';
+    ifr.setAttribute('sandbox', 'allow-scripts');
+    ifr.setAttribute('referrerpolicy', 'no-referrer');
+    ifr.loading = 'lazy';
+    ifr.src = 'https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=default&metricTemp=default&metricWind=default&zoom=3&overlay=satellite&product=satellite&level=surface&lat=22&lon=84';
+    $('satBox').appendChild(ifr);
+    logEvent('world: live satellite embed requested');
+  }
+}
+function openView(name, opt) {
   document.querySelectorAll('.fullview').forEach((v) => v.classList.add('hidden'));
   const v = $('view-' + name);
   if (v) v.classList.remove('hidden');
   document.body.classList.add('view-open');
-  globeActive = name === 'world';
-  if (name === 'world') initGlobe();
+  globeActive = false;
+  if (name === 'world') {
+    initGlobe();
+    setWorldTab(opt && opt.tab === 'sat' ? 'sat' : 'globe');
+    globeActive = !(opt && opt.tab === 'sat');
+  }
+  if (name === 'history') renderHistory();
+  if (name === 'console') logEvent('console opened');
+  logEvent('window opened: ' + name);
 }
 function closeViews() {
   document.querySelectorAll('.fullview').forEach((v) => v.classList.add('hidden'));
@@ -860,12 +931,37 @@ function closeViews() {
   globeActive = false;
   setTimeout(drawWires, 60);
 }
+function renderHistory() {
+  const box = $('historyList');
+  box.innerHTML = '';
+  if (!HISTORY.length) {
+    box.innerHTML = '<div class="empty-note">No conversation yet this session.</div>';
+    return;
+  }
+  HISTORY.forEach((h) => {
+    const d = document.createElement('div');
+    d.className = 'hist-item' + (h.who === 'user' ? ' user' : '');
+    const who = document.createElement('span');
+    who.className = 'h-who';
+    who.textContent = h.who === 'user' ? 'YOU' : 'MYRA';
+    const tm = document.createElement('span');
+    tm.className = 'h-time';
+    tm.textContent = h.at.toLocaleTimeString('en-GB');
+    d.append(who, tm, document.createElement('br'), document.createTextNode(h.text));
+    box.appendChild(d);
+  });
+}
 
 /* =========================================================
-   Speaking demo (real voice in Stage 5)
+   Speaking (demo TTS; real voice in Stage 5)
    ========================================================= */
+let VOICE_MUTED = false;
 function speakDemo(text) {
   if (!HOLO.power) return;
+  if (VOICE_MUTED) {
+    setHoloStatus('🔇 Voice muted — tap 🔊 under the hologram to unmute');
+    return;
+  }
   HOLO.speaking = true;
   setHoloStatus('🗣️ MYRA is speaking…');
   let done = false;
@@ -893,8 +989,13 @@ function speakDemo(text) {
       u.onend = finish;
       u.onerror = finish;
       speechSynthesis.speak(u);
-    } catch (e) { /* animation still plays without a voice */ }
+    } catch (e) { /* animation still plays */ }
   }
+}
+function stopSpeaking() {
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  HOLO.speaking = false;
+  setHoloStatus(idleStatus());
 }
 
 /* =========================================================
@@ -917,9 +1018,14 @@ const demoReplies = {
     'Psst… open the WORLD MONITOR and spin the Earth with me. It’s beautiful from up here.',
   ],
 };
+const GREETINGS = {
+  core: '⬢ Core online. All interface systems ready. My real brain connects in Stage 3 — until then, try my modules and watch me form.',
+  male: 'Good day, sir. 🎩 I am MYRA, at your service. This is only my interface for now — my full intelligence arrives in Stage 3.',
+  female: "Hello, I'm MYRA — your personal desktop companion. 💗 Right now only my interface is alive (Stage 1) — my real brain arrives in Stage 3. Type something below and watch me respond!",
+};
 let demoIdx = 0;
 
-function addMsg(text, who) {
+function addMsg(text, who, skipHistory) {
   const log = $('chatLog');
   const div = document.createElement('div');
   div.className = 'msg ' + (who === 'user' ? 'msg-user' : 'msg-ai');
@@ -937,9 +1043,9 @@ function addMsg(text, who) {
   div.appendChild(bubble);
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
+  if (text && !skipHistory) pushHistory(who, text);
   return bubble;
 }
-
 function sendChat() {
   const input = $('chatInput');
   const text = input.value.trim();
@@ -948,7 +1054,7 @@ function sendChat() {
   input.value = '';
   setHoloStatus('🤔 MYRA is thinking…');
   setHoloState('THINKING…');
-  const typing = addMsg('', 'ai');
+  const typing = addMsg('', 'ai', true);
   typing.innerHTML = '<span class="typing">•••</span>';
   setTimeout(() => {
     const pool = demoReplies[HOLO.char] || demoReplies.core;
@@ -960,8 +1066,20 @@ function sendChat() {
     btn.onclick = () => speakDemo(reply);
     typing.appendChild(btn);
     $('chatLog').scrollTop = $('chatLog').scrollHeight;
+    pushHistory('ai', reply);
     speakDemo(reply);
   }, 900);
+}
+function newChat() {
+  const log = $('chatLog');
+  log.innerHTML = '';
+  const ready = document.createElement('div');
+  ready.className = 'sys-ready';
+  ready.textContent = '✦ NEW CONVERSATION ✦';
+  log.appendChild(ready);
+  demoIdx = 0;
+  addMsg(GREETINGS[HOLO.char] || GREETINGS.core, 'ai');
+  logEvent('new conversation started');
 }
 
 /* =========================================================
@@ -976,15 +1094,42 @@ function setPower(on) {
     btn.classList.toggle('is-off', !on);
   }
   if (!on) {
-    HOLO.speaking = false;
-    if ('speechSynthesis' in window) speechSynthesis.cancel();
+    stopSpeaking();
+    setMic(false, true);
     closeViews();
     setHoloStatus('⏻ System offline — press ACTIVATE and the dots will form again');
     toast('⏻ MYRA powered down — particles scattered. Press ACTIVATE to wake her.');
+    logEvent('power OFF (terminated)');
   } else {
     setHoloStatus('✨ Waking up — particles gathering…');
     toast('🤖 MYRA online! Watch the figure form.');
+    logEvent('power ON');
   }
+}
+
+/* =========================================================
+   Stage controls: mic toggle + voice mute
+   ========================================================= */
+let MIC_ARMED = false;
+function setMic(on, silent) {
+  MIC_ARMED = on;
+  $('stageMicBtn').classList.toggle('on', on);
+  $('stageMicBtn').textContent = on ? '🔴' : '🎤';
+  if (!silent) {
+    toast(on
+      ? '🎤 Mic ON (armed) — real listening arrives in Stage 5. When MYRA speaks, the badge above her shows SPEAKING.'
+      : '🎤 Mic OFF.');
+    logEvent('mic ' + (on ? 'armed' : 'off'));
+  }
+}
+function setMute(muted) {
+  VOICE_MUTED = muted;
+  const b = $('muteBtn');
+  b.textContent = muted ? '🔇' : '🔊';
+  b.classList.toggle('on', muted);
+  if (muted) stopSpeaking();
+  toast(muted ? '🔇 MYRA\'s voice muted — she will reply in text only.' : '🔊 Voice unmuted.');
+  logEvent('voice ' + (muted ? 'muted' : 'unmuted'));
 }
 
 /* =========================================================
@@ -1000,6 +1145,7 @@ function setVisual(kind, on) {
   $('scrChip').classList.toggle('on', VIS.scr);
   $('vhCamBtn').classList.toggle('on', VIS.cam);
   $('vhScrBtn').classList.toggle('on', VIS.scr);
+  logEvent('visual hub: ' + kind + ' ' + (on ? 'ON (demo)' : 'OFF'));
   toast(on
     ? '🔴 Indicator demo only — no real camera/screen access yet. Permission-based vision arrives in Stage 9, and this red warning will glow whenever it is on.'
     : '✅ Turned off — MYRA cannot see anything now.', 4600);
@@ -1036,18 +1182,46 @@ function renderMemories() {
 }
 
 /* =========================================================
+   Dropdowns (Feedback / Support / Profile)
+   ========================================================= */
+function closeDropdowns(exceptId) {
+  document.querySelectorAll('.dropdown').forEach((d) => {
+    if (d.id !== exceptId) d.classList.add('hidden');
+  });
+}
+function setupDropdown(btnId, dropId) {
+  const btn = $(btnId), drop = $(dropId);
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const wasHidden = drop.classList.contains('hidden');
+    closeDropdowns();
+    if (wasHidden) drop.classList.remove('hidden');
+  });
+  drop.addEventListener('click', (e) => e.stopPropagation());
+}
+
+/* =========================================================
    Event wiring
    ========================================================= */
 document.addEventListener('DOMContentLoaded', () => {
+  document.body.dataset.theme = themeName;
+  logEvent('MYRA shell boot · theme=' + themeName + ' · char=' + HOLO.char);
+
   initHologram();
   initMap();
   syncCharUI();
   renderMemories();
+  loadNewsCache();
+  renderNews();
+  setTimeout(() => fetchNews(false), 700);
+  setInterval(() => fetchNews(false), 10 * 60 * 1000);
+  window.addEventListener('online', () => { fetchNews(false); logEvent('network online'); });
+  window.addEventListener('offline', () => { setLiveBadge('cached'); logEvent('network offline — cache mode'); });
   setTimeout(drawWires, 350);
   let rT = null;
   window.addEventListener('resize', () => { clearTimeout(rT); rT = setTimeout(drawWires, 160); });
 
-  /* Assistant name */
+  /* Assistant + owner names */
   const savedName = localStorage.getItem('myra_name');
   if (savedName) { $('npName').textContent = savedName.toUpperCase(); $('nameInput').value = savedName; }
   else $('nameInput').value = 'MYRA';
@@ -1056,6 +1230,58 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('myra_name', v);
     $('npName').textContent = v.toUpperCase();
     toast('✨ Name saved — say hello to ' + v + '!');
+  });
+  const applyOwner = (name) => {
+    $('profileNameTop').textContent = (name || 'Profile').split(' ')[0];
+    $('profileAvatar').textContent = (name || 'S').trim().charAt(0).toUpperCase() || 'S';
+    $('ownerName').value = name || '';
+  };
+  applyOwner(localStorage.getItem('myra_owner') || 'Saidul');
+  $('ownerSave').addEventListener('click', () => {
+    const v = $('ownerName').value.trim();
+    if (v) { localStorage.setItem('myra_owner', v); applyOwner(v); toast('👤 Profile saved. Welcome, ' + v.split(' ')[0] + '!'); }
+  });
+  $('profileCharBtn').addEventListener('click', () => { closeDropdowns(); openView('character'); });
+
+  /* Top-bar dropdowns */
+  setupDropdown('feedbackBtn', 'feedbackDrop');
+  setupDropdown('supportBtn', 'supportDrop');
+  setupDropdown('profileBtn', 'profileDrop');
+  document.addEventListener('click', () => closeDropdowns());
+  $('feedbackSend').addEventListener('click', () => {
+    const v = $('feedbackText').value.trim();
+    if (!v) { toast('✏️ Write something first!'); return; }
+    const arr = JSON.parse(localStorage.getItem('myra_feedback') || '[]');
+    arr.push({ ts: Date.now(), text: v });
+    localStorage.setItem('myra_feedback', JSON.stringify(arr));
+    $('feedbackText').value = '';
+    closeDropdowns();
+    toast('💬 Thanks! Your feedback is saved on this device.');
+    logEvent('feedback saved');
+  });
+
+  /* Awareness */
+  const aw = $('awarenessToggle');
+  aw.checked = localStorage.getItem('myra_awareness') === '1';
+  aw.addEventListener('change', () => {
+    localStorage.setItem('myra_awareness', aw.checked ? '1' : '0');
+    toast(aw.checked
+      ? '👁️ Awareness ON — in Stages 5 & 9 MYRA will proactively notice things, always within the permissions you grant. It is just a setting for now.'
+      : '👁️ Awareness OFF — MYRA will only respond when you talk to her.', 4800);
+    logEvent('awareness ' + (aw.checked ? 'ON' : 'OFF'));
+  });
+
+  /* Theme */
+  const themeSel = $('themeSelect');
+  themeSel.value = themeName;
+  themeSel.addEventListener('change', () => {
+    themeName = themeSel.value;
+    document.body.dataset.theme = themeName;
+    localStorage.setItem('myra_theme', themeName);
+    applyTint();
+    drawWires();
+    toast(themeName === 'normal' ? '⬛ Normal black theme.' : themeName === 'friendly' ? '💚 Friendly green theme — soft and warm.' : '🔴 Hacker red theme — alert mode vibes (looks only!).');
+    logEvent('theme → ' + themeName);
   });
 
   /* Clocks */
@@ -1083,11 +1309,16 @@ document.addEventListener('DOMContentLoaded', () => {
   checkHealth();
   setInterval(checkHealth, 20000);
 
-  /* Power */
+  /* Stage controls */
   $('terminateBtn').addEventListener('click', () => setPower(!HOLO.power));
   $('reformBtn').addEventListener('click', reform);
+  $('stageMicBtn').addEventListener('click', () => {
+    if (!HOLO.power) { toast('⏻ System is off — press ACTIVATE first!'); return; }
+    setMic(!MIC_ARMED);
+  });
+  $('muteBtn').addEventListener('click', () => setMute(!VOICE_MUTED));
 
-  /* Character switch — the ONLY place (top selector) */
+  /* Character switch — the ONLY place */
   document.querySelectorAll('[data-char]').forEach((el) => {
     el.addEventListener('click', () => {
       if (!HOLO.power) { toast('⏻ System is off — press ACTIVATE first!'); return; }
@@ -1104,8 +1335,21 @@ document.addEventListener('DOMContentLoaded', () => {
     chip.addEventListener('click', () => openView(chip.dataset.view));
   });
   $('openWorldBtn').addEventListener('click', () => openView('world'));
+  $('previewWindow').addEventListener('click', () => openView('world'));
+  document.querySelectorAll('.wm-chip').forEach((b) => {
+    b.addEventListener('click', (e) => { e.stopPropagation(); openView('world', { tab: b.dataset.wmtab }); });
+  });
+  $('wmTabGlobe').addEventListener('click', () => { setWorldTab('globe'); globeActive = true; });
+  $('wmTabSat').addEventListener('click', () => setWorldTab('sat'));
   document.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', closeViews));
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeViews(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeDropdowns();
+      closeViews();
+      $('convoPanel').classList.remove('expanded');
+      $('expandConvoBtn').textContent = '⤢';
+    }
+  });
 
   /* Conversation tabs */
   document.querySelectorAll('.mode-tab').forEach((tab) => {
@@ -1117,18 +1361,41 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  /* Chat + mic (single mic, in the input bar) */
+  /* Right-panel toolbar */
+  $('newChatBtn').addEventListener('click', newChat);
+  $('historyBtn').addEventListener('click', () => openView('history'));
+  $('consoleBtn').addEventListener('click', () => openView('console'));
+  $('clearHistory').addEventListener('click', () => { HISTORY.length = 0; renderHistory(); toast('🕘 History cleared for this session.'); });
+  $('expandConvoBtn').addEventListener('click', () => {
+    const p = $('convoPanel');
+    const on = p.classList.toggle('expanded');
+    $('expandConvoBtn').textContent = on ? '⤡' : '⤢';
+    document.body.classList.toggle('view-open', on);
+    logEvent('conversation panel ' + (on ? 'expanded to full view' : 'restored'));
+  });
+  $('collapseRightBtn').addEventListener('click', () => {
+    document.body.classList.add('right-collapsed');
+    $('reopenRightBtn').classList.remove('hidden');
+    setTimeout(drawWires, 80);
+    logEvent('right panel hidden');
+  });
+  $('reopenRightBtn').addEventListener('click', () => {
+    document.body.classList.remove('right-collapsed');
+    $('reopenRightBtn').classList.add('hidden');
+    setTimeout(drawWires, 80);
+    logEvent('right panel restored');
+  });
+
+  /* Chat */
   $('sendBtn').addEventListener('click', sendChat);
   $('chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChat(); });
-  $('micBtn').addEventListener('click', () => {
-    toast('🎤 Voice arrives in Stage 5 — then just speak; MYRA will listen fully and answer only after you finish.');
-  });
 
   /* Agent demo */
   const runAgentDemo = () => {
     const task = $('agentInput').value.trim() || '(empty task)';
     const log = $('agentLog');
     log.textContent = `📝 Task received: "${task}"\n`;
+    logEvent('agent task (demo): ' + task.slice(0, 60));
     setTimeout(() => { log.textContent += '⏳ In Stage 8, I would now open the browser myself…\n'; }, 600);
     setTimeout(() => { log.textContent += '🔍 …search, read the results, and hand you a summary report.\n✅ For now this is a demo layout.'; }, 1400);
   };
@@ -1162,6 +1429,7 @@ document.addEventListener('DOMContentLoaded', () => {
     $('memoryInput').value = '';
     renderMemories();
     toast('🧠 Noted! (Demo memory — the permanent SQLite brain arrives in Stage 4.)');
+    logEvent('memory added (demo)');
   };
   $('memoryAdd').addEventListener('click', addMemory);
   $('memoryInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') addMemory(); });
@@ -1180,8 +1448,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   /* Reset preferences */
   $('resetPrefs').addEventListener('click', () => {
-    ['myra_char', 'myra_name', 'myra_skills', 'myra_personality'].forEach((k) => localStorage.removeItem(k));
+    ['myra_char', 'myra_name', 'myra_skills', 'myra_personality', 'myra_theme', 'myra_awareness', 'myra_owner']
+      .forEach((k) => localStorage.removeItem(k));
     toast('🧹 Preferences reset — reload the page to start fresh.', 4200);
+    logEvent('preferences reset');
   });
 
   /* Visual Hub — the ONLY camera/screen controls */
@@ -1216,11 +1486,19 @@ document.addEventListener('DOMContentLoaded', () => {
     toast(`🎭 Personality set to "${e.target.value}" — it will shape replies from Stage 3.`);
   });
 
-  /* World refresh */
-  $('refreshNews').addEventListener('click', () => {
-    toast('🌍 Live news arrives in Stage 10 — then hotspots will mark real events and I can read the headlines aloud!');
+  /* News */
+  $('refreshNews').addEventListener('click', () => fetchNews(true));
+  document.querySelectorAll('.rg-chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('.rg-chip').forEach((c) => c.classList.remove('active'));
+      chip.classList.add('active');
+      newsRegion = chip.dataset.region;
+      renderNews();
+    });
   });
 
+  pushHistory('ai', GREETINGS[HOLO.char] || GREETINGS.core);
   setHoloStatus(idleStatus());
-  toast('✨ MYRA is forming — try CORE / MALE / FEMALE above, click a module chip to open its window, and spin the Earth in WORLD MONITOR!', 6400);
+  logEvent('shell ready · stage 1 interface');
+  toast('✨ MYRA v0.5 — smoother new faces, themes up top, and a living World Monitor. Try CORE / MALE / FEMALE and spin the Earth!', 6400);
 });

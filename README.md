@@ -3,10 +3,11 @@
 **MYRA** is a personal desktop AI companion built to run light on an **8GB RAM** laptop — **100% free** to build and use, with no heavy local AI models.
 
 - 🧠 **Brain:** Gemini API (primary) + Groq API (backup) on free tiers — the owner supplies both keys
-- ✨ **Particle character in 3 forms:** `CORE` (a living orb of light) · `MALE` (JARVIS-style assistant) · `FEMALE` (warm companion) — ~34,000 fine dots flow in waves and form the figure; drag to rotate in 3D
+- ✨ **Particle character in 3 forms:** `CORE` (a living orb of light) · `MALE` (JARVIS-style assistant) · `FEMALE` (warm companion) — ~34,000 fine dots flow in waves and form a smooth futuristic figure, lit by a sweeping scan-light; drag to rotate in 3D
+- 🎨 **Themes:** Normal (black) · Friendly (green) · Hacker (red) — plus an Awareness toggle, Profile, Feedback & Support in the top bar
 - 💾 **Local memory** (SQLite) — remembers you, and everything stays on your laptop, never in the cloud
 - 🎤 Voice + text conversation (smart silence detection) · 🤖 Browser Agent Mode · 📝 Notes
-- 🌍 **World Monitor:** dotted world map + a spinnable 3D Earth with live headlines
+- 🌍 **World Monitor:** live-preview map, a spinnable 3D Earth, a live satellite view, and real headlines that cache for offline reading
 - 📷 Camera / screen: **OFF by default** — only with your permission, with a clear red LIVE indicator
 - 🪟 Every module (Memory, Skills, Character, Settings, World) opens its own full-screen window with a Back button
 

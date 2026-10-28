@@ -29,10 +29,12 @@
 1. **Particle character (3D hologram):** a **chest-up particle bust** (head +
    neck + shoulders, no full body) made of ~34,000 fine dots (Three.js). The
    dots flow in **waves** from a scattered cloud and **form** the figure;
-   switching character scatters them and they re-form. The face is sculpted
-   with real proportions (forehead, brows, nose, eyes, lips, jaw, chin) with
-   soft light shading so it reads like a real person, not a cartoon. Head
-   moves while speaking. Drag to rotate in 3D.
+   switching character scatters them and they re-form. The figure is a
+   **smooth futuristic silhouette** — identity comes from body shape and
+   hair (no carved eyes/lips), with soft light shading. A **scan-light**
+   band sweeps through the dots bottom-to-top (no ring meshes). Head moves
+   while speaking. Drag to rotate in 3D. Themes (Normal black / Friendly
+   green / Hacker red) tint the whole UI and the character.
    - **CORE** → pure AI core: a living sphere of light with orbit rings
    - **MALE** → male bust (short hair, broad shoulders) + male voice;
      personality: professional **JARVIS-style assistant**
@@ -52,15 +54,23 @@
 6. **Agent Mode (browser control):** on command, MYRA opens the browser
    herself, searches/works and reports back (Playwright).
 7. **Notes Mode:** create / view / edit / delete notes, saved locally.
-8. **World Monitor:** dotted world map with hotspots; a full-screen window
-   with a spinnable **3D Earth**; live headlines (free news sources/RSS);
-   on request MYRA reads today's headlines aloud.
+8. **World Monitor:** a live-preview window (dotted world map + hotspots +
+   top headlines) that expands into a full-screen monitor: spinnable **3D
+   Earth**, a **live satellite** embed tab (internet only), region filters.
+   Headlines come from free public RSS while online and are **cached
+   locally** so the panel still shows the last copy offline (backend feed
+   in Stage 10); on request MYRA reads today's headlines aloud.
 9. **Interface layout (one screen, no sprawling panels):**
    - Left: SAT-LINK feed (mini world map + a few headlines + full-view button)
    - Center: the particle CORE stage; module chips **MEMORY / SKILLS /
      CHARACTER / SETTING** wired into the frame with colored circuit lines;
      a **TERMINATE / ACTIVATE** power button; below it the Visual Hub
-   - Right: conversation panel with 3 tabs — **Voice / Agent / Notes**
+   - Top bar: app name + **Feedback** + **Support**; version chip;
+     **Awareness** ON/OFF toggle; **Theme** picker; **Profile** menu
+   - Beside TERMINATE: mic ON/OFF + voice mute/stop buttons
+   - Right: conversation panel with 3 tabs — **Voice / Agent / Notes** —
+     plus a toolbar (new chat ＋, history, session console </>, full-view
+     expand, collapse-panel)
    - Every module (World, Memory, Skills, Character, Settings) opens its own
      **full-screen window** with a **← BACK** button returning to the main view
 
