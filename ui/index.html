@@ -23,16 +23,16 @@
     </div>
     <nav class="top-links">
       <div class="dd-wrap">
-        <button class="top-link" id="feedbackBtn">💬 Feedback</button>
+        <button class="top-link" id="feedbackBtn">Feedback</button>
         <div class="dropdown hidden" id="feedbackDrop">
           <div class="dd-title">Send feedback</div>
           <textarea id="feedbackText" class="input dd-text" rows="4" placeholder="What's good? What's broken? Tell MYRA's builder…"></textarea>
           <button class="btn" id="feedbackSend">SAVE FEEDBACK</button>
-          <p class="hint">Saved locally on this device (Stage 1 demo).</p>
+          <p class="hint">Saved locally on this device.</p>
         </div>
       </div>
       <div class="dd-wrap">
-        <button class="top-link" id="supportBtn">🛟 Support</button>
+        <button class="top-link" id="supportBtn">Support</button>
         <div class="dropdown hidden" id="supportDrop">
           <div class="dd-title">Support</div>
           <ul class="dd-list">
@@ -47,7 +47,7 @@
   </div>
 
   <div class="topbar-right">
-    <span class="version-chip" id="versionChip">v0.5 · Stage 1</span>
+    <span class="version-chip" id="versionChip">v0.6 · Stage 1</span>
 
     <div class="awareness" title="Ambient awareness — MYRA proactively pays attention (real senses arrive in Stages 5 & 9)">
       <span class="aw-label">AWARENESS</span>
@@ -57,9 +57,9 @@
     <label class="theme-pick" title="Interface theme">
       <span class="aw-label">THEME</span>
       <select id="themeSelect" class="theme-select">
-        <option value="normal">⬛ Normal · Black</option>
-        <option value="friendly">💚 Friendly · Green</option>
-        <option value="hacker">🔴 Hacker · Red</option>
+        <option value="normal">⬛ Normal</option>
+        <option value="friendly">💚 Friendly</option>
+        <option value="hacker">🔴 Hacker</option>
       </select>
     </label>
 
@@ -90,15 +90,15 @@
 
 <div class="layout" id="mainLayout">
 
-  <!-- ===== Left: SAT-LINK live preview ===== -->
+  <!-- ===== Left: SAT-LINK live preview (attached open-source monitor) ===== -->
   <aside class="col-left">
     <section class="panel sat-panel">
       <header class="mod-head"><span class="mod-index">SAT</span><h3>SAT-LINK — World Monitor</h3><span class="led"></span></header>
 
-      <div class="preview-window" id="previewWindow" title="Click to open full World Monitor">
+      <div class="preview-window" id="previewWindow" title="Click to open the full World Monitor">
         <div class="pw-bar">
           <span class="pw-dots"><i></i><i></i><i></i></span>
-          <span class="pw-title">WORLD MONITOR · PREVIEW</span>
+          <span class="pw-title">WORLD MONITOR · LIVE</span>
           <span class="live-badge" id="liveBadge">○ CONNECTING</span>
         </div>
         <div class="map-box">
@@ -111,6 +111,8 @@
           <span class="hotspot" style="left:74%;top:38%"></span>
           <span class="hotspot" style="left:76%;top:52%"></span>
           <span class="hotspot" style="left:87%;top:78%"></span>
+          <!-- the live site mini-preview is attached over this by app.js -->
+          <div class="wm-mini-wrap" id="wmMiniWrap"></div>
           <span class="map-expand-hint">⤢ click to expand</span>
         </div>
       </div>
@@ -120,9 +122,9 @@
         <li><span class="hl-src">…</span>Loading headlines…</li>
       </ol>
       <div class="wm-chips">
+        <button class="wm-chip" data-wmtab="live">📡 Live Monitor</button>
         <button class="wm-chip" data-wmtab="globe">🌐 3D Earth</button>
-        <button class="wm-chip" data-wmtab="sat">🛰️ Live Satellite</button>
-        <button class="wm-chip" data-wmtab="globe">📰 All Headlines</button>
+        <button class="wm-chip" data-wmtab="sat">🛰️ Satellite</button>
       </div>
       <button class="btn" id="openWorldBtn">⤢ OPEN WORLD MONITOR</button>
     </section>
@@ -151,19 +153,17 @@
           <canvas id="holoCanvas"></canvas>
           <div class="hud hud-tl"></div><div class="hud hud-tr"></div>
           <div class="hud hud-bl"></div><div class="hud hud-br"></div>
-          <div class="chip-state" id="holoState">FORMING…</div>
+          <div class="chip-state" id="holoState">BOOTING…</div>
           <div class="nameplate">
             <div class="np-name" id="npName">MYRA</div>
-            <div class="np-status" id="holoStatus">✨ Particles are gathering into form…</div>
+            <div class="np-status" id="holoStatus">✨ MYRA is waking up…</div>
           </div>
         </div>
         <div class="stage-controls">
           <button class="terminate-btn" id="terminateBtn">⏻ TERMINATE</button>
           <button class="sq-btn mic-toggle" id="stageMicBtn" title="Microphone on/off (real listening in Stage 5)">🎤</button>
           <button class="sq-btn" id="muteBtn" title="Mute / stop MYRA's voice">🔊</button>
-          <button class="sq-btn" id="reformBtn" title="Replay formation">✨</button>
         </div>
-        <div class="drag-hint">🖱️ Drag the hologram to rotate in 3D</div>
       </div>
     </div>
 
@@ -204,7 +204,7 @@
           <button class="tb-btn" id="historyBtn" title="Chat history">🕘</button>
           <button class="tb-btn tb-code" id="consoleBtn" title="Session console">&lt;/&gt;</button>
           <button class="tb-btn" id="expandConvoBtn" title="Full view">⤢</button>
-          <button class="tb-btn" id="collapseRightBtn" title="Hide this panel">⟩</button>
+          <button class="tb-btn tb-hide" id="collapseRightBtn" title="Hide this side panel">HIDE ⟩</button>
         </div>
       </div>
 
@@ -216,7 +216,7 @@
           </div>
         </div>
         <div class="input-row">
-          <input type="text" id="chatInput" class="input chat-input" placeholder="Type to MYRA… (mic is under the hologram)">
+          <input type="text" id="chatInput" class="input chat-input" placeholder="Type to MYRA…">
           <button class="btn btn-send" id="sendBtn">➤</button>
         </div>
       </div>
@@ -241,7 +241,6 @@
   </aside>
 </div>
 
-<!-- Reopen tab when the right panel is hidden -->
 <button class="reopen-tab hidden" id="reopenRightBtn">⟨ CHAT</button>
 
 <!-- ===== Full-screen windows ===== -->
@@ -257,17 +256,27 @@
   <div class="fv-body world-grid">
     <div>
       <div class="wm-tabs">
-        <button class="wm-tab active" id="wmTabGlobe">🌐 3D EARTH</button>
-        <button class="wm-tab" id="wmTabSat">🛰️ LIVE SATELLITE</button>
-        <label class="wm-rot" title="Auto-rotate the globe"><input type="checkbox" id="globeSpin" checked> auto-spin</label>
+        <button class="wm-tab active" id="wmTabLive">📡 LIVE MONITOR</button>
+        <button class="wm-tab" id="wmTabGlobe">🌐 3D EARTH</button>
+        <button class="wm-tab" id="wmTabSat">🛰️ SATELLITE</button>
+        <a class="ext-link" id="wmExternal" href="https://worldmonitor.app" target="_blank" rel="noopener">Open worldmonitor.app ↗</a>
       </div>
-      <div class="globe-box" id="globeBox">
+
+      <div class="globe-box" id="liveBox">
+        <div class="sat-fallback" id="liveFallback">📡 Loading the live world monitor…<br><small>Needs internet. If this stays blank, that site may refuse to be framed right now — use the <b>↗ Open</b> button above, or the 3D Earth tab which always works offline.</small></div>
+        <!-- live site iframe is attached here by app.js -->
+        <div class="globe-hint">Live dashboard · worldmonitor.app (open-source project)</div>
+      </div>
+
+      <div class="globe-box hidden" id="globeBox">
         <canvas id="globeCanvas"></canvas>
         <div class="globe-hint">🖱️ Drag to spin the Earth</div>
+        <label class="globe-spin"><input type="checkbox" id="globeSpin" checked> auto-spin</label>
       </div>
+
       <div class="globe-box hidden" id="satBox">
         <div class="sat-fallback" id="satFallback">🛰️ Loading live satellite view…<br><small>Needs internet. If this stays blank, the embed may be unavailable right now — the 3D Earth tab always works offline.</small></div>
-        <!-- Live satellite embed is injected here by app.js -->
+        <!-- live satellite embed is injected here by app.js -->
         <div class="globe-hint">Live satellite &amp; weather layers (internet required)</div>
       </div>
     </div>
@@ -306,7 +315,7 @@
     <span class="fv-note">Stored only on your laptop — never in the cloud</span>
   </header>
   <div class="fv-body">
-    <p class="hint" style="margin-top:0">From Stage 4, MYRA will remember your name, your likes, your days — everything you share. Right now you can try adding memories (demo — they will plug into the real SQLite brain in Stage 4).</p>
+    <p class="hint" style="margin-top:0">From Stage 4, MYRA will remember your name, your likes, your days — everything you share. You can already add memories below; they will plug into the real SQLite brain in Stage 4.</p>
     <div class="input-row" style="max-width:640px">
       <input type="text" id="memoryInput" class="input chat-input" placeholder="e.g. My favorite food is biryani">
       <button class="btn btn-send" id="memoryAdd">＋ ADD</button>
@@ -427,8 +436,9 @@
 
       <hr class="divider">
       <h3>ℹ️ About</h3>
-      <p class="hint"><b>MYRA</b> — Personal Desktop AI Assistant · <span id="aboutVersion">v0.5 · Stage 1 (Interface)</span><br>
-      Brain: Gemini (primary) + Groq (backup) — free cloud APIs · Memory: local SQLite · Runs light on 8GB RAM.</p>
+      <p class="hint"><b>MYRA</b> — Personal Desktop AI Assistant · <span id="aboutVersion">v0.6 · Stage 1 (Interface)</span><br>
+      Brain: Gemini (primary) + Groq (backup) — free cloud APIs · Memory: local SQLite · Runs light on 8GB RAM.<br>
+      World Monitor attaches the open-source live dashboard at worldmonitor.app.</p>
     </div>
   </div>
 </section>

@@ -7,7 +7,7 @@
 - 🎨 **Themes:** Normal (black) · Friendly (green) · Hacker (red) — plus an Awareness toggle, Profile, Feedback & Support in the top bar
 - 💾 **Local memory** (SQLite) — remembers you, and everything stays on your laptop, never in the cloud
 - 🎤 Voice + text conversation (smart silence detection) · 🤖 Browser Agent Mode · 📝 Notes
-- 🌍 **World Monitor:** live-preview map, a spinnable 3D Earth, a live satellite view, and real headlines that cache for offline reading
+- 🌍 **World Monitor:** attaches the open-source live dashboard [worldmonitor.app](https://worldmonitor.app) (small live preview + full-screen tab), plus MYRA's own spinnable 3D Earth, a live satellite view, and real headlines that cache for offline reading
 - 📷 Camera / screen: **OFF by default** — only with your permission, with a clear red LIVE indicator
 - 🪟 Every module (Memory, Skills, Character, Settings, World) opens its own full-screen window with a Back button
 
