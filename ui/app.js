@@ -1069,7 +1069,7 @@ const demoReplies = {
 const GREETINGS = {
   core: '⬢ Core online. All interface systems ready. My real brain connects in Stage 3 — until then, try my modules and watch me shift shape.',
   male: 'Good day, sir. 🎩 I am MYRA, at your service. This is only my interface for now — my full intelligence arrives in Stage 3.',
-  female: "Hello, I'm MYRA — your personal desktop companion. 💗 Right now only my interface is alive (Stage 1) — my real brain arrives in Stage 3. Type something below and watch me respond!",
+  female: "Hello, I'm MYRA — your personal desktop companion. 💗 My interface is alive and my API keys can now be saved in Settings (Stage 2) — my real brain starts talking in Stage 3. Type something below and watch me respond!",
 };
 let demoIdx = 0;
 

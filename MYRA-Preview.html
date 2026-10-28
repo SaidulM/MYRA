@@ -1,4 +1,4 @@
-<!-- MYRA — one-file preview (v0.6). Just open this file in a browser. Live news/monitor need internet; everything else works offline. -->
+<!-- MYRA — one-file preview (v0.7 · Stage 2). Just open this file in a browser. NOTE: API keys can only be saved from the real app (start.bat on your laptop), not from this preview. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -401,6 +401,14 @@ body.view-open{overflow:hidden}
   .brand-sub{display:none}
 }
 
+/* Stage 2: API-key rows + masked status badges */
+.key-row { display: flex; gap: 6px; align-items: stretch; margin: 2px 0 8px; }
+.key-row .input { flex: 1; margin: 0; }
+.key-status { margin-left: 6px; font-size: 10px; letter-spacing: .4px; color: #8fb8c4; text-transform: none; }
+.key-status.set { color: #4ade80; }
+.key-remove { border: 1px solid rgba(248,113,113,.55); color: #f87171; background: rgba(248,113,113,.08); border-radius: 6px; padding: 0 10px; cursor: pointer; font-size: 13px; }
+.key-remove:hover { background: rgba(248,113,113,.22); }
+
 </style>
 <script>
 /* Three.js r128 (MIT licensed, inlined for one-file preview) */
@@ -616,7 +624,7 @@ body.view-open{overflow:hidden}
         <div class="chat-log" id="chatLog">
           <div class="sys-ready">✦ SYSTEM READY ✦</div>
           <div class="msg msg-ai">
-            <div class="msg-bubble" id="greetingBubble">Hello, I'm <b>MYRA</b> — your personal desktop companion. 💗 Right now only my interface is alive (Stage 1) — my real brain arrives in Stage 3. Type something below and watch me respond!</div>
+            <div class="msg-bubble" id="greetingBubble">Hello, I'm <b>MYRA</b> — your personal desktop companion. 💗 My interface is alive and my API keys can now be saved in Settings (Stage 2) — my real brain starts talking in Stage 3. Type something below and watch me respond!</div>
           </div>
         </div>
         <div class="input-row">
@@ -840,7 +848,7 @@ body.view-open{overflow:hidden}
 
       <hr class="divider">
       <h3>ℹ️ About</h3>
-      <p class="hint"><b>MYRA</b> — Personal Desktop AI Assistant · <span id="aboutVersion">v0.6 · Stage 1 (Interface)</span><br>
+      <p class="hint"><b>MYRA</b> — Personal Desktop AI Assistant · <span id="aboutVersion">v0.7 · Stage 2 (API Keys)</span><br>
       Brain: Gemini (primary) + Groq (backup) — free cloud APIs · Memory: local SQLite · Runs light on 8GB RAM.<br>
       World Monitor attaches the open-source live dashboard at worldmonitor.app.</p>
     </div>
@@ -1963,7 +1971,7 @@ const demoReplies = {
 const GREETINGS = {
   core: '⬢ Core online. All interface systems ready. My real brain connects in Stage 3 — until then, try my modules and watch me shift shape.',
   male: 'Good day, sir. 🎩 I am MYRA, at your service. This is only my interface for now — my full intelligence arrives in Stage 3.',
-  female: "Hello, I'm MYRA — your personal desktop companion. 💗 Right now only my interface is alive (Stage 1) — my real brain arrives in Stage 3. Type something below and watch me respond!",
+  female: "Hello, I'm MYRA — your personal desktop companion. 💗 My interface is alive and my API keys can now be saved in Settings (Stage 2) — my real brain starts talking in Stage 3. Type something below and watch me respond!",
 };
 let demoIdx = 0;
 
