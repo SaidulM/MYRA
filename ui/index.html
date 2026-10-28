@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="bn">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Stonic AI — System Core</title>
+<title>MYRA — Personal Desktop AI Assistant</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
@@ -11,72 +11,72 @@
 </head>
 <body>
 
-<!-- ===== টপ বার ===== -->
+<!-- ===== Top Bar ===== -->
 <header class="topbar">
   <div class="brand">
     <div class="brand-orb"></div>
     <div>
-      <div class="brand-name">STONIC&nbsp;AI</div>
-      <div class="brand-sub">SYSTEM CORE // পার্সোনাল অ্যাসিস্ট্যান্ট</div>
+      <div class="brand-name">M Y R A</div>
+      <div class="brand-sub">PERSONAL DESKTOP AI ASSISTANT</div>
     </div>
   </div>
   <div class="topbar-right">
     <span id="serverDot" class="dot dot-off"></span>
-    <span id="serverText" class="server-text">চেক করা হচ্ছে…</span>
+    <span id="serverText" class="server-text">Checking…</span>
     <span class="tb-sep"></span>
     <span id="clock" class="clock">--:--:--</span>
-    <span id="camIndicator" class="live-indicator hidden">🔴 LIVE — ক্যামেরা/স্ক্রিন</span>
+    <span id="camIndicator" class="live-indicator hidden">🔴 LIVE — CAMERA / SCREEN</span>
   </div>
 </header>
 
-<div class="layout">
+<div class="layout" id="mainLayout">
 
-  <!-- ===== বাম: SAT-LINK FEED ===== -->
+  <!-- ===== Left: SAT-LINK FEED (compact) ===== -->
   <aside class="col-left">
     <section class="panel sat-panel">
-      <header class="mod-head"><span class="mod-index">SAT</span><h3>SAT-LINK FEED — বিশ্ব নজরদারি</h3><span class="led"></span></header>
+      <header class="mod-head"><span class="mod-index">SAT</span><h3>SAT-LINK FEED — World Monitor</h3><span class="led"></span></header>
       <div class="map-box">
         <canvas id="mapCanvas"></canvas>
-        <span class="hotspot" style="left:20%;top:34%" title="উত্তর আমেরিকা"></span>
-        <span class="hotspot" style="left:30%;top:72%" title="দক্ষিণ আমেরিকা"></span>
-        <span class="hotspot" style="left:50%;top:24%" title="ইউরোপ"></span>
-        <span class="hotspot" style="left:56%;top:58%" title="আফ্রিকা"></span>
-        <span class="hotspot" style="left:63%;top:42%" title="মধ্যপ্রাচ্য"></span>
-        <span class="hotspot" style="left:74%;top:38%" title="এশিয়া"></span>
-        <span class="hotspot" style="left:76%;top:52%" title="দক্ষিণ এশিয়া"></span>
-        <span class="hotspot" style="left:87%;top:78%" title="অস্ট্রেলিয়া"></span>
-        <span class="map-corner">(LIVE ফিড ধাপ ১০-এ)</span>
+        <span class="hotspot" style="left:20%;top:34%" title="North America"></span>
+        <span class="hotspot" style="left:30%;top:72%" title="South America"></span>
+        <span class="hotspot" style="left:50%;top:24%" title="Europe"></span>
+        <span class="hotspot" style="left:56%;top:58%" title="Africa"></span>
+        <span class="hotspot" style="left:63%;top:42%" title="Middle East"></span>
+        <span class="hotspot" style="left:74%;top:38%" title="Asia"></span>
+        <span class="hotspot" style="left:76%;top:52%" title="South Asia"></span>
+        <span class="hotspot" style="left:87%;top:78%" title="Australia"></span>
+        <span class="map-corner">LIVE feed arrives in Stage 10</span>
       </div>
-      <div class="hl-head">📰 TODAY HEADLINES — আজকের শিরোনাম</div>
+      <div class="hl-head">📰 TODAY HEADLINES</div>
       <ol class="headlines">
-        <li><span class="hl-src">ডেমো</span>ধাপ ১০-এ এখানে সত্যিকারের লাইভ হেডলাইন আসবে</li>
-        <li><span class="hl-src">ডেমো</span>বললেই Stonic আজকের সব শিরোনাম পড়ে শোনাবে</li>
-        <li><span class="hl-src">ডেমো</span>মানচিত্রের হটস্পটগুলো ঘটনাস্থলে ঝলকাবে</li>
+        <li><span class="hl-src">DEMO</span>Real live headlines will stream here in Stage 10</li>
+        <li><span class="hl-src">DEMO</span>Ask MYRA and she will read today's top stories aloud</li>
+        <li><span class="hl-src">DEMO</span>Hotspots on the map will flash where events happen</li>
       </ol>
-      <button class="btn" id="refreshNews">🔄 ফিড রিফ্রেশ করো</button>
+      <button class="btn" id="openWorldBtn">⤢ OPEN WORLD MONITOR</button>
     </section>
   </aside>
 
-  <!-- ===== মাঝখান: CORE স্টেজ + VISUAL HUB ===== -->
+  <!-- ===== Center: Stage + Visual Hub ===== -->
   <main class="col-center">
 
     <div class="stage-zone" id="stageZone">
-      <!-- সার্কিট লাইন: চিপ → ফ্রেম -->
       <svg id="wires" class="wires" aria-hidden="true"></svg>
 
-      <!-- মডিউল চিপস (চাপলে পপওভার খুলবে — সব খোলাখুলি নয়) -->
+      <!-- Module chips — click to open each module's full window -->
       <div class="chips">
-        <button class="mod-chip chip-memory" data-pop="memory"><span class="chip-tag">MEMORY</span><span class="chip-sub">স্মৃতি</span></button>
-        <button class="mod-chip chip-skills" data-pop="skills"><span class="chip-tag">SKILLS</span><span class="chip-sub">দক্ষতা</span></button>
-        <button class="mod-chip chip-character" data-pop="character"><span class="chip-tag">CHARACTER</span><span class="chip-sub">চরিত্র</span></button>
-        <button class="mod-chip chip-setting" data-pop="setting"><span class="chip-tag">SETTING</span><span class="chip-sub">সেটিংস</span></button>
+        <button class="mod-chip chip-memory" data-view="memory"><span class="chip-tag">MEMORY</span><span class="chip-sub">open window ⤢</span></button>
+        <button class="mod-chip chip-skills" data-view="skills"><span class="chip-tag">SKILLS</span><span class="chip-sub">open window ⤢</span></button>
+        <button class="mod-chip chip-character" data-view="character"><span class="chip-tag">CHARACTER</span><span class="chip-sub">open window ⤢</span></button>
+        <button class="mod-chip chip-setting" data-view="setting"><span class="chip-tag">SETTING</span><span class="chip-sub">open window ⤢</span></button>
       </div>
 
-      <!-- হলোগ্রাম ফ্রেম -->
+      <!-- Hologram frame -->
       <div class="frame-wrap">
-        <div class="core-switch" title="Core চরিত্র বদলাও">
-          <button class="core-pill" data-gender="female">♀ FEMALE</button>
-          <button class="core-pill" data-gender="male">♂ MALE</button>
+        <div class="core-switch" title="Choose who MYRA is">
+          <button class="core-pill" data-char="core">⬢ CORE</button>
+          <button class="core-pill" data-char="male">♂ MALE</button>
+          <button class="core-pill" data-char="female">♀ FEMALE</button>
         </div>
         <div class="stage" id="stage">
           <canvas id="holoCanvas"></canvas>
@@ -84,92 +84,42 @@
           <div class="hud hud-bl"></div><div class="hud hud-br"></div>
           <div class="chip-state" id="holoState">FORMING…</div>
           <div class="nameplate">
-            <div class="np-name">S T O N I C</div>
-            <div class="np-status" id="holoStatus">✨ ডটগুলো জড়ো হয়ে আকার নিচ্ছে…</div>
+            <div class="np-name" id="npName">MYRA</div>
+            <div class="np-status" id="holoStatus">✨ Particles are gathering into form…</div>
           </div>
         </div>
         <div class="stage-controls">
-          <button class="terminate-btn" id="terminateBtn">⏻ TERMINATE — বন্ধ করো</button>
-          <button class="sq-btn" id="bigMicBtn" title="ভয়েস (ধাপ ৫)">🎤</button>
-          <button class="sq-btn" id="reformBtn" title="গঠন আবার দেখো">✨</button>
+          <button class="terminate-btn" id="terminateBtn">⏻ TERMINATE</button>
+          <button class="sq-btn" id="reformBtn" title="Replay formation">✨</button>
         </div>
-        <div class="drag-hint">🖱️ হলোগ্রাম ড্র্যাগ করে ঘোরাও</div>
-      </div>
-
-      <!-- পপওভার: মডিউলের কন্ট্রোল (চিপে চাপলে খোলে) -->
-      <div class="popover hidden" id="popover">
-        <header class="pop-head">
-          <span class="pop-title" id="popoverTitle">MEMORY</span>
-          <button class="pop-close" id="popoverClose">✕</button>
-        </header>
-
-        <div class="pop-body" id="pop-memory">
-          <div class="empty-note">এখনো কোনো স্মৃতি নেই।<br>ধাপ ৪ থেকে আমি তোমাকে মনে রাখতে শিখবো — নাম, পছন্দ, প্রতিদিনের কথা।</div>
-          <button class="btn btn-danger" id="clearMemory" disabled>সব স্মৃতি মুছে ফেলো</button>
-          <p class="hint">🧠 সব স্মৃতি থাকবে তোমার ল্যাপটপেই (SQLite) — ক্লাউডে নয়।</p>
-        </div>
-
-        <div class="pop-body hidden" id="pop-skills">
-          <div class="skill-row"><span>🌐 ব্রাউজার এজেন্ট</span><label class="switch"><input type="checkbox" class="skill-toggle" data-skill="browser_agent" checked><span class="slider"></span></label></div>
-          <div class="skill-row"><span>📰 সংবাদ পাঠক</span><label class="switch"><input type="checkbox" class="skill-toggle" data-skill="news_reader" checked><span class="slider"></span></label></div>
-          <div class="skill-row"><span>📝 নোট সহকারী</span><label class="switch"><input type="checkbox" class="skill-toggle" data-skill="note_helper" checked><span class="slider"></span></label></div>
-          <div class="skill-row"><span>📷 ক্যামেরা ভিশন</span><label class="switch"><input type="checkbox" class="skill-toggle" data-skill="camera_vision"><span class="slider"></span></label></div>
-          <p class="hint">🧩 প্রতিটা স্কিল আলাদা ON/OFF — নতুন স্কিল যোগ হবে ধাপ ৭ থেকে।</p>
-        </div>
-
-        <div class="pop-body hidden" id="pop-character">
-          <div class="gender-row">
-            <button class="gender-btn" data-gender="male" id="btnMale">👨 Male (ছেলে)</button>
-            <button class="gender-btn" data-gender="female" id="btnFemale">👩 Female (মেয়ে)</button>
-          </div>
-          <p class="hint">বদলালে ডটগুলো ভেঙে ছড়িয়ে আবার নতুন মুখে গঠন হবে। কণ্ঠও বদলাবে ধাপ ৫ থেকে।</p>
-          <label class="field-label">ব্যক্তিত্ব (Personality)</label>
-          <select id="personality" class="input">
-            <option>বন্ধুসুলভ ও আন্তরিক</option>
-            <option>প্রফেশনাল JARVIS-স্টাইল</option>
-            <option>শিক্ষকের মতো মেন্টর</option>
-            <option>মোটিভেশনাল কোচ</option>
-          </select>
-        </div>
-
-        <div class="pop-body hidden" id="pop-setting">
-          <label class="field-label">Gemini API Key (প্রাইমারি)</label>
-          <input type="password" id="geminiKey" class="input" placeholder="ধাপ ২-এ সক্রিয় হবে" autocomplete="off">
-          <label class="field-label">Groq API Key (ব্যাকআপ)</label>
-          <input type="password" id="groqKey" class="input" placeholder="ধাপ ২-এ সক্রিয় হবে" autocomplete="off">
-          <button class="btn" id="saveKeys">💾 Key সেভ করো</button>
-          <hr class="divider">
-          <div class="skill-row"><span>📷 ক্যামেরা (ধাপ ৯)</span><label class="switch"><input type="checkbox" id="cameraToggle"><span class="slider"></span></label></div>
-          <div class="skill-row"><span>🖥️ স্ক্রিন শেয়ার (ধাপ ৯)</span><label class="switch"><input type="checkbox" id="screenToggle"><span class="slider"></span></label></div>
-          <p class="hint">দুটোই ডিফল্ট OFF — শুধু তুমি ON করলেই আমি দেখতে পাবো।</p>
-        </div>
+        <div class="drag-hint">🖱️ Drag the hologram to rotate in 3D</div>
       </div>
     </div>
 
-    <!-- VISUAL HUB -->
+    <!-- VISUAL HUB (single home of camera/screen controls) -->
     <section class="panel visual-hub">
-      <header class="mod-head"><span class="mod-index">VIS</span><h3>VISUAL HUB — চোখের জগৎ</h3><span class="led"></span></header>
+      <header class="mod-head"><span class="mod-index">VIS</span><h3>VISUAL HUB — Eyes of MYRA</h3><span class="led"></span></header>
       <div class="vh-grid">
         <div class="vh-preview">
           <div class="vh-layers"><span></span><span></span><span></span></div>
-          <div class="vh-msg">ক্যামেরা/স্ক্রিন এখন বন্ধ<br><small>ON করলেই এখানে প্রিভিউ আসবে (ধাপ ৯)</small></div>
+          <div class="vh-msg">Camera &amp; screen are OFF<br><small>Preview appears here when you turn one on (Stage 9)</small></div>
           <div class="vh-chips">
             <span class="vh-chip" id="camChip">CAM · OFF</span>
             <span class="vh-chip" id="scrChip">SCREEN · OFF</span>
           </div>
         </div>
         <div class="vh-actions">
-          <div class="vh-q">আমাকে কী দেখাবে? 👀</div>
-          <button class="vh-btn" id="vhCamBtn">📷 আমার চারপাশটা দেখো <small>— ক্যামেরা</small></button>
-          <button class="vh-btn" id="vhScrBtn">🖥️ আমার স্ক্রিনটা দেখো <small>— স্ক্রিন শেয়ার</small></button>
-          <button class="vh-btn vh-suggest" data-vh="আমার স্ক্রিনে যা আছে সেটা দেখে এই কাজটা করে দাও">💡 "স্ক্রিন দেখে আমাকে সাহায্য করো"</button>
-          <button class="vh-btn vh-suggest" data-vh="ক্যামেরায় আমার চারপাশ দেখে বলো আমি কোথায় আছি">💡 "আমি কোথায় আছি দেখে বলো"</button>
+          <div class="vh-q">What should I look at? 👀</div>
+          <button class="vh-btn" id="vhCamBtn">📷 Look around me <small>— camera</small></button>
+          <button class="vh-btn" id="vhScrBtn">🖥️ Look at my screen <small>— screen share</small></button>
+          <button class="vh-btn vh-suggest" data-vh="Look at my screen and help me with what I'm doing">💡 "See my screen and help me"</button>
+          <button class="vh-btn vh-suggest" data-vh="Look through the camera and tell me what you see around me">💡 "Tell me what you see around me"</button>
         </div>
       </div>
     </section>
   </main>
 
-  <!-- ===== ডান: কথোপকথন প্যানেল ===== -->
+  <!-- ===== Right: Conversation Panel ===== -->
   <aside class="col-right">
     <section class="panel convo-panel">
       <nav class="mode-tabs">
@@ -178,35 +128,32 @@
         <button class="mode-tab" data-mode="notes">📝 NOTES</button>
       </nav>
 
-      <!-- Voice -->
       <div class="mode-panel active" id="mode-voice">
         <div class="chat-log" id="chatLog">
           <div class="sys-ready">✦ SYSTEM READY ✦</div>
           <div class="msg msg-ai">
-            <div class="msg-bubble">আসসালামু আলাইকুম সাইদুল! 👋 দেখো তো — এবার আমার মুখটা আলাদা করে খোদাই করে বানানো! এখন <b>ধাপ ১</b> (শুধু UI)। নিচে কিছু লিখে পাঠাও, ডেমো উত্তরে আমার মাথা নড়তে দেখবে।</div>
+            <div class="msg-bubble" id="greetingBubble">Hello, I'm <b>MYRA</b> — your personal desktop companion. 💗 Right now only my interface is alive (Stage 1) — my real brain arrives in Stage 3. Type something below and watch me respond!</div>
           </div>
         </div>
         <div class="input-row">
-          <button class="icon-btn mic-btn" id="micBtn" title="ভয়েস (ধাপ ৫)">🎤</button>
-          <input type="text" id="chatInput" class="input chat-input" placeholder="Stonic-কে লেখো…">
+          <button class="icon-btn mic-btn" id="micBtn" title="Voice input (Stage 5)">🎤</button>
+          <input type="text" id="chatInput" class="input chat-input" placeholder="Type to MYRA…">
           <button class="btn btn-send" id="sendBtn">➤</button>
         </div>
       </div>
 
-      <!-- Agent -->
       <div class="mode-panel" id="mode-agent">
-        <p class="hint">উদাহরণ: "এই বিষয়ে সার্চ করে সামারি দাও" — আমি নিজে ব্রাউজার খুলে কাজ করে রিপোর্ট দেবো। <b>(কার্যকর হবে ধাপ ৮-এ)</b></p>
-        <div class="agent-log" id="agentLog">AGENT প্রস্তুত — নির্দেশের অপেক্ষায়…</div>
+        <p class="hint">Example: "Search this topic and give me a summary" — MYRA will open the browser herself and report back. <b>(Live in Stage 8)</b></p>
+        <div class="agent-log" id="agentLog">AGENT standing by — awaiting orders…</div>
         <div class="input-row">
-          <input type="text" id="agentInput" class="input chat-input" placeholder="কাজের নির্দেশ লেখো…">
+          <input type="text" id="agentInput" class="input chat-input" placeholder="Describe the task…">
           <button class="btn btn-send" id="agentBtn">▶</button>
         </div>
       </div>
 
-      <!-- Notes -->
       <div class="mode-panel" id="mode-notes">
         <div class="input-row" style="margin-top:2px">
-          <input type="text" id="noteInput" class="input chat-input" placeholder="নোট লেখো… (আসল সেভ ধাপ ৭-এ)">
+          <input type="text" id="noteInput" class="input chat-input" placeholder="Write a note… (real saving in Stage 7)">
           <button class="btn btn-send" id="noteAdd">＋</button>
         </div>
         <ul class="notes-list" id="notesList"></ul>
@@ -215,20 +162,189 @@
   </aside>
 </div>
 
-<!-- ===== ফুটার: বিল্ড প্রগ্রেস ===== -->
+<!-- ===== Full-screen windows (opened from chips / expand buttons) ===== -->
+
+<!-- WORLD MONITOR -->
+<section class="fullview hidden" id="view-world">
+  <header class="fv-head">
+    <button class="back-btn" data-back>← BACK</button>
+    <h2>🌍 WORLD MONITOR — SAT-LINK</h2>
+    <span class="fv-clock" id="utcClock">UTC --:--:--</span>
+  </header>
+  <div class="fv-body world-grid">
+    <div class="globe-box">
+      <canvas id="globeCanvas"></canvas>
+      <div class="globe-hint">🖱️ Drag to spin the Earth · Live data streams in Stage 10</div>
+    </div>
+    <div class="world-side">
+      <h3>📰 TODAY HEADLINES</h3>
+      <div class="news-card"><div class="news-tag">WORLD</div><div class="news-title">Demo headline — real world news will flow here</div><div class="news-meta">Source: —</div></div>
+      <div class="news-card"><div class="news-tag">TECH</div><div class="news-title">Demo headline — real technology news will flow here</div><div class="news-meta">Source: —</div></div>
+      <div class="news-card"><div class="news-tag">LOCAL</div><div class="news-title">Demo headline — real local news will flow here</div><div class="news-meta">Source: —</div></div>
+      <button class="btn" id="refreshNews">🔄 REFRESH FEED</button>
+      <h3 style="margin-top:16px">📍 ACTIVE REGIONS</h3>
+      <ul class="region-list">
+        <li><span class="rg-dot"></span> North America <span class="rg-stat">monitoring</span></li>
+        <li><span class="rg-dot"></span> Europe <span class="rg-stat">monitoring</span></li>
+        <li><span class="rg-dot"></span> Middle East <span class="rg-stat">monitoring</span></li>
+        <li><span class="rg-dot"></span> Asia <span class="rg-stat">monitoring</span></li>
+        <li><span class="rg-dot"></span> South Asia <span class="rg-stat">monitoring</span></li>
+        <li><span class="rg-dot"></span> Africa <span class="rg-stat">monitoring</span></li>
+        <li><span class="rg-dot"></span> Australia <span class="rg-stat">monitoring</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- MEMORY -->
+<section class="fullview hidden" id="view-memory">
+  <header class="fv-head">
+    <button class="back-btn" data-back>← BACK</button>
+    <h2>🧠 MEMORY</h2>
+    <span class="fv-note">Stored only on your laptop — never in the cloud</span>
+  </header>
+  <div class="fv-body">
+    <p class="hint" style="margin-top:0">From Stage 4, MYRA will remember your name, your likes, your days — everything you share. Right now you can try adding memories (demo — they will plug into the real SQLite brain in Stage 4).</p>
+    <div class="input-row" style="max-width:640px">
+      <input type="text" id="memoryInput" class="input chat-input" placeholder="e.g. My favorite food is biryani">
+      <button class="btn btn-send" id="memoryAdd">＋ ADD</button>
+    </div>
+    <ul class="memory-list" id="memoryList"></ul>
+    <div class="empty-note" id="memoryEmpty">No memories yet. Teach MYRA something about you above ☝️</div>
+    <button class="btn btn-danger" id="clearMemory" style="max-width:280px">🗑️ ERASE ALL MEMORIES</button>
+  </div>
+</section>
+
+<!-- SKILLS -->
+<section class="fullview hidden" id="view-skills">
+  <header class="fv-head">
+    <button class="back-btn" data-back>← BACK</button>
+    <h2>🧩 SKILLS</h2>
+    <span class="fv-note">Skill engine activates in Stage 7</span>
+  </header>
+  <div class="fv-body">
+    <div class="skill-cards">
+      <div class="skill-card">
+        <div class="sk-ico">🌐</div>
+        <div class="sk-info"><b>Browser Agent</b><small>Opens the browser, searches and reports for you</small></div>
+        <label class="switch"><input type="checkbox" class="skill-toggle" data-skill="browser_agent" checked><span class="slider"></span></label>
+      </div>
+      <div class="skill-card">
+        <div class="sk-ico">📰</div>
+        <div class="sk-info"><b>News Reader</b><small>Reads today's headlines aloud on request</small></div>
+        <label class="switch"><input type="checkbox" class="skill-toggle" data-skill="news_reader" checked><span class="slider"></span></label>
+      </div>
+      <div class="skill-card">
+        <div class="sk-ico">📝</div>
+        <div class="sk-info"><b>Note Helper</b><small>Takes, finds and organizes your notes</small></div>
+        <label class="switch"><input type="checkbox" class="skill-toggle" data-skill="note_helper" checked><span class="slider"></span></label>
+      </div>
+      <div class="skill-card">
+        <div class="sk-ico">📷</div>
+        <div class="sk-info"><b>Camera Vision</b><small>Understands what the camera shows (only with permission)</small></div>
+        <label class="switch"><input type="checkbox" class="skill-toggle" data-skill="camera_vision"><span class="slider"></span></label>
+      </div>
+      <div class="skill-card skill-soon">
+        <div class="sk-ico">➕</div>
+        <div class="sk-info"><b>Add New Skill</b><small>Plug in new abilities here (Stage 7+)</small></div>
+        <span class="soon-tag">SOON</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CHARACTER -->
+<section class="fullview hidden" id="view-character">
+  <header class="fv-head">
+    <button class="back-btn" data-back>← BACK</button>
+    <h2>🎭 CHARACTER</h2>
+    <span class="fv-note">Switch CORE / MALE / FEMALE from the selector above the hologram</span>
+  </header>
+  <div class="fv-body">
+    <div class="char-cards">
+      <div class="char-card" id="card-core">
+        <div class="cc-ico">⬢</div>
+        <b>CORE</b>
+        <small>Pure AI core — a living sphere of light. Neutral, calm, system-like voice.</small>
+        <span class="cc-badge hidden">ACTIVE</span>
+      </div>
+      <div class="char-card" id="card-male">
+        <div class="cc-ico">♂</div>
+        <b>MALE — The Assistant</b>
+        <small>A sharp male presence. Professional JARVIS-style butler personality — efficient, loyal, precise.</small>
+        <span class="cc-badge hidden">ACTIVE</span>
+      </div>
+      <div class="char-card" id="card-female">
+        <div class="cc-ico">♀</div>
+        <b>FEMALE — The Companion</b>
+        <small>A warm female presence. Caring, playful girlfriend-like companion personality — close and emotional.</small>
+        <span class="cc-badge hidden">ACTIVE</span>
+      </div>
+    </div>
+
+    <div class="char-form">
+      <label class="field-label">Assistant name (shown under the hologram)</label>
+      <div class="input-row" style="max-width:520px;margin-top:2px">
+        <input type="text" id="nameInput" class="input chat-input" maxlength="16" placeholder="MYRA">
+        <button class="btn btn-send" id="nameSave">SAVE</button>
+      </div>
+      <label class="field-label">Personality style</label>
+      <select id="personality" class="input" style="max-width:520px">
+        <option>Warm &amp; friendly</option>
+        <option>Professional JARVIS-style</option>
+        <option>Sweet companion</option>
+        <option>Motivational coach</option>
+        <option>Calm mentor</option>
+      </select>
+      <p class="hint">🎙️ Voice choices (male/female tones) arrive in Stage 5. Personality will shape replies from Stage 3.</p>
+    </div>
+  </div>
+</section>
+
+<!-- SETTINGS -->
+<section class="fullview hidden" id="view-setting">
+  <header class="fv-head">
+    <button class="back-btn" data-back>← BACK</button>
+    <h2>⚙️ SETTINGS</h2>
+    <span class="fv-note">Camera &amp; screen controls live in the Visual Hub</span>
+  </header>
+  <div class="fv-body">
+    <div class="settings-col">
+      <h3>🔑 AI Brain — API Keys</h3>
+      <label class="field-label">Gemini API Key (primary)</label>
+      <input type="password" id="geminiKey" class="input" placeholder="Activates in Stage 2" autocomplete="off">
+      <label class="field-label">Groq API Key (backup)</label>
+      <input type="password" id="groqKey" class="input" placeholder="Activates in Stage 2" autocomplete="off">
+      <button class="btn" id="saveKeys">💾 SAVE KEYS</button>
+      <p class="hint">In Stage 2 I'll show you step-by-step how to create both keys for free. Keys are stored only on your laptop in a private <code>.env</code> file — never uploaded anywhere.</p>
+
+      <hr class="divider">
+      <h3>🧹 Preferences</h3>
+      <button class="btn btn-danger" id="resetPrefs">RESET ALL PREFERENCES</button>
+      <p class="hint">Clears saved choices in this browser (character, name, personality, skill toggles).</p>
+
+      <hr class="divider">
+      <h3>ℹ️ About</h3>
+      <p class="hint"><b>MYRA</b> — Personal Desktop AI Assistant · Stage 1 (Interface)<br>
+      Brain: Gemini (primary) + Groq (backup) — free cloud APIs · Memory: local SQLite · Runs light on 8GB RAM.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Footer: Build Progress ===== -->
 <footer class="footer">
-  <span class="ft-label">BUILD প্রগ্রেস:</span>
-  <span class="ft-stage current">১ UI</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">২ API Key</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">৩ চ্যাট</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">৪ মেমোরি</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">৫ ভয়েস</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">৬ হলোগ্রাম সিঙ্ক</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">৭ Notes/Skills</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">৮ Agent</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">৯ ক্যামেরা</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">১০ World</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">১১ সেটআপ</span>
+  <span class="ft-label">BUILD:</span>
+  <span class="ft-stage current">1 · UI</span><span class="ft-arrow">›</span>
+  <span class="ft-stage">2 · API Keys</span><span class="ft-arrow">›</span>
+  <span class="ft-stage">3 · Chat</span><span class="ft-arrow">›</span>
+  <span class="ft-stage">4 · Memory</span><span class="ft-arrow">›</span>
+  <span class="ft-stage">5 · Voice</span><span class="ft-arrow">›</span>
+  <span class="ft-stage">6 · Holo Sync</span><span class="ft-arrow">›</span>
+  <span class="ft-stage">7 · Notes/Skills</span><span class="ft-arrow">›</span>
+  <span class="ft-stage">8 · Agent</span><span class="ft-arrow">›</span>
+  <span class="ft-stage">9 · Camera</span><span class="ft-arrow">›</span>
+  <span class="ft-stage">10 · World</span><span class="ft-arrow">›</span>
+  <span class="ft-stage">11 · Setup</span>
 </footer>
 
 <div id="toast" class="toast hidden"></div>

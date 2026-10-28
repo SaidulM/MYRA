@@ -1,10 +1,9 @@
-"""Stonic AI — ব্যাকএন্ড সার্ভার (ধাপ ১: UI সার্ভ + হেলথ চেক)
+"""MYRA — backend server (Stage 1: serve UI + health check).
 
-শুধু Python standard library ব্যবহার করে — কোনো অতিরিক্ত প্যাকেজ লাগে না,
-তাই 8GB RAM ল্যাপটপে অত্যন্ত হালকা থাকবে।
-
-পরের ধাপে এখানেই যোগ হবে: /api/settings (ধাপ ২), /api/chat (ধাপ ৩),
-/api/memory (ধাপ ৪), /api/notes (ধাপ ৭), /api/agent (ধাপ ৮), /api/news (ধাপ ১০)।
+Pure Python standard library only, so it stays very light on an
+8GB RAM laptop. Planned routes: /api/settings (Stage 2),
+/api/chat (Stage 3), /api/memory (Stage 4), /api/notes (Stage 7),
+/api/agent (Stage 8), /api/news (Stage 10).
 """
 import json
 import os
@@ -15,20 +14,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 UI_DIR = ROOT / "ui"
 
-HOST = os.environ.get("STONIC_HOST", "127.0.0.1")
-PORT = int(os.environ.get("STONIC_PORT", "8765"))
+HOST = os.environ.get("MYRA_HOST", os.environ.get("STONIC_HOST", "127.0.0.1"))
+PORT = int(os.environ.get("MYRA_PORT", os.environ.get("STONIC_PORT", "8765")))
 
 
-class StonicHandler(SimpleHTTPRequestHandler):
-    """ui/ ফোল্ডার সার্ভ করে + /api/* রাউটগুলো JSON উত্তর দেয়।"""
+class MyraHandler(SimpleHTTPRequestHandler):
+    """Serves the ui/ folder and answers /api/* routes with JSON."""
 
     def do_GET(self):
         if self.path.startswith("/api/health"):
-            self._send_json({"status": "ok", "app": "Stonic AI", "stage": 1})
+            self._send_json({"status": "ok", "app": "MYRA", "stage": 1})
             return
         if self.path.startswith("/api/"):
             self._send_json(
-                {"error": "এই ফিচারটি পরের ধাপে চালু হবে।"}, status=501
+                {"error": "This feature arrives in a later stage."}, status=501
             )
             return
         super().do_GET()
@@ -41,19 +40,19 @@ class StonicHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def log_message(self, *args):  # কনসোলে অযথা আওয়াজ কমানো
+    def log_message(self, *args):  # keep the console quiet
         pass
 
 
 def main():
-    handler = partial(StonicHandler, directory=str(UI_DIR))
+    handler = partial(MyraHandler, directory=str(UI_DIR))
     server = ThreadingHTTPServer((HOST, PORT), handler)
-    print(f"🤖 Stonic AI চালু হয়েছে: http://{HOST}:{PORT}")
-    print("বন্ধ করতে Ctrl+C চাপুন।")
+    print(f"🤖 MYRA is running at http://{HOST}:{PORT}")
+    print("Press Ctrl+C to quit.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n👋 Stonic AI বন্ধ হলো।")
+        print("\n👋 MYRA shut down.")
 
 
 if __name__ == "__main__":
