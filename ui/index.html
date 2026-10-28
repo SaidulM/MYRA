@@ -13,17 +13,76 @@
 
 <!-- ===== Top Bar ===== -->
 <header class="topbar">
-  <div class="brand">
-    <div class="brand-orb"></div>
-    <div>
-      <div class="brand-name">M Y R A</div>
-      <div class="brand-sub">PERSONAL DESKTOP AI ASSISTANT</div>
+  <div class="brand-zone">
+    <div class="brand">
+      <div class="brand-orb"></div>
+      <div>
+        <div class="brand-name">M Y R A</div>
+        <div class="brand-sub">PERSONAL DESKTOP AI ASSISTANT</div>
+      </div>
     </div>
+    <nav class="top-links">
+      <div class="dd-wrap">
+        <button class="top-link" id="feedbackBtn">💬 Feedback</button>
+        <div class="dropdown hidden" id="feedbackDrop">
+          <div class="dd-title">Send feedback</div>
+          <textarea id="feedbackText" class="input dd-text" rows="4" placeholder="What's good? What's broken? Tell MYRA's builder…"></textarea>
+          <button class="btn" id="feedbackSend">SAVE FEEDBACK</button>
+          <p class="hint">Saved locally on this device (Stage 1 demo).</p>
+        </div>
+      </div>
+      <div class="dd-wrap">
+        <button class="top-link" id="supportBtn">🛟 Support</button>
+        <div class="dropdown hidden" id="supportDrop">
+          <div class="dd-title">Support</div>
+          <ul class="dd-list">
+            <li>▶ Start: double-click <b>start.bat</b> (Windows) or run <b>python run.py</b></li>
+            <li>🔌 "Server disconnected"? Make sure <b>run.py</b> is running</li>
+            <li>🗺️ Full plan &amp; stages: see <b>BLUEPRINT.md</b> in the project</li>
+            <li>🔑 API keys arrive in Stage 2 — never share keys with anyone</li>
+          </ul>
+        </div>
+      </div>
+    </nav>
   </div>
+
   <div class="topbar-right">
+    <span class="version-chip" id="versionChip">v0.5 · Stage 1</span>
+
+    <div class="awareness" title="Ambient awareness — MYRA proactively pays attention (real senses arrive in Stages 5 & 9)">
+      <span class="aw-label">AWARENESS</span>
+      <label class="switch switch-mini"><input type="checkbox" id="awarenessToggle"><span class="slider"></span></label>
+    </div>
+
+    <label class="theme-pick" title="Interface theme">
+      <span class="aw-label">THEME</span>
+      <select id="themeSelect" class="theme-select">
+        <option value="normal">⬛ Normal · Black</option>
+        <option value="friendly">💚 Friendly · Green</option>
+        <option value="hacker">🔴 Hacker · Red</option>
+      </select>
+    </label>
+
+    <div class="dd-wrap">
+      <button class="profile-btn" id="profileBtn">
+        <span class="avatar" id="profileAvatar">S</span>
+        <span class="profile-name" id="profileNameTop">Profile</span>
+      </button>
+      <div class="dropdown dropdown-right hidden" id="profileDrop">
+        <div class="dd-title">Owner profile</div>
+        <label class="field-label" style="margin-top:2px">Your name</label>
+        <div class="input-row" style="margin-top:2px">
+          <input type="text" id="ownerName" class="input chat-input" maxlength="28" placeholder="Your name">
+          <button class="btn btn-send" id="ownerSave">SAVE</button>
+        </div>
+        <p class="hint">Plan: <b>Free · self-hosted</b> — MYRA runs on your own laptop with your own free API keys.</p>
+        <button class="btn" id="profileCharBtn">🎭 OPEN CHARACTER SETTINGS</button>
+      </div>
+    </div>
+
+    <span class="tb-sep"></span>
     <span id="serverDot" class="dot dot-off"></span>
     <span id="serverText" class="server-text">Checking…</span>
-    <span class="tb-sep"></span>
     <span id="clock" class="clock">--:--:--</span>
     <span id="camIndicator" class="live-indicator hidden">🔴 LIVE — CAMERA / SCREEN</span>
   </div>
@@ -31,28 +90,40 @@
 
 <div class="layout" id="mainLayout">
 
-  <!-- ===== Left: SAT-LINK FEED (compact) ===== -->
+  <!-- ===== Left: SAT-LINK live preview ===== -->
   <aside class="col-left">
     <section class="panel sat-panel">
-      <header class="mod-head"><span class="mod-index">SAT</span><h3>SAT-LINK FEED — World Monitor</h3><span class="led"></span></header>
-      <div class="map-box">
-        <canvas id="mapCanvas"></canvas>
-        <span class="hotspot" style="left:20%;top:34%" title="North America"></span>
-        <span class="hotspot" style="left:30%;top:72%" title="South America"></span>
-        <span class="hotspot" style="left:50%;top:24%" title="Europe"></span>
-        <span class="hotspot" style="left:56%;top:58%" title="Africa"></span>
-        <span class="hotspot" style="left:63%;top:42%" title="Middle East"></span>
-        <span class="hotspot" style="left:74%;top:38%" title="Asia"></span>
-        <span class="hotspot" style="left:76%;top:52%" title="South Asia"></span>
-        <span class="hotspot" style="left:87%;top:78%" title="Australia"></span>
-        <span class="map-corner">LIVE feed arrives in Stage 10</span>
+      <header class="mod-head"><span class="mod-index">SAT</span><h3>SAT-LINK — World Monitor</h3><span class="led"></span></header>
+
+      <div class="preview-window" id="previewWindow" title="Click to open full World Monitor">
+        <div class="pw-bar">
+          <span class="pw-dots"><i></i><i></i><i></i></span>
+          <span class="pw-title">WORLD MONITOR · PREVIEW</span>
+          <span class="live-badge" id="liveBadge">○ CONNECTING</span>
+        </div>
+        <div class="map-box">
+          <canvas id="mapCanvas"></canvas>
+          <span class="hotspot" style="left:20%;top:34%"></span>
+          <span class="hotspot" style="left:30%;top:72%"></span>
+          <span class="hotspot" style="left:50%;top:24%"></span>
+          <span class="hotspot" style="left:56%;top:58%"></span>
+          <span class="hotspot" style="left:63%;top:42%"></span>
+          <span class="hotspot" style="left:74%;top:38%"></span>
+          <span class="hotspot" style="left:76%;top:52%"></span>
+          <span class="hotspot" style="left:87%;top:78%"></span>
+          <span class="map-expand-hint">⤢ click to expand</span>
+        </div>
       </div>
-      <div class="hl-head">📰 TODAY HEADLINES</div>
-      <ol class="headlines">
-        <li><span class="hl-src">DEMO</span>Real live headlines will stream here in Stage 10</li>
-        <li><span class="hl-src">DEMO</span>Ask MYRA and she will read today's top stories aloud</li>
-        <li><span class="hl-src">DEMO</span>Hotspots on the map will flash where events happen</li>
+
+      <div class="hl-head">📰 TODAY HEADLINES <span class="feed-updated" id="feedUpdated"></span></div>
+      <ol class="headlines" id="miniHeadlines">
+        <li><span class="hl-src">…</span>Loading headlines…</li>
       </ol>
+      <div class="wm-chips">
+        <button class="wm-chip" data-wmtab="globe">🌐 3D Earth</button>
+        <button class="wm-chip" data-wmtab="sat">🛰️ Live Satellite</button>
+        <button class="wm-chip" data-wmtab="globe">📰 All Headlines</button>
+      </div>
       <button class="btn" id="openWorldBtn">⤢ OPEN WORLD MONITOR</button>
     </section>
   </aside>
@@ -63,7 +134,6 @@
     <div class="stage-zone" id="stageZone">
       <svg id="wires" class="wires" aria-hidden="true"></svg>
 
-      <!-- Module chips — click to open each module's full window -->
       <div class="chips">
         <button class="mod-chip chip-memory" data-view="memory"><span class="chip-tag">MEMORY</span><span class="chip-sub">open window ⤢</span></button>
         <button class="mod-chip chip-skills" data-view="skills"><span class="chip-tag">SKILLS</span><span class="chip-sub">open window ⤢</span></button>
@@ -71,7 +141,6 @@
         <button class="mod-chip chip-setting" data-view="setting"><span class="chip-tag">SETTING</span><span class="chip-sub">open window ⤢</span></button>
       </div>
 
-      <!-- Hologram frame -->
       <div class="frame-wrap">
         <div class="core-switch" title="Choose who MYRA is">
           <button class="core-pill" data-char="core">⬢ CORE</button>
@@ -90,6 +159,8 @@
         </div>
         <div class="stage-controls">
           <button class="terminate-btn" id="terminateBtn">⏻ TERMINATE</button>
+          <button class="sq-btn mic-toggle" id="stageMicBtn" title="Microphone on/off (real listening in Stage 5)">🎤</button>
+          <button class="sq-btn" id="muteBtn" title="Mute / stop MYRA's voice">🔊</button>
           <button class="sq-btn" id="reformBtn" title="Replay formation">✨</button>
         </div>
         <div class="drag-hint">🖱️ Drag the hologram to rotate in 3D</div>
@@ -120,13 +191,22 @@
   </main>
 
   <!-- ===== Right: Conversation Panel ===== -->
-  <aside class="col-right">
-    <section class="panel convo-panel">
-      <nav class="mode-tabs">
-        <button class="mode-tab active" data-mode="voice">🎤 VOICE</button>
-        <button class="mode-tab" data-mode="agent">🤖 AGENT</button>
-        <button class="mode-tab" data-mode="notes">📝 NOTES</button>
-      </nav>
+  <aside class="col-right" id="colRight">
+    <section class="panel convo-panel" id="convoPanel">
+      <div class="convo-toolbar">
+        <nav class="mode-tabs">
+          <button class="mode-tab active" data-mode="voice">🎤 VOICE</button>
+          <button class="mode-tab" data-mode="agent">🤖 AGENT</button>
+          <button class="mode-tab" data-mode="notes">📝 NOTES</button>
+        </nav>
+        <div class="toolbar-btns">
+          <button class="tb-btn" id="newChatBtn" title="New conversation">＋</button>
+          <button class="tb-btn" id="historyBtn" title="Chat history">🕘</button>
+          <button class="tb-btn tb-code" id="consoleBtn" title="Session console">&lt;/&gt;</button>
+          <button class="tb-btn" id="expandConvoBtn" title="Full view">⤢</button>
+          <button class="tb-btn" id="collapseRightBtn" title="Hide this panel">⟩</button>
+        </div>
+      </div>
 
       <div class="mode-panel active" id="mode-voice">
         <div class="chat-log" id="chatLog">
@@ -136,8 +216,7 @@
           </div>
         </div>
         <div class="input-row">
-          <button class="icon-btn mic-btn" id="micBtn" title="Voice input (Stage 5)">🎤</button>
-          <input type="text" id="chatInput" class="input chat-input" placeholder="Type to MYRA…">
+          <input type="text" id="chatInput" class="input chat-input" placeholder="Type to MYRA… (mic is under the hologram)">
           <button class="btn btn-send" id="sendBtn">➤</button>
         </div>
       </div>
@@ -162,26 +241,49 @@
   </aside>
 </div>
 
-<!-- ===== Full-screen windows (opened from chips / expand buttons) ===== -->
+<!-- Reopen tab when the right panel is hidden -->
+<button class="reopen-tab hidden" id="reopenRightBtn">⟨ CHAT</button>
+
+<!-- ===== Full-screen windows ===== -->
 
 <!-- WORLD MONITOR -->
 <section class="fullview hidden" id="view-world">
   <header class="fv-head">
     <button class="back-btn" data-back>← BACK</button>
     <h2>🌍 WORLD MONITOR — SAT-LINK</h2>
+    <span class="live-badge" id="liveBadgeFull">○ CONNECTING</span>
     <span class="fv-clock" id="utcClock">UTC --:--:--</span>
   </header>
   <div class="fv-body world-grid">
-    <div class="globe-box">
-      <canvas id="globeCanvas"></canvas>
-      <div class="globe-hint">🖱️ Drag to spin the Earth · Live data streams in Stage 10</div>
+    <div>
+      <div class="wm-tabs">
+        <button class="wm-tab active" id="wmTabGlobe">🌐 3D EARTH</button>
+        <button class="wm-tab" id="wmTabSat">🛰️ LIVE SATELLITE</button>
+        <label class="wm-rot" title="Auto-rotate the globe"><input type="checkbox" id="globeSpin" checked> auto-spin</label>
+      </div>
+      <div class="globe-box" id="globeBox">
+        <canvas id="globeCanvas"></canvas>
+        <div class="globe-hint">🖱️ Drag to spin the Earth</div>
+      </div>
+      <div class="globe-box hidden" id="satBox">
+        <div class="sat-fallback" id="satFallback">🛰️ Loading live satellite view…<br><small>Needs internet. If this stays blank, the embed may be unavailable right now — the 3D Earth tab always works offline.</small></div>
+        <!-- Live satellite embed is injected here by app.js -->
+        <div class="globe-hint">Live satellite &amp; weather layers (internet required)</div>
+      </div>
     </div>
     <div class="world-side">
       <h3>📰 TODAY HEADLINES</h3>
-      <div class="news-card"><div class="news-tag">WORLD</div><div class="news-title">Demo headline — real world news will flow here</div><div class="news-meta">Source: —</div></div>
-      <div class="news-card"><div class="news-tag">TECH</div><div class="news-title">Demo headline — real technology news will flow here</div><div class="news-meta">Source: —</div></div>
-      <div class="news-card"><div class="news-tag">LOCAL</div><div class="news-title">Demo headline — real local news will flow here</div><div class="news-meta">Source: —</div></div>
+      <div class="region-chips" id="regionChips">
+        <button class="rg-chip active" data-region="all">All</button>
+        <button class="rg-chip" data-region="asia">Asia</button>
+        <button class="rg-chip" data-region="europe">Europe</button>
+        <button class="rg-chip" data-region="america">America</button>
+        <button class="rg-chip" data-region="middle east">Middle East</button>
+        <button class="rg-chip" data-region="tech">Tech</button>
+      </div>
+      <div id="fullHeadlines"></div>
       <button class="btn" id="refreshNews">🔄 REFRESH FEED</button>
+      <p class="hint" id="feedNote">Headlines update automatically when online; offline you see the last saved copy.</p>
       <h3 style="margin-top:16px">📍 ACTIVE REGIONS</h3>
       <ul class="region-list">
         <li><span class="rg-dot"></span> North America <span class="rg-stat">monitoring</span></li>
@@ -321,13 +423,39 @@
       <hr class="divider">
       <h3>🧹 Preferences</h3>
       <button class="btn btn-danger" id="resetPrefs">RESET ALL PREFERENCES</button>
-      <p class="hint">Clears saved choices in this browser (character, name, personality, skill toggles).</p>
+      <p class="hint">Clears saved choices in this browser (character, theme, name, personality, skill toggles).</p>
 
       <hr class="divider">
       <h3>ℹ️ About</h3>
-      <p class="hint"><b>MYRA</b> — Personal Desktop AI Assistant · Stage 1 (Interface)<br>
+      <p class="hint"><b>MYRA</b> — Personal Desktop AI Assistant · <span id="aboutVersion">v0.5 · Stage 1 (Interface)</span><br>
       Brain: Gemini (primary) + Groq (backup) — free cloud APIs · Memory: local SQLite · Runs light on 8GB RAM.</p>
     </div>
+  </div>
+</section>
+
+<!-- HISTORY -->
+<section class="fullview hidden" id="view-history">
+  <header class="fv-head">
+    <button class="back-btn" data-back>← BACK</button>
+    <h2>🕘 CONVERSATION HISTORY</h2>
+    <button class="btn btn-danger" id="clearHistory" style="width:auto;margin-top:0">CLEAR</button>
+  </header>
+  <div class="fv-body">
+    <div class="history-list" id="historyList">
+      <div class="empty-note">No conversation yet this session.</div>
+    </div>
+  </div>
+</section>
+
+<!-- CONSOLE -->
+<section class="fullview hidden" id="view-console">
+  <header class="fv-head">
+    <button class="back-btn" data-back>← BACK</button>
+    <h2>&lt;/&gt; SESSION CONSOLE</h2>
+    <span class="fv-note">Everything MYRA's shell has done this session</span>
+  </header>
+  <div class="fv-body">
+    <pre class="console-log" id="consoleLog">booting…</pre>
   </div>
 </section>
 
