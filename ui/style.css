@@ -398,3 +398,9 @@ body.view-open{overflow:hidden}
 .key-status.set { color: #4ade80; }
 .key-remove { border: 1px solid rgba(248,113,113,.55); color: #f87171; background: rgba(248,113,113,.08); border-radius: 6px; padding: 0 10px; cursor: pointer; font-size: 13px; }
 .key-remove:hover { background: rgba(248,113,113,.22); }
+
+/* Stage 3: readable multi-line AI replies + provider note */
+.msg-bubble { white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg-meta { display: block; margin-top: 5px; font-size: 10px; line-height: 1.35; letter-spacing: .25px; color: var(--muted); white-space: normal; }
+.input:disabled { opacity: .55; cursor: wait; }
+.btn:disabled { opacity: .55; cursor: wait; }
