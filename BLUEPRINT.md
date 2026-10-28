@@ -92,7 +92,7 @@
 | Speech-to-text | Web Speech API (browser built-in) | free, no install |
 | Text-to-speech | Web Speech API `speechSynthesis` | male/female OS voices |
 | Browser automation | **Playwright** (Stage 8) | Agent Mode |
-| Launcher | `run.py` (server + opens app window), `start.bat` | Windows double-click start |
+| Launcher | `MYRA-Setup.bat` → `auto_setup.py` (one-time install + shortcuts); `MYRA.bat`/`start.bat` → `launcher.py` (GitHub auto-update, then `run.py`: server + app window) | Windows double-click start; updates download themselves at every start |
 
 ---
 
@@ -107,9 +107,12 @@ MYRA/ (repo root)
 ├── .env                  ← real API keys (git-ignored)
 ├── .gitignore
 ├── requirements.txt      ← Playwright joins in Stage 8
-├── run.py                ← one-command launcher (server + app window)
-├── start.bat             ← Windows double-click launcher
-├── auto_setup.py         ← Stage 11: one-run setup + desktop shortcut
+├── run.py                ← core runner (server + app window)
+├── launcher.py           ← smart start: GitHub auto-update → run.py
+├── MYRA.bat              ← Windows start (Desktop shortcut points here)
+├── start.bat             ← same start path (calls MYRA.bat)
+├── MYRA-Setup.bat        ← ONE-TIME setup (installs Python if missing)
+├── auto_setup.py         ← installer: copy to ~\MYRA + Desktop/Start-Menu shortcuts
 ├── tests/                ← lightweight automated backend checks
 ├── backend/
 │   ├── server.py         ← light stdlib HTTP server (UI + API)
@@ -147,7 +150,7 @@ MYRA/ (repo root)
 | **8** | Agent Mode — Playwright: search → summary report | "Search this" makes the browser work alone | ⏳ |
 | **9** | Camera & screen share (both default OFF, LIVE indicator when on) | Sees nothing until toggled; red indicator on | ⏳ |
 | **10** | World Monitor — live headlines + read-aloud | Real news in the panel; reads on request | ⏳ |
-| **11** | `auto_setup.py` + Windows desktop shortcut | One run sets up everything; double-click starts | ⏳ |
+| **11** | `auto_setup.py` + Windows desktop shortcut + auto-updating launcher | One run sets up everything; double-click starts | 🔄 Built early at owner's request (Oct 2026) — setup + GitHub auto-update done; final polish/approval with Stage 11 |
 
 ---
 
@@ -172,10 +175,21 @@ MYRA/ (repo root)
 
 ---
 
-## 8. auto_setup.py (Stage 11)
+## 8. Setup + auto-update (Stage 11 — built early, Oct 2026)
 
-One run: creates any missing folders/files → installs dependencies →
-creates a desktop shortcut (one double-click starts MYRA).
+One-time: the owner downloads the repo ZIP once → double-clicks
+`MYRA-Setup.bat` → it installs Python if missing (winget, else opens
+python.org), runs `auto_setup.py`, which installs MYRA to
+`%USERPROFILE%\MYRA`, creates Desktop + Start Menu shortcuts and stamps
+the installed GitHub version in `.myra-version`.
+
+Every start after that (Desktop icon / `MYRA.bat` / `start.bat`) runs
+`launcher.py`: it checks GitHub `main` for a newer commit; if found, it
+downloads the repo ZIP and refreshes the install — **never** overwriting
+`.env` (API keys) or `data/` (private data) — then launches via `run.py`.
+Offline or on any update error it simply starts the installed version.
+`--no-update` skips the check; progress is logged to `launcher-log.txt`,
+which the owner can show the agent when reporting a problem.
 
 ---
 

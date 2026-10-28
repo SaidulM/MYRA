@@ -1,14 +1,9 @@
 @echo off
-REM === MYRA — Windows: double-click this file to start the assistant ===
+REM === MYRA — Windows: double-click to start ===
+REM     Checks GitHub for updates, downloads them automatically,
+REM     then starts MYRA (all inside MYRA.bat / launcher.py).
+REM     Tip: start.bat --no-update  starts instantly, no check.
+REM     First time on a new laptop? Run MYRA-Setup.bat once instead.
 title MYRA
 cd /d "%~dp0"
-echo.
-echo   Starting MYRA... (press Ctrl+C in this window to quit)
-echo.
-python run.py
-if errorlevel 1 (
-  echo.
-  echo   Python was not found! Install it from https://www.python.org
-  echo   and tick "Add Python to PATH" during installation.
-  pause
-)
+call MYRA.bat %*

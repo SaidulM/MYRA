@@ -17,19 +17,25 @@
 - ✅ **Stage 1:** complete interface and 3 particle characters
 - ✅ **Stage 2:** API keys save locally in `.env` with masked status
 - 🔄 **Stage 3 (in review):** real text chat — Gemini first, Groq fallback, with safe offline/missing-key notices
-- ⏳ **Still to build:** long-term memory (4), full voice (5), speech-sync polish (6), notes/skills engine (7), browser Agent Mode (8), camera/screen vision (9), World Monitor backend/read-aloud (10), and one-run setup + desktop shortcut (11)
+- 🆕 **One-run Windows setup + auto-update (from Stage 11, built early):** install once, then every start refreshes MYRA from GitHub automatically
+- ⏳ **Still to build:** long-term memory (4), full voice (5), speech-sync polish (6), notes/skills engine (7), browser Agent Mode (8), camera/screen vision (9), World Monitor backend/read-aloud (10)
 
 So MYRA is **not the finished software yet** — the remaining stages above complete it step by step.
 
-## 🚀 Run it
+## 🚀 Install & run it
 
-### Windows (easiest)
-1. Install Python 3.10+ from python.org (tick **"Add Python to PATH"**)
-2. Double-click **`start.bat`** — an app-like window opens
+### Windows — one-time install (recommended)
+1. Download this repo once (GitHub → **Code → Download ZIP**) and extract it.
+2. Double-click **`MYRA-Setup.bat`** — it installs Python automatically if needed, installs MYRA to `C:\Users\<you>\MYRA`, and puts a **MYRA icon on your Desktop + Start Menu**.
+3. From then on, just double-click the **MYRA desktop icon**: every start checks GitHub, **downloads any new update by itself**, and opens MYRA. Your API keys (`.env`) and data are never overwritten, and if you're offline it simply starts the installed version.
+   - `start.bat` / `MYRA.bat --no-update` starts instantly without the update check.
+   - If something looks wrong at startup, check `launcher-log.txt` in the install folder.
 
-### Any OS
+### Any OS (manual)
+Install Python 3.10+, then:
 ```bash
-python run.py
+python launcher.py   # auto-update + start
+# or: python run.py  # start only, no update check
 ```
 Then open http://127.0.0.1:8765 in your browser.
 
