@@ -39,7 +39,7 @@
             <li>▶ Start: double-click <b>start.bat</b> (Windows) or run <b>python run.py</b></li>
             <li>🔌 "Server disconnected"? Make sure <b>run.py</b> is running</li>
             <li>🗺️ Full plan &amp; stages: see <b>BLUEPRINT.md</b> in the project</li>
-            <li>🔑 API keys arrive in Stage 2 — never share keys with anyone</li>
+            <li>🔑 API keys are managed in <b>SETTING</b> — never share keys with anyone</li>
           </ul>
         </div>
       </div>
@@ -47,7 +47,7 @@
   </div>
 
   <div class="topbar-right">
-    <span class="version-chip" id="versionChip">v0.6 · Stage 1</span>
+    <span class="version-chip" id="versionChip">v0.8 · Stage 3</span>
 
     <div class="awareness" title="Ambient awareness — MYRA proactively pays attention (real senses arrive in Stages 5 & 9)">
       <span class="aw-label">AWARENESS</span>
@@ -212,7 +212,7 @@
         <div class="chat-log" id="chatLog">
           <div class="sys-ready">✦ SYSTEM READY ✦</div>
           <div class="msg msg-ai">
-            <div class="msg-bubble" id="greetingBubble">Hello, I'm <b>MYRA</b> — your personal desktop companion. 💗 My interface is alive and my API keys can now be saved in Settings (Stage 2) — my real brain starts talking in Stage 3. Type something below and watch me respond!</div>
+            <div class="msg-bubble" id="greetingBubble">Hello, I'm <b>MYRA</b> — your personal desktop companion. 💗 My real AI chat is now live (Stage 3): Gemini answers first and Groq is my backup. Save your free keys in SETTING on your own laptop, then type below and talk to me!</div>
           </div>
         </div>
         <div class="input-row">
@@ -422,12 +422,23 @@
   <div class="fv-body">
     <div class="settings-col">
       <h3>🔑 AI Brain — API Keys</h3>
-      <label class="field-label">Gemini API Key (primary)</label>
-      <input type="password" id="geminiKey" class="input" placeholder="Activates in Stage 2" autocomplete="off">
-      <label class="field-label">Groq API Key (backup)</label>
-      <input type="password" id="groqKey" class="input" placeholder="Activates in Stage 2" autocomplete="off">
+      <label class="field-label">Gemini API Key (primary) <span class="key-status" id="geminiKeyStatus">checking…</span></label>
+      <div class="key-row">
+        <input type="password" id="geminiKey" class="input" placeholder="Paste your Gemini key (starts with AIza…)" autocomplete="off">
+        <button class="icon-btn key-remove hidden" id="removeGemini" title="Remove the saved Gemini key">✕</button>
+      </div>
+      <label class="field-label">Groq API Key (backup) <span class="key-status" id="groqKeyStatus">checking…</span></label>
+      <div class="key-row">
+        <input type="password" id="groqKey" class="input" placeholder="Paste your Groq key (starts with gsk_…)" autocomplete="off">
+        <button class="icon-btn key-remove hidden" id="removeGroq" title="Remove the saved Groq key">✕</button>
+      </div>
       <button class="btn" id="saveKeys">💾 SAVE KEYS</button>
-      <p class="hint">In Stage 2 I'll show you step-by-step how to create both keys for free. Keys are stored only on your laptop in a private <code>.env</code> file — never uploaded anywhere.</p>
+      <p class="hint hidden" id="keysPreviewNote">👀 <b>Preview mode:</b> keys can only be saved from the real app on your laptop (double-click <code>start.bat</code>) — not from this preview file.</p>
+      <p class="hint">Keys are stored only on your laptop in a private <code>.env</code> file, survive restarts, and afterwards only the last 4 characters are shown. Stage 3 chat uses Gemini first and Groq as backup.</p>
+      <p class="hint">🆓 <b>Get both keys free:</b><br>
+      1. <a href="https://aistudio.google.com" target="_blank" rel="noopener">aistudio.google.com</a> → sign in → <b>Get API key</b> → <b>Create API key</b> → copy<br>
+      2. <a href="https://console.groq.com" target="_blank" rel="noopener">console.groq.com</a> → sign in → <b>API Keys</b> → <b>Create API Key</b> → copy<br>
+      ⚠️ Paste keys only into this app on your own laptop — never type them into any chat or share them with anyone.</p>
 
       <hr class="divider">
       <h3>🧹 Preferences</h3>
@@ -436,7 +447,7 @@
 
       <hr class="divider">
       <h3>ℹ️ About</h3>
-      <p class="hint"><b>MYRA</b> — Personal Desktop AI Assistant · <span id="aboutVersion">v0.7 · Stage 2 (API Keys)</span><br>
+      <p class="hint"><b>MYRA</b> — Personal Desktop AI Assistant · <span id="aboutVersion">v0.8 · Stage 3 (AI Chat)</span><br>
       Brain: Gemini (primary) + Groq (backup) — free cloud APIs · Memory: local SQLite · Runs light on 8GB RAM.<br>
       World Monitor attaches the open-source live dashboard at worldmonitor.app.</p>
     </div>

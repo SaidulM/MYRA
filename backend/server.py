@@ -8,18 +8,19 @@ Live routes:
   GET  /api/settings        — masked API-key status (Stage 2)
   POST /api/settings/keys   — save Gemini/Groq keys into .env (Stage 2)
   POST /api/settings/remove — remove one saved key (Stage 2)
+  POST /api/chat            — Gemini chat with Groq fallback (Stage 3)
 
-Planned routes: /api/chat (Stage 3), /api/memory (Stage 4),
-/api/notes (Stage 7), /api/agent (Stage 8), /api/news (Stage 10).
+Planned routes: /api/memory (Stage 4), /api/notes (Stage 7),
+/api/agent (Stage 8), /api/news (Stage 10).
 """
 import json
-import os
 import sys
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import chat  # noqa: E402  (local backend/chat.py)
 import config  # noqa: E402  (local backend/config.py)
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -29,6 +30,7 @@ HOST = config.get("MYRA_HOST", config.get("STONIC_HOST", "127.0.0.1"))
 PORT = int(config.get("MYRA_PORT", config.get("STONIC_PORT", "8765")))
 
 MAX_BODY = 16 * 1024  # settings payloads are tiny
+MAX_CHAT_BODY = 128 * 1024  # recent conversation context for /api/chat
 
 
 class MyraHandler(SimpleHTTPRequestHandler):
@@ -37,7 +39,7 @@ class MyraHandler(SimpleHTTPRequestHandler):
     # ---------- GET ----------
     def do_GET(self):
         if self.path.startswith("/api/health"):
-            self._send_json({"status": "ok", "app": "MYRA", "stage": 2})
+            self._send_json({"status": "ok", "app": "MYRA", "stage": 3})
             return
         if self.path.startswith("/api/settings"):
             self._send_json(config.key_status())
@@ -51,6 +53,39 @@ class MyraHandler(SimpleHTTPRequestHandler):
 
     # ---------- POST ----------
     def do_POST(self):
+        if self.path.startswith("/api/chat"):
+            data = self._read_json(max_bytes=MAX_CHAT_BODY)
+            if data is None:
+                return
+            try:
+                result = chat.get_reply(data)
+            except chat.ChatError as exc:
+                print(f"💬 Chat unavailable: {exc.code}")
+                self._send_json(
+                    {
+                        "ok": False,
+                        "error_code": exc.code,
+                        "message": exc.message,
+                        "provider": exc.provider,
+                    },
+                    status=exc.status,
+                )
+                return
+            except Exception:
+                print("💬 Chat failed with an unexpected backend error.")
+                self._send_json(
+                    {
+                        "ok": False,
+                        "error_code": "internal_error",
+                        "message": "MYRA hit an unexpected problem while preparing the reply. Please try again.",
+                    },
+                    status=500,
+                )
+                return
+            print(f"💬 Chat answered by {result['provider_label']}.")
+            self._send_json(result)
+            return
+
         if self.path.startswith("/api/settings/keys"):
             data = self._read_json()
             if data is None:
@@ -65,6 +100,7 @@ class MyraHandler(SimpleHTTPRequestHandler):
             print("🔑 API keys updated (values hidden for safety).")
             self._send_json({"ok": True, **status})
             return
+
         if self.path.startswith("/api/settings/remove"):
             data = self._read_json()
             if data is None:
@@ -80,6 +116,7 @@ class MyraHandler(SimpleHTTPRequestHandler):
             print(f"🗑️ {which} API key removed.")
             self._send_json({"ok": True, **status})
             return
+
         if self.path.startswith("/api/"):
             self._send_json(
                 {"error": "This feature arrives in a later stage."}, status=501
@@ -88,12 +125,12 @@ class MyraHandler(SimpleHTTPRequestHandler):
         self._send_json({"error": "Not found."}, status=404)
 
     # ---------- helpers ----------
-    def _read_json(self):
+    def _read_json(self, max_bytes=MAX_BODY):
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             length = 0
-        if length <= 0 or length > MAX_BODY:
+        if length <= 0 or length > max_bytes:
             self._send_json({"error": "Bad request body."}, status=400)
             return None
         try:

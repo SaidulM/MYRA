@@ -1,5 +1,5 @@
 /* =========================================================
-   MYRA — System Core UI (Stage 1, v6)
+   MYRA — System Core UI (Stage 3, v0.8)
    Three particle characters (CORE / MALE / FEMALE). The
    great formation of ~34,000 dots happens ONCE when MYRA
    first opens; after that, switching character smoothly
@@ -7,7 +7,7 @@
    off simply fades her out. The figure floats (dots
    dissolve below the chest — no pedestal, no rings), lit
    by a scan-light sweeping bottom-to-top.
-   Real AI chat arrives in Stage 3; replies here are demo.
+   Real AI chat is live: Gemini first, Groq as backup.
    ========================================================= */
 'use strict';
 
@@ -1004,6 +1004,11 @@ function renderHistory() {
    Speaking (demo TTS; real voice in Stage 5)
    ========================================================= */
 let VOICE_MUTED = false;
+function speechLangFor(text) {
+  if (/[\u0980-\u09FF]/.test(text)) return 'bn-BD';
+  if (/[\u0900-\u097F]/.test(text)) return 'hi-IN';
+  return 'en-US';
+}
 function speakDemo(text) {
   if (!HOLO.power) return;
   if (VOICE_MUTED) {
@@ -1047,31 +1052,64 @@ function stopSpeaking() {
 }
 
 /* =========================================================
-   Chat (real AI brain in Stage 3)
+   Chat — real AI brain (Stage 3: Gemini → Groq fallback)
    ========================================================= */
-const demoReplies = {
-  core: [
-    'Message received. My neural core is not connected yet — Gemini and Groq link up in Stage 3, then I can truly think with you.',
-    'Systems nominal. Interface only, for now. In Stage 4 I will begin remembering everything you tell me.',
-    'Try switching me to MALE or FEMALE above — watch my dots flow from one shape into the next.',
-  ],
-  male: [
-    'Very good, sir. I have noted that. My full intelligence arrives in Stage 3 — until then, I remain at your service in demo form.',
-    'As always, I shall be ready when you are. In Stage 5 you will hear my proper voice as well.',
-    'Might I suggest trying the modules on the left? Memory, Skills, Character — each opens its own window now.',
-  ],
-  female: [
-    "Got it, love! 💗 I'm still waking up — my real brain connects in Stage 3, and then we can talk about everything.",
-    'See how my head moves when I speak? In Stage 5 you will hear my real voice too — I can’t wait!',
-    'Psst… open the WORLD MONITOR and spin the Earth with me. It’s beautiful from up here.',
-  ],
-};
 const GREETINGS = {
-  core: '⬢ Core online. All interface systems ready. My real brain connects in Stage 3 — until then, try my modules and watch me shift shape.',
-  male: 'Good day, sir. 🎩 I am MYRA, at your service. This is only my interface for now — my full intelligence arrives in Stage 3.',
-  female: "Hello, I'm MYRA — your personal desktop companion. 💗 My interface is alive and my API keys can now be saved in Settings (Stage 2) — my real brain starts talking in Stage 3. Type something below and watch me respond!",
+  core: '⬢ Core online. My real AI chat is live: Gemini answers first and Groq is my backup. Ask me anything.',
+  male: 'Good day, sir. 🎩 I am MYRA, at your service. My real AI brain is now connected — Gemini first, Groq as backup. How may I help?',
+  female: "Hello, I'm MYRA — your personal desktop companion. 💗 My real AI chat is now live (Stage 3): Gemini answers first and Groq is my backup. Save your free keys in SETTING on your own laptop, then type below and talk to me!",
 };
-let demoIdx = 0;
+let chatContext = [];
+let chatBusy = false;
+const MAX_CHAT_CONTEXT = 14;
+
+function currentPersonality() {
+  const sel = $('personality');
+  return (sel && sel.value) || localStorage.getItem('myra_personality') || 'Warm & friendly';
+}
+function setChatBusy(busy) {
+  chatBusy = busy;
+  const input = $('chatInput');
+  const btn = $('sendBtn');
+  if (input) input.disabled = busy;
+  if (btn) {
+    btn.disabled = busy;
+    btn.textContent = busy ? '…' : '➤';
+    btn.title = busy ? 'MYRA is thinking…' : 'Send';
+  }
+}
+function finishAiBubble(bubble, text, meta) {
+  bubble.textContent = '';
+  bubble.appendChild(document.createTextNode(text));
+  if (text) {
+    const btn = document.createElement('button');
+    btn.className = 'speak-btn';
+    btn.textContent = '🔊';
+    btn.title = 'Read aloud';
+    btn.onclick = () => speakDemo(text);
+    bubble.appendChild(btn);
+  }
+  if (meta) {
+    const span = document.createElement('span');
+    span.className = 'msg-meta';
+    span.textContent = meta;
+    bubble.appendChild(span);
+  }
+  $('chatLog').scrollTop = $('chatLog').scrollHeight;
+}
+function friendlyChatError(error, data) {
+  if (location.protocol === 'file:') {
+    return '👀 This one-file preview cannot run my real brain, because the Python backend is not running here. On your laptop, double-click start.bat, save your free keys in SETTING, and then talk to me there. Please never paste real keys into an online preview or chat.';
+  }
+  if (data && data.message) return data.message;
+  if (error && error.name === 'AbortError') {
+    return '⏳ The AI service took too long to answer. Please check the internet and try again.';
+  }
+  if (!navigator.onLine) {
+    return '📡 You appear to be offline, so I cannot reach Gemini or Groq right now. Your local interface still works — reconnect and try again.';
+  }
+  return '⚠️ I could not reach MYRA\'s local backend. Please make sure start.bat (or run.py) is still running, then try again.';
+}
 
 function addMsg(text, who, skipHistory) {
   const log = $('chatLog');
@@ -1094,38 +1132,97 @@ function addMsg(text, who, skipHistory) {
   if (text && !skipHistory) pushHistory(who, text);
   return bubble;
 }
-function sendChat() {
+async function sendChat() {
+  if (chatBusy) return;
   const input = $('chatInput');
   const text = input.value.trim();
-  if (!text || !HOLO.power) return;
+  if (!text) return;
+  if (!HOLO.power) {
+    toast('⏻ System is off — press ACTIVATE first!');
+    return;
+  }
+
   addMsg(text, 'user');
+  chatContext.push({ role: 'user', text });
+  chatContext = chatContext.slice(-MAX_CHAT_CONTEXT);
   input.value = '';
+  setChatBusy(true);
   setHoloStatus('🤔 MYRA is thinking…');
   setHoloState('THINKING…');
+
   const typing = addMsg('', 'ai', true);
   typing.innerHTML = '<span class="typing">•••</span>';
-  setTimeout(() => {
-    const pool = demoReplies[HOLO.char] || demoReplies.core;
-    const reply = pool[demoIdx++ % pool.length];
-    typing.textContent = reply;
-    const btn = document.createElement('button');
-    btn.className = 'speak-btn';
-    btn.textContent = '🔊';
-    btn.onclick = () => speakDemo(reply);
-    typing.appendChild(btn);
-    $('chatLog').scrollTop = $('chatLog').scrollHeight;
+  const controller = 'AbortController' in window ? new AbortController() : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), 65000) : null;
+
+  try {
+    if (location.protocol === 'file:') {
+      const previewError = new Error('preview mode');
+      previewError.code = 'preview_mode';
+      throw previewError;
+    }
+
+    const payload = {
+      messages: chatContext.slice(-MAX_CHAT_CONTEXT),
+      character: HOLO.char,
+      personality: currentPersonality(),
+      assistant_name: localStorage.getItem('myra_name') || 'MYRA',
+      owner_name: localStorage.getItem('myra_owner') || 'Saidul',
+    };
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller ? controller.signal : undefined,
+    });
+    let data = null;
+    try { data = await res.json(); } catch (e) { /* handled below */ }
+
+    if (!res.ok || !data || data.ok === false || !data.reply) {
+      const err = new Error((data && data.message) || ('HTTP ' + res.status));
+      err.data = data;
+      err.status = res.status;
+      throw err;
+    }
+
+    const reply = String(data.reply).trim();
+    chatContext.push({ role: 'assistant', text: reply });
+    chatContext = chatContext.slice(-MAX_CHAT_CONTEXT);
+    const meta = [
+      data.provider_label ? 'via ' + data.provider_label : '',
+      data.notice || '',
+    ].filter(Boolean).join(' · ');
+    finishAiBubble(typing, reply, meta);
     pushHistory('ai', reply);
+    logEvent('chat answered by ' + (data.provider || 'AI'));
+    if (data.notice) toast('ℹ️ ' + data.notice, 4200);
     speakDemo(reply);
-  }, 900);
+  } catch (error) {
+    const message = friendlyChatError(error, error.data);
+    finishAiBubble(typing, message, '');
+    pushHistory('ai', message);
+    setHoloStatus('⚠️ Chat unavailable — check internet or API keys in SETTING');
+    setHoloState(HOLO.power ? 'IDLE // LISTENING' : 'OFFLINE');
+    logEvent('chat error: ' + ((error.data && error.data.error_code) || error.code || error.name || 'unknown'));
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    setChatBusy(false);
+    const nextInput = $('chatInput');
+    if (nextInput) nextInput.focus();
+  }
 }
 function newChat() {
+  if (chatBusy) {
+    toast('⏳ Please wait for the current reply before starting a new conversation.');
+    return;
+  }
   const log = $('chatLog');
   log.innerHTML = '';
   const ready = document.createElement('div');
   ready.className = 'sys-ready';
   ready.textContent = '✦ NEW CONVERSATION ✦';
   log.appendChild(ready);
-  demoIdx = 0;
+  chatContext = [];
   addMsg(GREETINGS[HOLO.char] || GREETINGS.core, 'ai');
   logEvent('new conversation started');
 }
@@ -1487,12 +1584,110 @@ document.addEventListener('DOMContentLoaded', () => {
     toast('🗑️ All memories erased.');
   });
 
-  /* API keys (Stage 2) */
-  $('saveKeys').addEventListener('click', () => {
-    $('geminiKey').value = '';
-    $('groqKey').value = '';
-    toast('⚠️ Keys are NOT saved in Stage 1 — the secure save system arrives in Stage 2. Fields cleared for safety. Never share real keys with anyone!', 5200);
+  /* API keys (Stage 2) — the backend saves them into .env on this laptop.
+     The browser only receives masked status, never a full saved key. */
+  const inPreviewFile = location.protocol === 'file:';
+  const paintKeyStatus = (statusId, removeId, info) => {
+    const badge = $(statusId);
+    const btn = $(removeId);
+    if (!badge || !btn) return;
+    if (info && info.set) {
+      badge.textContent = '✅ Saved (' + info.masked + ')';
+      badge.classList.add('set');
+      btn.classList.remove('hidden');
+    } else {
+      badge.textContent = '○ Not saved yet';
+      badge.classList.remove('set');
+      btn.classList.add('hidden');
+    }
+  };
+  const refreshKeyStatus = async () => {
+    if (inPreviewFile) {
+      $('keysPreviewNote').classList.remove('hidden');
+      paintKeyStatus('geminiKeyStatus', 'removeGemini', null);
+      paintKeyStatus('groqKeyStatus', 'removeGroq', null);
+      return;
+    }
+    try {
+      const res = await fetch('/api/settings');
+      const data = await res.json();
+      paintKeyStatus('geminiKeyStatus', 'removeGemini', data.gemini);
+      paintKeyStatus('groqKeyStatus', 'removeGroq', data.groq);
+    } catch (e) {
+      const g = $('geminiKeyStatus');
+      const q = $('groqKeyStatus');
+      if (g) g.textContent = 'server offline';
+      if (q) q.textContent = 'server offline';
+    }
+  };
+  refreshKeyStatus();
+  const settingsChip = document.querySelector('[data-view="setting"]');
+  if (settingsChip) settingsChip.addEventListener('click', refreshKeyStatus);
+
+  $('saveKeys').addEventListener('click', async () => {
+    const gemini = $('geminiKey').value.trim();
+    const groq = $('groqKey').value.trim();
+
+    if (inPreviewFile) {
+      $('geminiKey').value = '';
+      $('groqKey').value = '';
+      toast('👀 This is the one-file preview — keys can only be saved from the real app on your laptop (double-click start.bat). Nothing was stored anywhere.', 5600);
+      return;
+    }
+    if (!gemini && !groq) {
+      toast('🔑 Paste at least one key first (see the free-key steps in this window).');
+      return;
+    }
+
+    const warnings = [];
+    if (gemini && !gemini.startsWith('AIza')) warnings.push('Gemini keys usually start with "AIza"');
+    if (groq && !groq.startsWith('gsk_')) warnings.push('Groq keys usually start with "gsk_"');
+
+    const body = {};
+    if (gemini) body.gemini_key = gemini;
+    if (groq) body.groq_key = groq;
+
+    try {
+      const res = await fetch('/api/settings/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+      $('geminiKey').value = '';
+      $('groqKey').value = '';
+      paintKeyStatus('geminiKeyStatus', 'removeGemini', data.gemini);
+      paintKeyStatus('groqKeyStatus', 'removeGroq', data.groq);
+      toast('🔑 Key saved safely on this laptop (.env) and will survive restarts.'
+        + (warnings.length ? ' ⚠️ Note: ' + warnings.join('; ') + ' — please double-check the pasted key.' : '')
+        + ' Now try chatting with MYRA!', 6400);
+      logEvent('API key saved (value hidden)');
+    } catch (e) {
+      toast('❌ Could not save — is the MYRA server running? (' + e.message + ')', 5200);
+    }
   });
+
+  const removeKey = async (which) => {
+    if (inPreviewFile) return;
+    try {
+      const res = await fetch('/api/settings/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ which }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+      paintKeyStatus('geminiKeyStatus', 'removeGemini', data.gemini);
+      paintKeyStatus('groqKeyStatus', 'removeGroq', data.groq);
+      toast('🗑️ ' + (which === 'gemini' ? 'Gemini' : 'Groq') + ' key removed from this laptop.');
+      logEvent(which + ' key removed');
+    } catch (e) {
+      toast('❌ Could not remove the key (' + e.message + ').', 4600);
+    }
+  };
+  $('removeGemini').addEventListener('click', () => removeKey('gemini'));
+  $('removeGroq').addEventListener('click', () => removeKey('groq'));
 
   /* Reset preferences */
   $('resetPrefs').addEventListener('click', () => {
@@ -1531,7 +1726,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (savedPers) persSel.value = savedPers;
   persSel.addEventListener('change', (e) => {
     localStorage.setItem('myra_personality', e.target.value);
-    toast(`🎭 Personality set to "${e.target.value}" — it will shape replies from Stage 3.`);
+    toast(`🎭 Personality set to "${e.target.value}" — it now shapes MYRA's real AI replies.`);
   });
 
   /* News */
@@ -1546,6 +1741,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   pushHistory('ai', GREETINGS[HOLO.char] || GREETINGS.core);
-  logEvent('shell ready · stage 1 interface v0.6');
-  toast('✨ MYRA v0.6 — compact new shell. She forms once at startup, then morphs between CORE / MALE / FEMALE. Try the themes up top!', 6400);
+  logEvent('shell ready · stage 3 (real AI chat) v0.8');
+  toast('🧠 MYRA v0.8 — Stage 3 is live: real AI chat with Gemini first and Groq as backup. Save your free keys in SETTING on your own laptop, then talk to her!', 7400);
 });
