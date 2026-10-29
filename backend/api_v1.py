@@ -361,6 +361,7 @@ class CoreApiMixin:
                     max_steps=payload.get("max_steps", 6),
                     approval_mode=payload.get("approval_mode", "ask"),
                     approved_skill_ids=approved or [],
+                    provider=payload.get("provider", "auto"),
                 )
                 if payload.get("start"):
                     task = service.agent.start_task(task["id"])

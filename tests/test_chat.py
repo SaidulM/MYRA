@@ -238,6 +238,68 @@ class ChatTests(unittest.TestCase):
         self.assertEqual(result["reply"], "Groq took over seamlessly.")
         self.assertIn("temporarily unavailable", result.get("notice", ""))
 
+    def explicit_payload(self, provider):
+        payload = self.payload()
+        payload.update({
+            "provider": provider,
+            "allow_local_intent": False,
+            "auto_learn": False,
+        })
+        return payload
+
+    def test_explicit_ollama_missing_model_never_falls_back_to_gemini(self):
+        with patch.object(chat.config, "gemini_key", return_value="fake-gemini-key"), patch.object(
+            chat.config, "groq_key", return_value=""
+        ), patch.object(chat.config, "openrouter_key", return_value=""), patch.object(
+            chat.config, "openai_key", return_value=""
+        ), patch.object(chat.config, "deepseek_key", return_value=""), patch.object(
+            chat.config, "mistral_key", return_value=""
+        ), patch.object(chat.config, "ollama_model", return_value=""), patch.object(
+            chat, "_call_gemini", side_effect=AssertionError("Gemini must not be called")
+        ):
+            with self.assertRaises(chat.ChatError) as caught:
+                chat.get_reply(self.explicit_payload("ollama"))
+        self.assertEqual(caught.exception.code, "provider_not_configured")
+        self.assertEqual(caught.exception.provider, "ollama")
+        self.assertIn("will not silently switch to Gemini", caught.exception.message)
+
+    def test_explicit_ollama_unreachable_is_reported_as_ollama(self):
+        with patch.object(chat.config, "gemini_key", return_value="fake-gemini-key"), patch.object(
+            chat.config, "groq_key", return_value=""
+        ), patch.object(chat.config, "openrouter_key", return_value=""), patch.object(
+            chat.config, "openai_key", return_value=""
+        ), patch.object(chat.config, "deepseek_key", return_value=""), patch.object(
+            chat.config, "mistral_key", return_value=""
+        ), patch.object(chat.config, "ollama_model", return_value="llama3.2"), patch.object(
+            chat.config, "ollama_url", return_value="http://127.0.0.1:11434"
+        ), patch.object(
+            chat,
+            "_call_openai_compatible",
+            side_effect=chat.ChatError("network", "Could not reach ollama", provider="ollama", status=503),
+        ), patch.object(chat, "_call_gemini", side_effect=AssertionError("Gemini must not be called")):
+            with self.assertRaises(chat.ChatError) as caught:
+                chat.get_reply(self.explicit_payload("ollama"))
+        self.assertEqual(caught.exception.code, "provider_unreachable")
+        self.assertEqual(caught.exception.provider, "ollama")
+        self.assertIn("Start the Ollama app", caught.exception.message)
+
+    def test_explicit_ollama_success_is_labeled_ollama(self):
+        with patch.object(chat.config, "gemini_key", return_value="fake-gemini-key"), patch.object(
+            chat.config, "groq_key", return_value=""
+        ), patch.object(chat.config, "openrouter_key", return_value=""), patch.object(
+            chat.config, "openai_key", return_value=""
+        ), patch.object(chat.config, "deepseek_key", return_value=""), patch.object(
+            chat.config, "mistral_key", return_value=""
+        ), patch.object(chat.config, "ollama_model", return_value="llama3.2"), patch.object(
+            chat.config, "ollama_url", return_value="http://127.0.0.1:11434"
+        ), patch.object(
+            chat, "_call_openai_compatible", return_value=("Local brain reply", "llama3.2")
+        ), patch.object(chat, "_call_gemini", side_effect=AssertionError("Gemini must not be called")):
+            result = chat.get_reply(self.explicit_payload("ollama"))
+        self.assertEqual(result["provider"], "ollama")
+        self.assertEqual(result["provider_label"], "Ollama Local AI")
+        self.assertEqual(result["reply"], "Local brain reply")
+
 
 if __name__ == "__main__":
     unittest.main()

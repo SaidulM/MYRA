@@ -123,6 +123,25 @@ class AgentTests(CoreTestCase):
         self.assertEqual((self.workspace / "agent.txt").read_text(encoding="utf-8"), "agent verified")
         self.assertTrue(current["steps"][0]["result"]["verified"])
 
+    def test_task_keeps_selected_brain_and_planner_receives_it(self):
+        seen = {}
+
+        def fake_planner(task, definitions):
+            seen["provider"] = task.get("provider")
+            return PlannerDecision(kind="final", text="Done.", provider="fake", model="fake")
+
+        engine = AgentEngine(self.memory, self.registry, planner=fake_planner)
+        task = engine.create_task("Use my selected local brain", provider="ollama")
+        self.assertEqual(task["provider"], "ollama")
+        engine.start_task(task["id"], background=False)
+        self.assertEqual(seen["provider"], "ollama")
+        self.assertEqual(engine.get_task(task["id"])["status"], "completed")
+
+        default_engine = AgentEngine(self.memory, self.registry)
+        with mock.patch.object(providers, "next_action", return_value=PlannerDecision(kind="final", text="ok")) as next_action:
+            default_engine._default_planner(task, self.registry.definitions(enabled_only=True))
+        self.assertEqual(next_action.call_args.kwargs["provider"], "ollama")
+
 
 class ProviderAndServiceTests(CoreTestCase):
     def test_tool_schema_conversion(self):
@@ -136,6 +155,26 @@ class ProviderAndServiceTests(CoreTestCase):
         )
         write_tool = next(tool for tool in gemini_tools if tool["name"] == "workspace_write_text")
         self.assertEqual(write_tool["parameters"]["type"], "OBJECT")
+
+    def test_agent_planner_explicit_ollama_never_uses_gemini(self):
+        definitions = self.registry.definitions(enabled_only=True)
+        events = [{"type": "user", "text": "List my workspace"}]
+        decision = PlannerDecision(kind="final", text="local ok", provider="ollama", model="llama3.2")
+        with mock.patch.object(config, "gemini_key", return_value="fake-gemini"), mock.patch.object(
+            config, "ollama_model", return_value="llama3.2"
+        ), mock.patch.object(providers, "_gemini_next", side_effect=AssertionError("Gemini must not plan")), mock.patch.object(
+            providers, "_openai_compatible_next", return_value=decision
+        ) as compatible:
+            result = providers.next_action(events, "system", definitions, provider="ollama")
+        self.assertEqual(result.provider, "ollama")
+        self.assertEqual(compatible.call_args.args[0], "ollama")
+
+        with mock.patch.object(config, "gemini_key", return_value="fake-gemini"), mock.patch.object(
+            config, "ollama_model", return_value=""
+        ):
+            with self.assertRaises(Exception) as caught:
+                providers.next_action(events, "system", definitions, provider="ollama")
+        self.assertEqual(caught.exception.code, "provider_not_configured")
 
     def test_service_chat_persists_and_vision_requires_consent(self):
         service = MyraService(memory_store=self.memory, registry=self.registry)

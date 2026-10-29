@@ -490,6 +490,27 @@ class PurePythonLaunchTests(unittest.TestCase):
         ):
             self.assertEqual(web_shell_self_test(), 0)
 
+    def test_original_ui_uses_core_agent_and_backend_live_voice(self):
+        html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+        js = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
+        css = (ROOT / "ui" / "style.css").read_text(encoding="utf-8")
+        # Minimal interface: the old bottom build-status strip is gone.
+        self.assertNotIn("MYRA STATUS:", html)
+        self.assertNotIn("class=\"footer\"", html)
+        # Agent Mode must use the bounded Core task engine, not the legacy
+        # phrase matcher that mostly opened a browser.
+        self.assertIn("/api/v1/agent/tasks", js)
+        self.assertIn("agentApproveBtn", html)
+        self.assertIn("agentEmergencyBtn", html)
+        self.assertNotIn("fetch('/api/agent/run'", js)
+        # Live voice must have a WebView2-safe microphone path.
+        self.assertIn("MediaRecorder", js)
+        self.assertIn("/api/v1/voice/transcribe", js)
+        self.assertIn("installVoiceModelBtn", html)
+        self.assertIn("spokenMainText", js)
+        self.assertIn("characterVoiceGender", js)
+        self.assertIn(".agent-approval", css)
+
 
 if __name__ == "__main__":
     unittest.main()

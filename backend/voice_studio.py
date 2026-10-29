@@ -109,13 +109,78 @@ def is_japanese_text(text: str) -> bool:
     return bool(re.search(r"[\u3040-\u30FF\u4E00-\u9FFF]", text))
 
 
+def speech_text_for_reply(raw: str, max_chars: int = 700) -> str:
+    """Return only the main answer for speech.
+
+    The on-screen reply can contain a fuller report, sources or background
+    detail.  Spoken replies should start with the actual answer and stay
+    concise instead of reading every trailing section aloud.
+    """
+    text = clean_text_for_speech(raw)
+    if not text:
+        return ""
+
+    text = re.sub(r"^(?:MYRA|Assistant|Answer|Reply)\s*:\s*", "", text, flags=re.IGNORECASE)
+    # Keep the answer itself; do not read sources/background appendices.
+    text = re.split(
+        r"\b(?:Sources?|References?|Background|Technical details?|Details?)\s*:\s*",
+        text,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0].strip()
+
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?।])\s+", text) if part.strip()]
+    if not sentences:
+        sentences = [text]
+
+    # Drop a pure filler opening when the substantive answer follows it.
+    if len(sentences) > 1 and re.fullmatch(
+        r"(?:sure|of course|certainly|okay|here(?:'s| is)(?: the answer)?)[.!।]?",
+        sentences[0],
+        flags=re.IGNORECASE,
+    ):
+        sentences = sentences[1:]
+
+    spoken = ""
+    for sentence in sentences[:4]:
+        candidate = f"{spoken} {sentence}".strip() if spoken else sentence
+        if len(candidate) > max_chars and spoken:
+            break
+        spoken = candidate
+        if len(spoken) >= max_chars:
+            break
+    if len(spoken) > max_chars:
+        spoken = spoken[:max_chars].rsplit(" ", 1)[0].rstrip(" ,;:-") + "."
+    return spoken.strip()
+
+
+def character_gender(character: str = "core") -> str:
+    """MYRA's fixed voice map: FEMALE/CUSTOM female; MALE and CORE male."""
+    return "female" if (character or "core").lower() in {"female", "custom"} else "male"
+
+
+def _preset_gender(voice: str) -> str:
+    for key, value in VOICE_PRESETS.items():
+        if value == voice:
+            if key.endswith("_male"):
+                return "male"
+            if key.endswith("_female") or key in {"en_whisper", "en_core"}:
+                return "female"
+    return ""
+
+
 def pick_voice(text: str, character: str = "core", custom_voice: Optional[str] = None, style: str = "gentle") -> str:
-    """Select the best ultra-realistic neural voice for the given text, persona, and style."""
-    if custom_voice and custom_voice != "auto":
+    """Select a neural voice; the selected MYRA form controls its gender."""
+    char = (character or "core").lower()
+    gender = character_gender(char)
+    # Browser SpeechSynthesis URIs are not Edge voice IDs.  Accept a custom
+    # value only when it is a known Edge preset of the character's gender;
+    # this prevents an old female browser selection from leaking into MALE
+    # or CORE speech after the owner switches form.
+    if custom_voice and custom_voice != "auto" and _preset_gender(custom_voice) == gender:
         return custom_voice
 
-    char = (character or "core").lower()
-    is_male = char == "male"
+    is_male = gender == "male"
 
     if is_bengali_text(text):
         return VOICE_PRESETS["bn_male"] if is_male else VOICE_PRESETS["bn_female"]
@@ -129,14 +194,12 @@ def pick_voice(text: str, character: str = "core", custom_voice: Optional[str] =
     if is_japanese_text(text):
         return VOICE_PRESETS["ja_male"] if is_male else VOICE_PRESETS["ja_female"]
 
-    # English voices
+    # English voices: CORE deliberately uses the male voice.
     if is_male:
         return VOICE_PRESETS["en_male"]
     if style == "whisper":
         return VOICE_PRESETS["en_whisper"]
-    if char == "female":
-        return VOICE_PRESETS["en_female"]
-    return VOICE_PRESETS["en_core"]
+    return VOICE_PRESETS["en_female"]
 
 
 def _cache_key(text: str, voice: str, rate: str, pitch: str, style: str) -> Path:
@@ -190,7 +253,7 @@ def synthesize_speech(
     style: str = "gentle",
 ) -> Optional[bytes]:
     """Generate high-fidelity human speech MP3 audio with soft human touch."""
-    clean = clean_text_for_speech(text)
+    clean = speech_text_for_reply(text)
     if not clean:
         return None
 
@@ -205,14 +268,9 @@ def synthesize_speech(
     actual_rate = rate
     if pitch == "+0Hz" or not pitch:
         if is_bn:
-            actual_pitch = "+1Hz" if char == "female" else "-1Hz"
+            actual_pitch = "+1Hz" if character_gender(char) == "female" else "-1Hz"
         else:
-            if char == "female":
-                actual_pitch = "+2Hz"
-            elif char == "male":
-                actual_pitch = "-2Hz"
-            else:
-                actual_pitch = "+0Hz"
+            actual_pitch = "+2Hz" if character_gender(char) == "female" else "-2Hz"
 
     if rate == "+0%" or not rate:
         # Bengali sounds best at a relaxed, gentle natural rate
@@ -255,7 +313,12 @@ def get_voice_status() -> dict:
         "ok": True,
         "engine": "Edge Neural Human Voice Studio" if EDGE_AVAILABLE else "Browser Speech Engine",
         "neural": EDGE_AVAILABLE,
-        "default_bengali_voice": VOICE_PRESETS["bn_female"],
-        "default_english_voice": VOICE_PRESETS["en_female"],
+        "default_bengali_voice": VOICE_PRESETS["bn_male"],
+        "default_english_voice": VOICE_PRESETS["en_male"],
+        "voice_map": {
+            "core": {"gender": "male", "english": VOICE_PRESETS["en_male"], "bengali": VOICE_PRESETS["bn_male"]},
+            "male": {"gender": "male", "english": VOICE_PRESETS["en_male"], "bengali": VOICE_PRESETS["bn_male"]},
+            "female": {"gender": "female", "english": VOICE_PRESETS["en_female"], "bengali": VOICE_PRESETS["bn_female"]},
+        },
         "supported_voices": list(VOICE_PRESETS.values()),
     }

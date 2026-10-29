@@ -29,15 +29,15 @@
 
 ## 🌟 Key Features
 
-- 🧠 **Dual AI Brain:** Google Gemini (Free & Paid keys supported with dynamic auto-model discovery: 1.5-Flash, 1.5-Pro, 2.0-Flash) + Groq API (fallback) with live key verification.
+- 🧠 **Selected AI Brain, Used Exactly:** Gemini, Groq, OpenRouter, OpenAI, DeepSeek, Mistral or Ollama Local can be selected in the top BRAIN switcher. An explicit choice is authoritative — if that brain is missing/offline, MYRA says so instead of silently answering through another provider. `Auto` chooses the best configured brain.
 - ✨ **3D Hologram Particle Characters:**
   - `CORE` (living orb of light)
   - `MALE` (professional JARVIS-style assistant)
   - `FEMALE` (warm, caring companion)
   - Smooth wave-particle transitions, scan-light lighting, and 3D rotation.
-- 🎤 **Voice with Smart Silence Detection:** Talk naturally into your microphone; MYRA listens, detects when you stop speaking, and speaks her answer back aloud.
+- 🎤 **Live Voice Conversation:** In the desktop window, MYRA records the microphone, detects your pause, transcribes locally with faster-whisper, shows your words, answers, speaks only the clean main reply, then listens again. `CORE` and `MALE` use a male voice; `FEMALE` uses a female voice.
 - 💾 **Local Memory Engine (SQLite):** Remembers facts and preferences about you in one unified database in Windows app data (`%LOCALAPPDATA%\MYRA\myra.db`); any older `data/myra.db` contents are imported automatically. Never uploaded to any cloud.
-- 🤖 **Autonomous Agent Mode:** Give a complex task or query, and MYRA's agent conducts multi-step web research, gathers sources, and generates a structured intelligence report.
+- 🤖 **Step-by-Step Agent Mode:** Give MYRA a real task and the Agent panel runs the bounded Core engine: observe → plan → one safe skill → observe/verify → next step. It shows every step and pauses for **APPROVE/DENY** before write/control skills, with pause, resume, stop and Windows emergency-stop controls.
 - 📝 **Offline Notes Mode:** Create, view, and delete personal notes stored in local SQLite database.
 - 🧩 **Built-in Skills Engine:** Safe math calculator, live weather reports, system diagnostics, and web search.
 - 📷 **Visual Hub (Camera & Screen Share):** Permission-based camera and screen viewing with a clear red LIVE indicator.
@@ -53,8 +53,9 @@ MYRA's primary owner-facing interface is the familiar one-screen MYRA design, sh
 - **Advanced Qt fallback:** Chat, Agent, Voice, Live Vision, Research, Computer, Skills, Memory, Notes, Reminders, World, Settings and Diagnostics remain available in the PySide6 window when selected explicitly.
 - **One unified local database.** Memories, notes, reminders, conversations, preferences and tasks live in a single SQLite store under Windows app data (`%LOCALAPPDATA%\MYRA`). Any legacy `data/myra.db` rows are imported once, idempotently and without data loss.
 - **40 typed, permission-checked skills** behind `/api/v1`, with confirmation gates for write/control actions. Ordinary Chat never receives computer-control tools.
-- **Realtime voice pipeline:** microphone → local faster-whisper → cloud AI → Edge TTS / Windows SAPI → speaker, with mute, barge-in and end-call controls in the Qt fallback; the default interface keeps its established voice controls.
-- **Consent-based live vision**, **cited web research**, optional **visible browser automation** (Playwright) and **semantic Windows app control** (UI Automation/pywinauto with a visible "MYRA IS CONTROLLING" banner and emergency stop) remain in the service/API layer. CAPTCHA/MFA/password steps are always refused and left to you.
+- **Realtime voice pipeline in the default window:** microphone → pause detection → local faster-whisper → selected AI brain → concise Edge TTS (or browser fallback) → speaker, then listening resumes. WebView2 does not need browser SpeechRecognition for this path. The one-time Base STT model (~145 MB) is installed only after confirmation in **CHARACTER → VOICE STUDIO**.
+- **Core Agent in the original interface:** the **AGENT** tab now creates `/api/v1` tasks with visible steps, approval, pause/resume/cancel and emergency stop — not the old phrase matcher that mostly opened a browser. Windows PC-control skills stay OFF until enabled in **SKILLS → PC Control (Agent)**.
+- **Consent-based live vision**, **cited web research**, optional **visible browser automation** (Playwright) and **semantic Windows app control** (UI Automation/pywinauto with confirmation and emergency stop) remain bounded. CAPTCHA/MFA/password steps are always refused and left to you.
 - **Packaging:** `python packaging/build_windows.py` builds the windowed `MYRA.exe` (and optional Inno Setup installer) on Windows.
 - API secrets prefer the OS credential store when `keyring` is available; the private `.env` remains the fallback. Settings responses are masked.
 
