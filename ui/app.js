@@ -2121,12 +2121,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
   /* Assistant + owner names */
   const savedName = localStorage.getItem('myra_name');
-  if (savedName) { $('npName').textContent = savedName.toUpperCase(); $('nameInput').value = savedName; }
-  else $('nameInput').value = 'MYRA';
-  $('nameSave').addEventListener('click', () => {
-    const v = $('nameInput').value.trim() || 'MYRA';
+  const npNameEl = $('npName');
+  if (savedName) {
+    if (npNameEl) npNameEl.textContent = savedName.toUpperCase();
+    if ($('nameInput')) $('nameInput').value = savedName;
+  } else if ($('nameInput')) {
+    $('nameInput').value = 'MYRA';
+  }
+  $('nameSave')?.addEventListener('click', () => {
+    const v = $('nameInput')?.value.trim() || 'MYRA';
     localStorage.setItem('myra_name', v);
-    $('npName').textContent = v.toUpperCase();
+    if (npNameEl) npNameEl.textContent = v.toUpperCase();
     toast('✨ Name saved — say hello to ' + v + '!');
   });
   const applyOwner = (name) => {
