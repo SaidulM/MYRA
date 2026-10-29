@@ -23,7 +23,13 @@ import config  # noqa: E402
 import memory  # noqa: E402
 import news  # noqa: E402
 import notes  # noqa: E402
+import reminders  # noqa: E402
 import skills_manager  # noqa: E402
+
+try:
+    import voice_studio  # noqa: E402
+except Exception:
+    voice_studio = None
 
 try:
     import launcher
@@ -116,22 +122,18 @@ class MyraHandler(SimpleHTTPRequestHandler):
             return
 
         if path == "/api/voice/status":
-            local_found = False
-            for port in (8000, 5000, 8880):
-                try:
-                    import socket
-                    with socket.create_connection(("127.0.0.1", port), timeout=0.2):
-                        local_found = True
-                        break
-                except Exception:
-                    pass
-            self._send_json({
-                "ok": True,
-                "local_tts_running": local_found,
-                "engine": "Local Voice Studio Engine" if local_found else "Browser Neural Studio Engine",
-                "bilingual_support": True,
-                "languages": ["bn-BD", "bn-IN", "en-US", "en-GB"],
-            })
+            if voice_studio:
+                self._send_json(voice_studio.get_voice_status())
+            else:
+                self._send_json({"ok": True, "engine": "Browser Speech Engine", "neural": False})
+            return
+
+        if path == "/api/reminders":
+            self._send_json({"ok": True, "reminders": reminders.list_reminders()})
+            return
+
+        if path == "/api/reminders/due":
+            self._send_json({"ok": True, "due": reminders.check_due_reminders()})
             return
 
         if path.startswith("/api/"):
@@ -192,15 +194,48 @@ class MyraHandler(SimpleHTTPRequestHandler):
             self._send_json({"ok": True, **status})
             return
 
-        # 2b. Voice TTS endpoint
-        if path == "/api/voice/tts":
+        # 2b. Ultra-Realistic Neural Voice TTS Speak endpoint
+        if path == "/api/voice/speak":
             data = self._read_json() or {}
             text = str(data.get("text", "")).strip()
-            self._send_json({
-                "ok": True,
-                "use_browser": True,
-                "text": text,
-            })
+            character = str(data.get("character", "core"))
+            voice = data.get("voice")
+            rate = str(data.get("rate", "+0%"))
+            pitch = str(data.get("pitch", "+0Hz"))
+
+            if not text or not voice_studio:
+                self._send_json({"ok": False, "error": "TTS engine not ready"}, status=400)
+                return
+
+            audio_bytes = voice_studio.synthesize_speech(
+                text, character=character, voice=voice, rate=rate, pitch=pitch
+            )
+            if audio_bytes:
+                self.send_response(200)
+                self.send_header("Content-Type", "audio/mpeg")
+                self.send_header("Content-Length", str(len(audio_bytes)))
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.end_headers()
+                self.wfile.write(audio_bytes)
+                return
+            else:
+                self._send_json({"ok": False, "fallback_to_browser": True}, status=503)
+                return
+
+        # 2c. Reminders endpoints
+        if path == "/api/reminders":
+            data = self._read_json() or {}
+            text = data.get("text", "")
+            minutes = int(data.get("minutes", 10))
+            res = reminders.add_reminder(text, minutes=minutes)
+            self._send_json(res)
+            return
+
+        if path == "/api/reminders/delete":
+            data = self._read_json() or {}
+            rem_id = data.get("id")
+            deleted = reminders.delete_reminder(rem_id)
+            self._send_json({"ok": deleted})
             return
 
         # 3. Key verification
@@ -326,6 +361,7 @@ def main():
     # Initialize SQLite database
     memory.init_db()
     notes.init_db()
+    reminders.init_db()
 
     handler = partial(MyraHandler, directory=str(UI_DIR))
     server = ThreadingHTTPServer((HOST, PORT), handler)

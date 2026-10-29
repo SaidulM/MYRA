@@ -181,6 +181,17 @@ def start_myra():
     ).returncode
 
 
+def ensure_voice_engine():
+    try:
+        import edge_tts
+    except ImportError:
+        try:
+            say("⬇️ Initializing neural voice engine (edge-tts)...")
+            subprocess.run([sys.executable, "-m", "pip", "install", "edge-tts>=7.0.0"], capture_output=True)
+        except Exception:
+            pass
+
+
 def main(argv):
     no_update = "--no-update" in argv or os.environ.get("MYRA_NO_UPDATE") == "1"
     update_only = "--update-only" in argv
@@ -195,6 +206,8 @@ def main(argv):
     else:
         say("🔍 Checking GitHub for MYRA updates…")
         try_update()
+
+    ensure_voice_engine()
 
     if update_only:
         say("✔️ Update check finished (--update-only). MYRA was not started.")

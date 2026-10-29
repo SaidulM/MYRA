@@ -84,6 +84,69 @@ class BackendFeaturesTests(unittest.TestCase):
         # Clean up
         config.save_keys(gemini="", groq="", gemini_model="auto", groq_model="auto")
 
+    def test_agent_local_intents_zero_tokens(self):
+        # Music intent
+        music_res = agent.parse_and_execute_local_intent("play song Arijit Singh")
+        self.assertIsNotNone(music_res)
+        self.assertTrue(music_res["ok"])
+        self.assertEqual(music_res["action"], "play_music")
+        self.assertEqual(music_res["tokens_used"], 0)
+
+        # Bengali music intent
+        bn_music = agent.parse_and_execute_local_intent("তুমি গান চালাও রবীন্দ্র সংগীত")
+        self.assertIsNotNone(bn_music)
+        self.assertEqual(bn_music["action"], "play_music")
+        self.assertEqual(bn_music["tokens_used"], 0)
+
+        # Camera intent
+        cam_res = agent.parse_and_execute_local_intent("open camera")
+        self.assertIsNotNone(cam_res)
+        self.assertEqual(cam_res["action"], "open_camera")
+        self.assertTrue(cam_res["client_trigger"])
+
+        # System telemetry intent
+        sys_res = agent.parse_and_execute_local_intent("system status")
+        self.assertIsNotNone(sys_res)
+        self.assertEqual(sys_res["action"], "system_status")
+
+    def test_reminders_crud_and_due(self):
+        import reminders
+        reminders.init_db()
+        # Add reminder
+        res = reminders.add_reminder("Review project code", minutes=0)
+        self.assertTrue(res["ok"])
+        rem_id = res["id"]
+
+        rems = reminders.list_reminders()
+        self.assertTrue(any(r["id"] == rem_id for r in rems))
+
+        # Check due
+        due = reminders.check_due_reminders()
+        self.assertTrue(any(d["id"] == rem_id for d in due))
+
+        # Clean up
+        reminders.delete_reminder(rem_id)
+
+    def test_voice_studio_pick_voice_and_status(self):
+        import voice_studio
+        # Bengali voice pick
+        bn_v = voice_studio.pick_voice("হ্যালো! আমি মায়রা।", character="female")
+        self.assertEqual(bn_v, "bn-BD-NabanitaNeural")
+
+        bn_v_male = voice_studio.pick_voice("হ্যালো! আমি মায়রা।", character="male")
+        self.assertEqual(bn_v_male, "bn-BD-PradeepNeural")
+
+        # English voice pick
+        en_v = voice_studio.pick_voice("Hello world", character="female")
+        self.assertEqual(en_v, "en-US-JennyNeural")
+
+        en_v_male = voice_studio.pick_voice("Hello world", character="male")
+        self.assertEqual(en_v_male, "en-US-GuyNeural")
+
+        status = voice_studio.get_voice_status()
+        self.assertTrue(status["ok"])
+        self.assertIn("bn-BD-NabanitaNeural", status["supported_voices"])
+
 
 if __name__ == "__main__":
     unittest.main()

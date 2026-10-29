@@ -333,6 +333,20 @@ def launch_myra():
             subprocess.Popen([sys.executable, str(run_py)], cwd=str(TARGET))
 
 
+def install_voice_dependencies():
+    say("📦 Checking neural human voice engine (edge-tts)...")
+    try:
+        import edge_tts
+        say("✅ Edge Neural Human Voice Studio is installed and ready.")
+    except ImportError:
+        say("⬇️ Installing edge-tts for realistic human voice (open-source)...")
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", "edge-tts>=7.0.0"], check=False)
+            say("✅ Neural Voice Studio installed successfully.")
+        except Exception:
+            say("ℹ️ Skipped edge-tts installation. Standard browser voice will be used.")
+
+
 def main():
     say("")
     say("=" * 60)
@@ -345,6 +359,7 @@ def main():
         return 1
 
     copy_project()
+    install_voice_dependencies()
     setup_api_keys()
     create_shortcuts()
     stamp_version()

@@ -641,6 +641,26 @@ def get_reply(payload, opener=default_opener):
         )
 
     messages = normalize_messages(payload.get("messages"))
+
+    # Zero-Token Local Desktop Action Intent Check (Play music, Camera, Reminders, Files, Browser)
+    latest_user_text = messages[-1]["text"] if messages and messages[-1]["role"] == "user" else ""
+    try:
+        import agent
+        local_intent = agent.parse_and_execute_local_intent(latest_user_text)
+        if local_intent and local_intent.get("ok"):
+            return {
+                "ok": True,
+                "reply": local_intent.get("voice_reply") or local_intent.get("report", ""),
+                "provider": "local_agent",
+                "provider_label": "MYRA Desktop Agent (0 Tokens)",
+                "model": "local-intent",
+                "fallback": False,
+                "action": local_intent.get("action"),
+                "client_trigger": local_intent.get("client_trigger", False),
+            }
+    except Exception:
+        pass
+
     system_prompt = build_system_prompt(payload)
     gemini_key = config.gemini_key().strip()
     groq_key = config.groq_key().strip()

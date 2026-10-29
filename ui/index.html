@@ -58,9 +58,10 @@
     <label class="theme-pick" title="Interface theme">
       <span class="aw-label">THEME</span>
       <select id="themeSelect" class="theme-select">
-        <option value="normal">⬛ Normal</option>
-        <option value="friendly">💚 Friendly</option>
-        <option value="hacker">🔴 Hacker</option>
+        <option value="stonic">⚡ Stonic AI (Cyber Azure)</option>
+        <option value="normal">⬛ Cyber Cyan</option>
+        <option value="friendly">💚 Friendly Emerald</option>
+        <option value="hacker">🔴 Hacker Crimson</option>
       </select>
     </label>
 
@@ -158,6 +159,11 @@
           <div class="nameplate">
             <div class="np-name" id="npName">MYRA</div>
             <div class="np-status" id="holoStatus">✨ MYRA is waking up…</div>
+            <div class="holo-wave-box" id="holoWaveBox">
+              <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+              <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+              <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+            </div>
           </div>
         </div>
         <div class="stage-controls">
@@ -185,6 +191,7 @@
           <div class="vh-q">What should I look at? 👀</div>
           <button class="vh-btn" id="vhCamBtn">📷 Look around me <small>— camera</small></button>
           <button class="vh-btn" id="vhScrBtn">🖥️ Look at my screen <small>— screen share</small></button>
+          <button class="vh-btn" id="vhSnapBtn" style="border-color:var(--accent);">📸 Capture Snapshot <small>— vision snapshot</small></button>
           <button class="vh-btn vh-suggest" data-vh="Look at my screen and help me with what I'm doing">💡 "See my screen and help me"</button>
           <button class="vh-btn vh-suggest" data-vh="Look through the camera and tell me what you see around me">💡 "Tell me what you see around me"</button>
         </div>
@@ -224,20 +231,41 @@
       </div>
 
       <div class="mode-panel" id="mode-agent">
-        <p class="hint">Example: "Search this topic and give me a summary" — MYRA will open the browser herself and report back. <b>(Live in Stage 8)</b></p>
+        <div class="action-chips">
+          <button class="action-chip" data-act="play song Arijit Singh">🎵 Play Music</button>
+          <button class="action-chip" data-act="open google">🌐 Open Google</button>
+          <button class="action-chip" data-act="list files">📁 List Files</button>
+          <button class="action-chip" data-act="remind me to check work in 10 minutes">⏰ Set Reminder</button>
+          <button class="action-chip" data-act="open camera">📷 Open Camera</button>
+          <button class="action-chip" data-act="share screen">🖥️ Screen Share</button>
+          <button class="action-chip" data-act="system status">💻 System Telemetry</button>
+        </div>
         <div class="agent-log" id="agentLog">AGENT standing by — awaiting orders…</div>
         <div class="input-row">
-          <input type="text" id="agentInput" class="input chat-input" placeholder="Describe the task…">
+          <input type="text" id="agentInput" class="input chat-input" placeholder="Type desktop task or query (e.g. play song, list files, open google)…">
           <button class="btn btn-send" id="agentBtn">▶</button>
         </div>
       </div>
 
       <div class="mode-panel" id="mode-notes">
-        <div class="input-row" style="margin-top:2px">
-          <input type="text" id="noteInput" class="input chat-input" placeholder="Write a note… (real saving in Stage 7)">
-          <button class="btn btn-send" id="noteAdd">＋</button>
+        <div style="display:flex; gap:6px; margin-bottom:8px;">
+          <button class="action-chip active" id="tabNotesBtn" style="flex:1;">📝 Notes</button>
+          <button class="action-chip" id="tabRemindersBtn" style="flex:1;">⏰ Reminders</button>
         </div>
-        <ul class="notes-list" id="notesList"></ul>
+        <div id="notesSubPanel">
+          <div class="input-row" style="margin-top:2px">
+            <input type="text" id="noteInput" class="input chat-input" placeholder="Write a note…">
+            <button class="btn btn-send" id="noteAdd">＋</button>
+          </div>
+          <ul class="notes-list" id="notesList"></ul>
+        </div>
+        <div id="remindersSubPanel" class="hidden">
+          <div class="input-row" style="margin-top:2px">
+            <input type="text" id="remInput" class="input chat-input" placeholder="e.g. Call client in 15 mins">
+            <button class="btn btn-send" id="remAdd">⏰ ADD</button>
+          </div>
+          <div id="remindersList" style="margin-top:10px;"></div>
+        </div>
       </div>
     </section>
   </aside>

@@ -49,10 +49,10 @@ function pushHistory(who, text) { HISTORY.push({ who, text, at: new Date() }); }
 /* =========================================================
    Themes
    ========================================================= */
-const THEME_HEX = { normal: 0x22d3ee, friendly: 0x4ade80, hacker: 0xf87171 };
-const THEME_MAP_RGB = { normal: '94,234,212', friendly: '134,239,172', hacker: '252,165,165' };
-let themeName = localStorage.getItem('myra_theme') || 'normal';
-if (!THEME_HEX[themeName]) themeName = 'normal';
+const THEME_HEX = { normal: 0x22d3ee, friendly: 0x4ade80, hacker: 0xf87171, stonic: 0x3b82f6 };
+const THEME_MAP_RGB = { normal: '94,234,212', friendly: '134,239,172', hacker: '252,165,165', stonic: '147,197,253' };
+let themeName = localStorage.getItem('myra_theme') || 'stonic';
+if (!THEME_HEX[themeName]) themeName = 'stonic';
 
 /* =========================================================
    Particle figures — smooth silhouettes, grayscale light
@@ -1009,30 +1009,73 @@ function speechLangFor(text) {
   if (/[\u0900-\u097F]/.test(text)) return 'hi-IN';
   return 'en-US';
 }
-function speakDemo(text) {
+let currentPlayingAudio = null;
+
+function setWaveSpeaking(speaking) {
+  const waveBox = $('holoWaveBox');
+  if (waveBox) waveBox.classList.toggle('speaking-wave', Boolean(speaking));
+}
+
+async function speakDemo(text) {
   if (!HOLO.power) return;
   if (VOICE_MUTED) {
     setHoloStatus('🔇 Voice muted — tap 🔊 under the hologram to unmute');
     return;
   }
+
+  stopSpeaking();
   HOLO.speaking = true;
-  setHoloStatus('🗣️ MYRA is speaking…');
-  let done = false;
+  setWaveSpeaking(true);
+  const lang = speechLangFor(text);
+  setHoloStatus('🗣️ ' + (lang.startsWith('bn') ? 'মায়রা কথা বলছে…' : 'MYRA is speaking…'));
+
   const finish = () => {
-    if (done) return;
-    done = true;
     HOLO.speaking = false;
+    setWaveSpeaking(false);
     setHoloStatus(idleStatus());
+    currentPlayingAudio = null;
   };
+
+  // 1. Try Backend Ultra-Realistic Neural Human Voice Studio (GitHub Open-Source)
+  try {
+    const res = await fetch('/api/voice/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: text,
+        character: HOLO.char,
+        voice: localStorage.getItem('myra_voice_uri') || 'auto',
+      }),
+    });
+
+    if (res.ok && (res.headers.get('Content-Type') || '').includes('audio')) {
+      const blob = await res.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      const audio = new Audio(audioUrl);
+      currentPlayingAudio = audio;
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        finish();
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(audioUrl);
+        finish();
+      };
+      await audio.play();
+      return;
+    }
+  } catch (err) {
+    // Fallback to browser SpeechSynthesis if offline
+  }
+
+  // 2. Safe Fallback to Browser Speech Synthesis
   setTimeout(finish, Math.min(800 + text.length * 55, 12000));
   if ('speechSynthesis' in window) {
     try {
       speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
-      const lang = speechLangFor(text);
       u.lang = lang;
 
-      // Voice Studio custom pitch & rate controls
       const savedPitch = parseFloat(localStorage.getItem('myra_voice_pitch'));
       const savedRate = parseFloat(localStorage.getItem('myra_voice_rate'));
       const defaultPitch = HOLO.char === 'female' ? 1.2 : (HOLO.char === 'male' ? 0.85 : 1.0);
@@ -1049,12 +1092,10 @@ function speakDemo(text) {
 
       if (!match) {
         if (lang.startsWith('bn')) {
-          // Bengali voice detection (bn-BD / bn-IN)
           match = voices.find((v) => v.lang.toLowerCase().startsWith('bn') || /bangla|bengali|tanishaa|bashkar/i.test(v.name));
         } else if (lang.startsWith('hi')) {
           match = voices.find((v) => v.lang.toLowerCase().startsWith('hi') || /hindi|kalpana|hemant/i.test(v.name));
         } else {
-          // English natural / neural voice selection based on persona
           if (HOLO.char === 'female') {
             match = voices.find((v) => /natural.*female|jenny|aria|samantha|zira|female/i.test(v.name) && v.lang.toLowerCase().startsWith('en'))
                  || voices.find((v) => /female/i.test(v.name));
@@ -1071,12 +1112,23 @@ function speakDemo(text) {
       u.onend = finish;
       u.onerror = finish;
       speechSynthesis.speak(u);
-    } catch (e) { /* animation still plays */ }
+    } catch (e) {
+      finish();
+    }
   }
 }
+
 function stopSpeaking() {
+  if (currentPlayingAudio) {
+    try {
+      currentPlayingAudio.pause();
+      currentPlayingAudio.currentTime = 0;
+    } catch (e) {}
+    currentPlayingAudio = null;
+  }
   if ('speechSynthesis' in window) speechSynthesis.cancel();
   HOLO.speaking = false;
+  setWaveSpeaking(false);
   setHoloStatus(idleStatus());
 }
 
@@ -1224,6 +1276,10 @@ async function sendChat() {
     finishAiBubble(typing, reply, meta);
     pushHistory('ai', reply);
     logEvent('chat answered by ' + (data.provider || 'AI'));
+    if (data.client_trigger) {
+      if (data.action === 'open_camera') setVisual('cam', true);
+      else if (data.action === 'open_screen') setVisual('scr', true);
+    }
     if (data.notice) toast('ℹ️ ' + data.notice, 4200);
     speakDemo(reply);
   } catch (error) {
@@ -1581,7 +1637,7 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('myra_theme', themeName);
     applyTint();
     drawWires();
-    toast(themeName === 'normal' ? '⬛ Normal black theme.' : themeName === 'friendly' ? '💚 Friendly green theme — soft and warm.' : '🔴 Hacker red theme — alert-mode looks only!');
+    toast(themeName === 'stonic' ? '⚡ Stonic AI Cyber Azure theme.' : themeName === 'normal' ? '⬛ Cyber cyan theme.' : themeName === 'friendly' ? '💚 Friendly green theme.' : '🔴 Hacker red theme.');
     logEvent('theme → ' + themeName);
   });
 
@@ -1708,6 +1764,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Agent execution failed');
       log.textContent = data.logs.join('\n') + '\n\n' + data.report;
+      if (data.client_trigger) {
+        if (data.action === 'open_camera') setVisual('cam', true);
+        else if (data.action === 'open_screen') setVisual('scr', true);
+      }
+      if (data.voice_reply) speakDemo(data.voice_reply);
       toast('✅ Agent completed task!');
       logEvent('agent task finished');
     } catch (err) {
@@ -1719,6 +1780,123 @@ document.addEventListener('DOMContentLoaded', () => {
   };
   $('agentBtn').addEventListener('click', runAgentTask);
   $('agentInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') runAgentTask(); });
+
+  /* Agent Quick Action Chips */
+  document.querySelectorAll('.action-chip[data-act]').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      $('agentInput').value = chip.dataset.act;
+      runAgentTask();
+    });
+  });
+
+  /* Notes & Reminders Hub */
+  $('tabNotesBtn')?.addEventListener('click', () => {
+    $('tabNotesBtn').classList.add('active');
+    $('tabRemindersBtn')?.classList.remove('active');
+    $('notesSubPanel')?.classList.remove('hidden');
+    $('remindersSubPanel')?.classList.add('hidden');
+  });
+  $('tabRemindersBtn')?.addEventListener('click', () => {
+    $('tabRemindersBtn').classList.add('active');
+    $('tabNotesBtn')?.classList.remove('active');
+    $('notesSubPanel')?.classList.add('hidden');
+    $('remindersSubPanel')?.classList.remove('hidden');
+    loadReminders();
+  });
+
+  const loadReminders = async () => {
+    if (location.protocol === 'file:') return;
+    try {
+      const res = await fetch('/api/reminders');
+      const data = await res.json();
+      const listEl = $('remindersList');
+      if (!listEl) return;
+      if (!data.reminders || !data.reminders.length) {
+        listEl.innerHTML = '<div class="empty-note">No active reminders. Add one above ☝️</div>';
+        return;
+      }
+      listEl.innerHTML = '';
+      data.reminders.forEach((r) => {
+        const item = document.createElement('div');
+        item.className = 'reminder-item';
+        item.innerHTML = `
+          <div>
+            <div class="reminder-text">⏰ ${r.text}</div>
+            <div class="reminder-due">Due: ${r.due_str}</div>
+          </div>
+          <button class="icon-btn" style="color:var(--danger);" title="Delete reminder">✕</button>
+        `;
+        item.querySelector('button').onclick = async () => {
+          await fetch('/api/reminders/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: r.id }),
+          });
+          loadReminders();
+          toast('🗑️ Reminder deleted');
+        };
+        listEl.appendChild(item);
+      });
+    } catch (e) {}
+  };
+
+  $('remAdd')?.addEventListener('click', async () => {
+    const text = $('remInput').value.trim();
+    if (!text) return;
+    try {
+      const res = await fetch('/api/reminders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, minutes: 10 }),
+      });
+      $('remInput').value = '';
+      loadReminders();
+      toast('⏰ Reminder scheduled: ' + text);
+    } catch (e) {}
+  });
+
+  const checkDueReminders = async () => {
+    if (location.protocol === 'file:') return;
+    try {
+      const res = await fetch('/api/reminders/due');
+      const data = await res.json();
+      if (data.due && data.due.length) {
+        data.due.forEach((r) => {
+          const alertMsg = speechLangFor(r.text).startsWith('bn')
+            ? `রিমাইন্ডার এলার্ট: ${r.text}`
+            : `Reminder Alert: ${r.text}`;
+          toast('⏰ ' + alertMsg, 8000);
+          speakDemo(alertMsg);
+          addMsg(alertMsg, 'ai');
+        });
+        loadReminders();
+      }
+    } catch (e) {}
+  };
+  setInterval(checkDueReminders, 12000);
+
+  /* Visual Hub Snapshot */
+  $('vhSnapBtn')?.addEventListener('click', () => {
+    const video = $('vhVideo');
+    if (!VIS.cam && !VIS.scr) {
+      toast('📷 Turn on camera or screen share first to take a snapshot.');
+      return;
+    }
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      document.querySelector('[data-mode="voice"]').click();
+      $('chatInput').value = "Here is what I'm looking at right now (Snapshot captured).";
+      $('chatInput').focus();
+      toast('📸 Snapshot captured and attached to chat!');
+      logEvent('visual snapshot captured');
+    } catch (e) {
+      toast('⚠️ Snapshot error: ' + e.message);
+    }
+  });
 
   /* Notes (Stage 7) */
   const loadNotes = async () => {
