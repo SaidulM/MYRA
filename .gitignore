@@ -18,3 +18,6 @@ Thumbs.db
 
 # === Logs ===
 *.log
+.myra-version
+launcher-log.txt
+.myra-update*
