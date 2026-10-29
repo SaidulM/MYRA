@@ -452,6 +452,44 @@ class PurePythonLaunchTests(unittest.TestCase):
         self.assertIn("pythonw.exe", launcher)
         self.assertNotIn("_create_unverified_context", launcher)
 
+    def test_smooth_gpu_shell_is_the_default_window(self):
+        # Owner feedback: the all-Qt window stuttered and did not match
+        # MYRA's original interface.  The default shell must therefore
+        # render ui/ through the OS GPU web engine, with Qt as fallback.
+        entry = (ROOT / "run_desktop.py").read_text(encoding="utf-8")
+        shell = (ROOT / "desktop" / "web_shell.py").read_text(encoding="utf-8")
+        requirements = (ROOT / "requirements-desktop.txt").read_text(encoding="utf-8")
+        spec = (ROOT / "packaging" / "MYRA.spec").read_text(encoding="utf-8")
+        self.assertIn("desktop.web_shell", entry)
+        self.assertIn('"--qt"', entry)
+        self.assertIn("MYRA_UI", entry)
+        self.assertIn("edgechromium", shell)
+        self.assertIn("EmbeddedBackend", shell)
+        self.assertIn("pywebview>=5.0", requirements)
+        self.assertIn('"webview"', spec)
+
+        import run_desktop
+
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("MYRA_UI", None)
+            with mock.patch.object(sys, "argv", ["MYRA.pyw"]):
+                self.assertEqual(run_desktop._ui_mode(), "web")
+            with mock.patch.object(sys, "argv", ["MYRA.pyw", "--qt"]):
+                self.assertEqual(run_desktop._ui_mode(), "qt")
+        with mock.patch.dict(os.environ, {"MYRA_UI": "qt"}):
+            with mock.patch.object(sys, "argv", ["MYRA.pyw"]):
+                self.assertEqual(run_desktop._ui_mode(), "qt")
+
+        from desktop.web_shell import self_test as web_shell_self_test
+
+        with tempfile.TemporaryDirectory() as folder, mock.patch.dict(
+            sys.modules, {"webview": mock.Mock()}
+        ), mock.patch.dict(
+            os.environ,
+            {"MYRA_DATA_DIR": folder, "MYRA_SELFTEST_PORT": "8895"},
+        ):
+            self.assertEqual(web_shell_self_test(), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

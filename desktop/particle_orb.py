@@ -9,7 +9,7 @@ import math
 import time
 
 from PySide6.QtCore import QPointF, Qt, QTimer
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QWidget
 
 try:
@@ -134,7 +134,9 @@ class HologramWidget(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
+        # Points are drawn in batches below; per-dot ellipse antialiasing
+        # was a major CPU cost on low-power laptops.
+        painter.setRenderHint(QPainter.Antialiasing, False)
         painter.fillRect(self.rect(), QColor(2, 8, 14))
 
         width, height = float(self.width()), float(self.height())
@@ -188,10 +190,10 @@ class HologramWidget(QWidget):
         for (alpha_bucket, size), points in groups.items():
             alpha = max(14, min(242, alpha_bucket * 16 + 15))
             color = QColor(red, green, blue, alpha)
-            painter.setPen(color)
-            painter.setBrush(color)
-            for px, py in points:
-                painter.drawEllipse(QPointF(px, py), size, size)
+            pen = QPen(color, max(1.15, size * 1.8))
+            pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(pen)
+            painter.drawPoints(QPolygonF([QPointF(px, py) for px, py in points]))
         painter.end()
 
 
