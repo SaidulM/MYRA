@@ -15,8 +15,8 @@ sys.path.insert(0, str(ROOT / "backend"))
 import config  # noqa: E402
 import providers  # noqa: E402
 import service as service_module  # noqa: E402
-from agent import AgentEngine  # noqa: E402
-from memory import MemoryStore  # noqa: E402
+from core_agent import AgentEngine  # noqa: E402
+from core_memory import MemoryStore  # noqa: E402
 from providers import PlannerDecision, ToolCall  # noqa: E402
 from service import MyraService  # noqa: E402
 from skill_registry import SkillContext, SkillError, build_default_registry  # noqa: E402

@@ -15,7 +15,7 @@
                     └──┬──────┬──────┬──┘
                        │      │      │
               ┌────────▼─┐ ┌──▼──────▼──┐ ┌──────────────┐
-              │ chat.py  │ │ agent.py   │ │ memory.py    │
+              │ chat.py  │ │ core_agent.py   │ │ core_memory.py    │
               │ Gemini→  │ │ bounded    │ │ SQLite       │
               │ Groq     │ │ planner    │ │ conversations│
               └────┬─────┘ └──┬─────────┘ │ memories     │

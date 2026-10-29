@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 import config  # noqa: E402
 import server  # noqa: E402
 import service as service_module  # noqa: E402
-from memory import MemoryStore  # noqa: E402
+from core_memory import MemoryStore  # noqa: E402
 from service import MyraService  # noqa: E402
 from skill_registry import build_default_registry  # noqa: E402
 

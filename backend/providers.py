@@ -14,7 +14,9 @@ it.  In particular, streaming tokens and realtime voice are still false.
 from __future__ import annotations
 
 import copy
+import inspect
 import json
+import urllib.request
 from dataclasses import dataclass
 
 import chat
@@ -35,6 +37,37 @@ class PlannerDecision:
     tool_call: ToolCall | None = None
     provider: str = ""
     model: str = ""
+
+
+def _chat_error(code, message, provider=None, status=502):
+    return chat.ChatError(code, message, provider=provider, status=status)
+
+
+def _default_opener():
+    return getattr(chat, "default_opener", urllib.request.urlopen)
+
+
+def _provider_models(provider, api_key, opener, override=None):
+    """Support both MYRA chat generations without passing a key as a model."""
+    if isinstance(override, str) and override.strip() and override.strip().lower() != "auto":
+        return (override.strip(),)
+    models_for = chat._models_for
+    try:
+        params = inspect.signature(models_for).parameters
+    except (TypeError, ValueError):
+        params = {}
+    if "api_key" in params:
+        return models_for(provider, api_key, opener=opener)
+    if "override" in params:
+        return models_for(provider, None)
+    return models_for(provider)
+
+
+def _extract_groq_text(data):
+    extractor = getattr(chat, "_extract_groq_text", None)
+    if extractor is not None:
+        return extractor(data)
+    return chat._extract_openai_text(data, provider="groq")
 
 
 def provider_infos(model_overrides=None):
@@ -231,7 +264,7 @@ def _gemini_next(events, system_prompt, definitions, api_key, opener, model_over
         "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1200},
     }
     last_error = None
-    for model in chat._models_for("gemini", model_override):
+    for model in _provider_models("gemini", api_key, opener, model_override):
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
             f"{model}:generateContent"
@@ -241,8 +274,8 @@ def _gemini_next(events, system_prompt, definitions, api_key, opener, model_over
                 url,
                 payload_base,
                 {"x-goog-api-key": api_key},
+                "gemini",
                 opener,
-                provider_name="Gemini",
             )
             candidates = response.get("candidates") or []
             parts = []
@@ -265,8 +298,8 @@ def _gemini_next(events, system_prompt, definitions, api_key, opener, model_over
             text = chat._extract_gemini_text(response)
             if text:
                 return PlannerDecision(kind="final", text=text, provider="gemini", model=model)
-            raise chat.ChatError(
-                "invalid_response", "Gemini sent an empty planner response.", 502
+            raise _chat_error(
+                "invalid_response", "Gemini sent an empty planner response.", provider="gemini", status=502
             )
         except chat.ChatError as exc:
             last_error = exc
@@ -289,7 +322,7 @@ def _parse_tool_arguments(value):
 
 def _groq_next(events, system_prompt, definitions, api_key, opener, model_override=None):
     last_error = None
-    for model in chat._models_for("groq", model_override):
+    for model in _provider_models("groq", api_key, opener, model_override):
         payload = {
             "model": model,
             "messages": _groq_messages(events, system_prompt),
@@ -304,8 +337,8 @@ def _groq_next(events, system_prompt, definitions, api_key, opener, model_overri
                 "https://api.groq.com/openai/v1/chat/completions",
                 payload,
                 {"Authorization": f"Bearer {api_key}"},
+                "groq",
                 opener,
-                provider_name="Groq",
             )
             choices = response.get("choices") or []
             message = (choices[0].get("message") or {}) if choices else {}
@@ -324,10 +357,10 @@ def _groq_next(events, system_prompt, definitions, api_key, opener, model_overri
                     provider="groq",
                     model=model,
                 )
-            text = chat._extract_groq_text(response)
+            text = _extract_groq_text(response)
             if text:
                 return PlannerDecision(kind="final", text=text, provider="groq", model=model)
-            raise chat.ChatError("invalid_response", "Groq sent an empty planner response.", 502)
+            raise _chat_error("invalid_response", "Groq sent an empty planner response.", provider="groq", status=502)
         except chat.ChatError as exc:
             last_error = exc
             if exc.code != "model_unavailable":
@@ -337,15 +370,15 @@ def _groq_next(events, system_prompt, definitions, api_key, opener, model_overri
 
 def next_action(events, system_prompt, definitions, opener=None, model_overrides=None):
     """Ask Gemini first, then Groq, for one planner decision."""
-    opener = opener or chat.urllib.request.urlopen
+    opener = opener or _default_opener()
     model_overrides = model_overrides or {}
     gemini_key = config.gemini_key().strip()
     groq_key = config.groq_key().strip()
     if not gemini_key and not groq_key:
-        raise chat.ChatError(
+        raise _chat_error(
             "missing_keys",
             "No API key is saved. Open Settings and add a Gemini or Groq key first.",
-            503,
+            status=503,
         )
 
     errors = []
@@ -376,13 +409,13 @@ def next_action(events, system_prompt, definitions, opener=None, model_overrides
     if errors:
         last = errors[-1]
         if len(errors) > 1:
-            raise chat.ChatError(
+            raise _chat_error(
                 "all_providers_failed",
                 "Gemini and Groq both failed. " + errors[0].message + " " + last.message,
-                502,
+                status=502,
             )
         raise last
-    raise chat.ChatError("missing_keys", "No usable API provider is configured.", 503)
+    raise _chat_error("missing_keys", "No usable API provider is configured.", status=503)
 
 
 def analyze_image(image_base64, mime_type, prompt, opener=None, model_override=None):
@@ -393,12 +426,13 @@ def analyze_image(image_base64, mime_type, prompt, opener=None, model_override=N
     """
     api_key = config.gemini_key().strip()
     if not api_key:
-        raise chat.ChatError(
+        raise _chat_error(
             "vision_provider_missing",
             "Image analysis currently requires a saved Gemini key.",
-            503,
+            provider="gemini",
+            status=503,
         )
-    opener = opener or chat.urllib.request.urlopen
+    opener = opener or _default_opener()
     prompt = (prompt or "Describe this image and help with what is visible.").strip()[:2000]
     payload = {
         "contents": [
@@ -413,7 +447,7 @@ def analyze_image(image_base64, mime_type, prompt, opener=None, model_override=N
         "generationConfig": {"temperature": 0.3, "maxOutputTokens": 1200},
     }
     last_error = None
-    for model in chat._models_for("gemini", model_override):
+    for model in _provider_models("gemini", api_key, opener, model_override):
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
             f"{model}:generateContent"
@@ -423,13 +457,13 @@ def analyze_image(image_base64, mime_type, prompt, opener=None, model_override=N
                 url,
                 payload,
                 {"x-goog-api-key": api_key},
+                "gemini",
                 opener,
-                provider_name="Gemini",
             )
             text = chat._extract_gemini_text(response)
             if not text:
-                raise chat.ChatError(
-                    "invalid_response", "Gemini sent an empty image response.", 502
+                raise _chat_error(
+                    "invalid_response", "Gemini sent an empty image response.", provider="gemini", status=502
                 )
             return {"provider": "gemini", "model": model, "text": text}
         except chat.ChatError as exc:

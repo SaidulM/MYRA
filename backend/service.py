@@ -13,8 +13,8 @@ import chat
 import config
 import paths
 import providers
-from agent import AgentEngine
-from memory import MemoryStore
+from core_agent import AgentEngine
+from core_memory import MemoryStore
 from skill_registry import SkillContext, SkillError, build_default_registry
 from voice import VoiceModelManager
 
@@ -61,7 +61,7 @@ class MyraService:
             raise ValueError("chat payload must be an object")
         message = payload.get("message")
         if not isinstance(message, str) or not message.strip():
-            raise chat.ChatError("invalid_request", "Message text is required.", 400)
+            raise chat.ChatError("invalid_request", "Message text is required.", status=400)
         character = payload.get("character") or "core"
         conversation_id = payload.get("conversation_id")
         if conversation_id:
