@@ -1,5 +1,6 @@
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -10,15 +11,27 @@ import agent
 import memory
 import news
 import notes
+import reminders
 import skills_manager
 
 
 class BackendFeaturesTests(unittest.TestCase):
     def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.tmp.name) / "unified.db"
+        self._old_db_paths = (memory.DB_PATH, notes.DB_PATH, reminders.DB_PATH)
+        memory.DB_PATH = self.db_path
+        notes.DB_PATH = self.db_path
+        reminders.DB_PATH = self.db_path
         memory.init_db()
         notes.init_db()
+        reminders.init_db()
         memory.clear_memories()
         notes.clear_notes()
+
+    def tearDown(self):
+        memory.DB_PATH, notes.DB_PATH, reminders.DB_PATH = self._old_db_paths
+        self.tmp.cleanup()
 
     def test_memory_crud(self):
         mem_id = memory.add_memory("I like green tea", category="preferences")

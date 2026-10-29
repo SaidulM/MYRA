@@ -14,8 +14,10 @@ import re
 from pathlib import Path
 from typing import Optional, Tuple
 
+import paths
+
 ROOT = Path(__file__).resolve().parent.parent
-CACHE_DIR = ROOT / "data" / "voice_cache"
+CACHE_DIR = paths.data_dir() / "voice_cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 try:

@@ -1,24 +1,49 @@
-# PyInstaller spec for the MYRA native desktop build.
-# Build from the repository root with packaging/build_windows.ps1.
+# PyInstaller spec for the pure-Python MYRA native desktop build.
+# The generated MYRA.exe is a windowed GUI executable (console=False):
+# no Command Prompt or PowerShell window is opened at runtime.
 from pathlib import Path
+
+from PyInstaller.utils.hooks import collect_all
 
 root = Path(SPECPATH).parent
 
 hiddenimports = [
-    "keyring.backends.Windows",
-    "keyring.backends.fail",
-    "keyring.backends.null",
+    # Local backend modules are imported through backend/ pathex.
+    "agent", "api_v1", "browser_control", "chat", "config", "core_agent",
+    "core_memory", "live_vision", "memory", "news", "notes", "paths",
+    "providers", "reminders", "research", "server", "service",
+    "skill_registry", "skills_manager", "voice", "voice_engine", "voice_studio",
+    "windows_control",
+    # Secure storage and optional engines.
+    "keyring.backends.Windows", "keyring.backends.fail", "keyring.backends.null",
+    "edge_tts", "faster_whisper", "huggingface_hub", "playwright.sync_api",
+    "pyautogui", "pywinauto", "win32com.client",
 ]
+
+datas = [
+    (str(root / "ui"), "ui"),
+    (str(root / "assets"), "assets"),
+    (str(root / "docs"), "docs"),
+]
+binaries = []
+
+# Optional engines are installed by packaging/build_windows.py.  collect_all
+# is guarded so this spec can still be inspected on a minimal machine.
+for package in ("faster_whisper", "playwright", "edge_tts"):
+    try:
+        package_datas, package_binaries, package_hidden = collect_all(package)
+        datas += package_datas
+        binaries += package_binaries
+        hiddenimports += package_hidden
+    except Exception:
+        pass
 
 a = Analysis(
     [str(root / "run_desktop.py")],
     pathex=[str(root), str(root / "backend")],
-    binaries=[],
-    datas=[
-        (str(root / "ui"), "ui"),
-        (str(root / "assets"), "assets"),
-    ],
-    hiddenimports=hiddenimports,
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=sorted(set(hiddenimports)),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -37,6 +62,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
+    disable_windowed_traceback=False,
     icon=str(root / "assets" / "myra.ico"),
 )
 coll = COLLECT(

@@ -9,12 +9,15 @@ Every time MYRA starts (desktop icon / MYRA.bat / start.bat):
    ``data/`` (your memory/notes) always stay untouched.
 3. If offline — or anything goes wrong — simply start the version
    that is already installed. An update problem never blocks MYRA.
-4. Start the MYRA server + app window (via run.py).
+4. Start MYRA. On Windows the native pure-Python desktop app
+   (``MYRA.pyw`` via ``pythonw`` — no console window) is preferred;
+   the legacy web app (run.py) remains available with ``--web``.
 
 Flags:
   --no-update    skip the update check and start immediately
   --update-only  only check/download updates, then exit
-Environment: MYRA_NO_UPDATE=1 also skips the check.
+  --web          start the legacy browser UI instead of the desktop app
+Environment: MYRA_NO_UPDATE=1 also skips the check; MYRA_WEB=1 = --web.
 
 Standard library only — light on an 8GB RAM laptop.
 """
@@ -24,7 +27,6 @@ import shutil
 import subprocess
 import sys
 import zipfile
-import ssl
 from datetime import datetime
 from pathlib import Path
 from urllib.error import URLError
@@ -58,12 +60,11 @@ def say(line=""):
 
 
 def _open(url, timeout):
+    # Verified TLS only: this download becomes running code, so a failed
+    # certificate check must degrade to "start the installed version",
+    # never to silently trusting an unverified connection.
     req = Request(url, headers=HEADERS)
-    try:
-        return urlopen(req, timeout=timeout)
-    except (ssl.SSLError, URLError):
-        ctx = ssl._create_unverified_context()
-        return urlopen(req, timeout=timeout, context=ctx)
+    return urlopen(req, timeout=timeout)
 
 
 def fetch_latest_sha():
@@ -170,7 +171,45 @@ def try_update():
         shutil.rmtree(TMP_DIR, ignore_errors=True)
 
 
-def start_myra():
+def _pythonw_candidates():
+    """Windowless Python interpreters, best first (Windows only)."""
+    venv_pythonw = ROOT / ".venv-desktop" / "Scripts" / "pythonw.exe"
+    sibling = Path(sys.executable).with_name("pythonw.exe")
+    return [p for p in (venv_pythonw, sibling) if p.exists()]
+
+
+def start_desktop():
+    """Launch the native PySide6 app without any console window.
+
+    Returns True if the desktop process was spawned.  First-run package
+    setup is handled inside MYRA.pyw itself (a Python setup window), so
+    this works even before `.venv-desktop` exists.
+    """
+    entry = ROOT / "MYRA.pyw"
+    if os.name != "nt" or not entry.exists():
+        return False
+    for pythonw in _pythonw_candidates():
+        try:
+            flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+                subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+            )
+            subprocess.Popen(
+                [str(pythonw), str(entry)],
+                cwd=str(ROOT),
+                close_fds=True,
+                creationflags=flags,
+            )
+            say("🖥️ MYRA desktop app is opening (no console window needed). "
+                "This update window will now close.")
+            return True
+        except OSError:
+            continue
+    return False
+
+
+def start_myra(prefer_desktop=True):
+    if prefer_desktop and start_desktop():
+        return 0
     run_py = ROOT / "run.py"
     if run_py.exists():
         return subprocess.run([sys.executable, str(run_py)], cwd=str(ROOT)).returncode
@@ -195,6 +234,7 @@ def ensure_voice_engine():
 def main(argv):
     no_update = "--no-update" in argv or os.environ.get("MYRA_NO_UPDATE") == "1"
     update_only = "--update-only" in argv
+    prefer_desktop = "--web" not in argv and os.environ.get("MYRA_WEB") != "1"
 
     say("")
     say("=" * 58)
@@ -213,10 +253,13 @@ def main(argv):
         say("✔️ Update check finished (--update-only). MYRA was not started.")
         return 0
 
-    say("🚀 Starting MYRA… (keep this window open while MYRA runs; "
-        "close it or press Ctrl+C to quit)")
+    if prefer_desktop:
+        say("🚀 Starting the MYRA desktop app…")
+    else:
+        say("🚀 Starting MYRA (web)… (keep this window open while MYRA runs; "
+            "close it or press Ctrl+C to quit)")
     try:
-        return start_myra()
+        return start_myra(prefer_desktop=prefer_desktop)
     except KeyboardInterrupt:
         say("\n👋 MYRA closed.")
         return 0

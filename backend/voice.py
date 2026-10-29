@@ -82,27 +82,94 @@ class VoiceModelManager:
             },
         ]
 
+    def find_installed(self, engine=None, model_id=None):
+        state = self._load_state()
+        out = []
+        for item in state.get("installed", []):
+            if engine and item.get("engine") != engine:
+                continue
+            if model_id and item.get("model_id") != model_id:
+                continue
+            path = Path(item.get("path", ""))
+            out.append({**item, "exists": path.exists()})
+        return out
+
+    def install_faster_whisper_model(self, model_id="base", confirmed=False):
+        """Download a Systran faster-whisper model after explicit consent."""
+        if not confirmed:
+            raise VoiceModelError("Voice model download requires explicit user confirmation.")
+        model_id = str(model_id or "base").strip().lower()
+        if model_id not in {"tiny", "base", "small", "medium", "large-v3", "distil-large-v3"}:
+            raise VoiceModelError("Unsupported faster-whisper model id.")
+        try:
+            from huggingface_hub import snapshot_download
+        except ImportError as exc:
+            raise VoiceModelError(
+                "faster-whisper/huggingface-hub is not installed. Install requirements-voice.txt first."
+            ) from exc
+        destination = self.models_dir / "faster-whisper" / model_id
+        destination.mkdir(parents=True, exist_ok=True)
+        repo_id = f"Systran/faster-whisper-{model_id}"
+        try:
+            snapshot_download(repo_id=repo_id, local_dir=str(destination))
+        except Exception as exc:
+            raise VoiceModelError(f"faster-whisper model download failed: {exc}") from exc
+        model_bin = destination / "model.bin"
+        if not model_bin.exists():
+            raise VoiceModelError("Downloaded faster-whisper model is missing model.bin.")
+        record = {
+            "engine": "faster-whisper",
+            "model_id": model_id,
+            "path": str(destination),
+            "version": repo_id,
+            "sha256": _sha256(model_bin),
+            "registered_at": _now(),
+            "source": f"https://huggingface.co/{repo_id}",
+            "size_bytes": sum(path.stat().st_size for path in destination.rglob("*") if path.is_file()),
+        }
+        state = self._load_state()
+        state["installed"] = [
+            item for item in state.get("installed", [])
+            if not (item.get("engine") == "faster-whisper" and item.get("model_id") == model_id)
+        ]
+        state["installed"].append(record)
+        self._save_state(state)
+        return record
+
     def status(self):
         state = self._load_state()
         installed = []
         for item in state.get("installed", []):
             path = Path(item.get("path", ""))
             installed.append({**item, "exists": path.exists()})
+        faster_package = importlib.util.find_spec("faster_whisper") is not None
+        faster_model = any(
+            item.get("engine") == "faster-whisper" and item.get("exists") for item in installed
+        )
+        edge_ready = importlib.util.find_spec("edge_tts") is not None
+        sapi_ready = os.name == "nt" and importlib.util.find_spec("win32com") is not None
+        pyttsx3_ready = importlib.util.find_spec("pyttsx3") is not None
+        pipeline_ready = bool(faster_package and faster_model and (edge_ready or sapi_ready or pyttsx3_ready))
         return {
             "download_policy": "explicit-user-confirmation-only",
             "models_directory": str(self.models_dir),
             "engines": {
-                "faster_whisper_python_package": importlib.util.find_spec("faster_whisper") is not None,
+                "faster_whisper_python_package": faster_package,
+                "faster_whisper_model_installed": faster_model,
+                "edge_tts_python_package": edge_ready,
+                "windows_sapi_via_pywin32": sapi_ready,
+                "pyttsx3": pyttsx3_ready,
                 "piper_executable": shutil.which("piper") or "",
-                "browser_speech_synthesis": "available only in the existing web UI",
+                "browser_speech_synthesis": "available in the legacy web UI",
             },
             "catalog": self.catalog(),
             "installed": installed,
-            "realtime_voice_ready": False,
+            "realtime_voice_ready": pipeline_ready,
+            "pipeline_ready": pipeline_ready,
             "readiness_note": (
-                "Voice model storage/manager is ready, but realtime microphone "
-                "capture, interruption and speaker playback must still be "
-                "installed and physically tested on Windows."
+                "Realtime pipeline packages/model are ready. The desktop still needs a working microphone/speaker on the owner's PC."
+                if pipeline_ready else
+                "Install requirements-voice.txt, then explicitly download a faster-whisper model in MYRA's Voice page. Edge TTS or Windows SAPI supplies speech output."
             ),
         }
 

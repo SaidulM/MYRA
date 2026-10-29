@@ -1,0 +1,5 @@
+# Optional realtime-voice packages. The speech model itself is downloaded
+# only after explicit confirmation inside MYRA's Voice page.
+faster-whisper>=1.1
+huggingface-hub>=0.26
+pywin32>=308; platform_system == "Windows"

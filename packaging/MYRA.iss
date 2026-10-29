@@ -3,7 +3,7 @@
 ; so updating or uninstalling the program does not delete owner data.
 
 #define MyAppName "MYRA"
-#define MyAppVersion "2.0-foundation"
+#define MyAppVersion "3.0-python-native"
 #define MyAppExeName "MYRA.exe"
 
 [Setup]
@@ -14,6 +14,7 @@ DefaultDirName={localappdata}\Programs\MYRA
 DefaultGroupName=MYRA
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
+OutputDir=..\dist\installer
 OutputBaseFilename=MYRA-Setup
 Compression=lzma
 SolidCompression=yes
