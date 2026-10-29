@@ -511,3 +511,124 @@ body.view-open{overflow:hidden}
 }
 .reminder-text { font-weight: 500; }
 .reminder-due { color: var(--accent); font-size: 11px; }
+
+/* Deep Space Floating Starfield */
+.starfield-canvas {
+  position: fixed; inset: 0; pointer-events: none; z-index: -1;
+  width: 100vw; height: 100vh;
+}
+
+/* Live Mic Meter (Speech Feedback HUD) */
+.mic-wave-meter {
+  display: flex; align-items: center; gap: 3px; height: 16px;
+  background: rgba(2, 8, 18, 0.65); border: 1px solid rgba(var(--accent-rgb), 0.35);
+  border-radius: 999px; padding: 2px 8px; margin-left: 6px;
+}
+.meter-bar {
+  width: 2.5px; height: 4px; background: #34d399; border-radius: 1px;
+  transition: height 0.08s ease;
+}
+.mic-listening .meter-bar {
+  animation: meterDance 0.6s infinite ease-in-out alternate;
+}
+.mic-listening .meter-bar:nth-child(2) { animation-delay: 0.1s; }
+.mic-listening .meter-bar:nth-child(3) { animation-delay: 0.2s; }
+.mic-listening .meter-bar:nth-child(4) { animation-delay: 0.3s; }
+.mic-listening .meter-bar:nth-child(5) { animation-delay: 0.4s; }
+@keyframes meterDance {
+  0% { height: 3px; background: #34d399; }
+  50% { height: 12px; background: var(--accent); }
+  100% { height: 15px; background: #f87171; }
+}
+
+/* Quick Brain Switcher in Header */
+.brain-switch-wrap {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(var(--accent-rgb), 0.08); border: 1px solid rgba(var(--accent-rgb), 0.25);
+  border-radius: 8px; padding: 2px 8px;
+}
+.brain-switch-select {
+  background: transparent; border: none; color: var(--accent);
+  font-family: 'Orbitron', sans-serif; font-size: 11px; font-weight: 600;
+  cursor: pointer; outline: none;
+}
+.brain-switch-select option {
+  background: var(--bg2); color: var(--text);
+}
+
+/* Cyber Agent Office (Visual Hub Cartoonist Animation) */
+.cyber-office {
+  display: flex; flex-direction: column; width: 100%; height: 100%;
+  background: radial-gradient(circle at 50% 50%, rgba(7, 24, 52, 0.95), rgba(2, 6, 16, 0.98));
+  border-radius: 8px; padding: 12px; overflow: hidden; position: relative;
+}
+.office-hud-top {
+  display: flex; justify-content: space-between; align-items: center;
+  border-bottom: 1px solid rgba(var(--accent-rgb), 0.2); padding-bottom: 6px; margin-bottom: 8px;
+}
+.office-cabins {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; height: calc(100% - 30px);
+}
+.cabin-box {
+  background: rgba(4, 16, 36, 0.7); border: 1px solid rgba(var(--accent-rgb), 0.25);
+  border-radius: 8px; padding: 10px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; position: relative;
+  transition: all 0.3s ease;
+}
+.cabin-box.active-worker {
+  border-color: var(--accent);
+  box-shadow: 0 0 15px rgba(var(--accent-rgb), 0.35);
+}
+.cabin-title {
+  font-size: 11px; font-weight: 700; color: var(--accent); margin-bottom: 6px;
+  display: flex; align-items: center; gap: 4px;
+}
+.agent-character-svg {
+  width: 58px; height: 58px; margin: 4px 0;
+}
+.agent-status-badge {
+  font-size: 9px; padding: 2px 6px; border-radius: 4px; font-weight: 600;
+  background: rgba(255, 255, 255, 0.08); color: var(--muted);
+}
+.cabin-box.active-worker .agent-status-badge {
+  background: rgba(var(--accent-rgb), 0.25); color: #fff;
+  animation: badgeBlink 1s infinite alternate;
+}
+@keyframes badgeBlink {
+  0% { opacity: 0.7; }
+  100% { opacity: 1; }
+}
+
+/* Cinematic First-Run Onboarding Modal */
+.onboard-backdrop {
+  position: fixed; inset: 0; z-index: 500;
+  background: radial-gradient(circle at 50% 40%, rgba(5, 18, 45, 0.94), rgba(1, 4, 10, 0.98));
+  backdrop-filter: blur(12px);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.onboard-card {
+  background: rgba(7, 22, 50, 0.9); border: 1px solid var(--accent);
+  box-shadow: 0 0 50px rgba(var(--accent-rgb), 0.35);
+  border-radius: 16px; max-width: 680px; width: 100%; padding: 32px;
+  display: flex; flex-direction: column; gap: 16px; animation: modalPop 0.3s ease-out;
+}
+.onboard-avatar-hero {
+  display: flex; align-items: center; gap: 16px; padding: 12px;
+  background: rgba(2, 10, 24, 0.6); border: 1px solid rgba(var(--accent-rgb), 0.3);
+  border-radius: 12px;
+}
+.onboard-glow-orb {
+  width: 48px; height: 48px; border-radius: 50%;
+  background: radial-gradient(circle, #60a5fa, #1d4ed8);
+  box-shadow: 0 0 20px #3b82f6; animation: orbBreathe 2s infinite ease-in-out;
+}
+@keyframes orbBreathe {
+  0%, 100% { transform: scale(0.95); box-shadow: 0 0 15px #3b82f6; }
+  50% { transform: scale(1.08); box-shadow: 0 0 30px #60a5fa; }
+}
+.onboard-steps {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+}
+@media (max-width: 640px) {
+  .onboard-steps { grid-template-columns: 1fr; }
+}

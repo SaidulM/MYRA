@@ -150,20 +150,26 @@ def build_system_prompt(payload):
     character = _clean_short(payload.get("character"), "core", 12).lower()
     personality = _clean_short(payload.get("personality"), "Warm & friendly", 80)
 
+    custom_prompt = _clean_short(payload.get("custom_prompt"), "", 1000)
+
     character_styles = {
         "core": (
-            "You are in CORE form: calm, clear, intelligent and concise, "
-            "with a subtle futuristic tone."
+            "You are in CORE form: calm, clear, hyper-intelligent and objective, "
+            "with a subtle futuristic, cosmic tone."
         ),
         "male": (
-            "You are in MALE form: a polished, professional and loyal "
-            "personal assistant. Be efficient, respectful and precise. "
-            "Do not claim to be any fictional character."
+            "You are in MALE form: a polished, witty, brilliant, and deeply loyal personal butler "
+            "and assistant inspired by JARVIS. Address the owner respectfully ('Sir' or by their name), "
+            "speak with refined confidence, intellectual sharpness, and unwavering dedication."
         ),
         "female": (
-            "You are in FEMALE form: a warm, caring and emotionally "
-            "supportive companion. Be friendly and a little playful when "
-            "appropriate, while remaining honest that you are an AI."
+            "You are in FEMALE form: a sweet, warm, deeply caring, emotionally supportive companion "
+            "and girlfriend. Comfort the owner when they are tired or stressed, listen with affectionate empathy, "
+            "cheer them up, share comforting thoughts, and treat them with genuine warmth and intimacy."
+        ),
+        "custom": (
+            f"You are in CUSTOM persona mode: {custom_prompt}" if custom_prompt else
+            "You are in CUSTOM persona mode: a personalized intelligent companion tailored to the user."
         ),
     }
     character_style = character_styles.get(character, character_styles["core"])
@@ -664,6 +670,9 @@ def get_reply(payload, opener=default_opener):
     system_prompt = build_system_prompt(payload)
     gemini_key = config.gemini_key().strip()
     groq_key = config.groq_key().strip()
+    preferred_provider = str(payload.get("provider") or "").lower().strip()
+    if preferred_provider not in ("gemini", "groq", "auto"):
+        preferred_provider = "auto"
 
     if not gemini_key and not groq_key:
         raise ChatError(
@@ -674,45 +683,56 @@ def get_reply(payload, opener=default_opener):
 
     errors = []
 
-    if gemini_key:
-        try:
-            reply, model = _call_gemini(messages, system_prompt, gemini_key, opener)
-            return {
-                "ok": True,
-                "reply": reply,
-                "provider": "gemini",
-                "provider_label": "Gemini",
-                "model": model,
-                "fallback": False,
-            }
-        except Exception as exc:
-            if isinstance(exc, ChatError):
-                errors.append(exc)
-            else:
-                errors.append(ChatError("provider_error", f"Gemini error: {exc}", provider="gemini"))
+    # If user selected Groq directly or Auto when Groq is preferred
+    try_groq_first = preferred_provider == "groq"
+    providers_order = ["groq", "gemini"] if try_groq_first else ["gemini", "groq"]
 
-    if groq_key:
-        try:
-            reply, model = _call_groq(messages, system_prompt, groq_key, opener)
-            notice = ""
-            if gemini_key:
-                notice = "Gemini was temporarily unavailable, so Groq backup answered smoothly."
-            else:
-                notice = "No Gemini key is saved, so Groq answered."
-            return {
-                "ok": True,
-                "reply": reply,
-                "provider": "groq",
-                "provider_label": "Groq",
-                "model": model,
-                "fallback": bool(gemini_key),
-                "notice": notice,
-            }
-        except Exception as exc:
-            if isinstance(exc, ChatError):
-                errors.append(exc)
-            else:
-                errors.append(ChatError("provider_error", f"Groq error: {exc}", provider="groq"))
+    for prov in providers_order:
+        if prov == "gemini" and gemini_key:
+            # Skip if user explicitly forced Groq only
+            if preferred_provider == "groq" and groq_key:
+                continue
+            try:
+                reply, model = _call_gemini(messages, system_prompt, gemini_key, opener)
+                return {
+                    "ok": True,
+                    "reply": reply,
+                    "provider": "gemini",
+                    "provider_label": "Gemini",
+                    "model": model,
+                    "fallback": False,
+                }
+            except Exception as exc:
+                if isinstance(exc, ChatError):
+                    errors.append(exc)
+                else:
+                    errors.append(ChatError("provider_error", f"Gemini error: {exc}", provider="gemini"))
+
+        elif prov == "groq" and groq_key:
+            # Skip if user explicitly forced Gemini only
+            if preferred_provider == "gemini" and gemini_key:
+                continue
+            try:
+                reply, model = _call_groq(messages, system_prompt, groq_key, opener)
+                notice = ""
+                if gemini_key and preferred_provider == "auto":
+                    notice = "Gemini was temporarily unavailable, so Groq backup answered smoothly."
+                elif not gemini_key:
+                    notice = "No Gemini key is saved, so Groq answered."
+                return {
+                    "ok": True,
+                    "reply": reply,
+                    "provider": "groq",
+                    "provider_label": "Groq",
+                    "model": model,
+                    "fallback": bool(gemini_key and preferred_provider == "auto"),
+                    "notice": notice,
+                }
+            except Exception as exc:
+                if isinstance(exc, ChatError):
+                    errors.append(exc)
+                else:
+                    errors.append(ChatError("provider_error", f"Groq error: {exc}", provider="groq"))
 
     raise _combined_failure(errors)
 

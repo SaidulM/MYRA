@@ -102,8 +102,28 @@ def synthesize_speech(
     if not EDGE_AVAILABLE:
         return None
 
-    chosen_voice = pick_voice(clean_text, character=character, custom_voice=voice)
-    cache_file = _cache_key(clean_text, chosen_voice, rate, pitch)
+    char = (character or "core").lower()
+    # Apply soft tuning calibration if default pitch/rate
+    actual_pitch = pitch
+    actual_rate = rate
+    if pitch == "+0Hz" or not pitch:
+        if char == "female":
+            actual_pitch = "+4Hz"  # Sweet, soft, tuned feminine timbre
+        elif char == "male":
+            actual_pitch = "-2Hz"  # Smooth, deep butler timbre
+        else:
+            actual_pitch = "+1Hz"
+
+    if rate == "+0%" or not rate:
+        if char == "female":
+            actual_rate = "+3%"   # Lively, affectionate, natural pacing
+        elif char == "male":
+            actual_rate = "+1%"
+        else:
+            actual_rate = "+2%"
+
+    chosen_voice = pick_voice(clean_text, character=char, custom_voice=voice)
+    cache_file = _cache_key(clean_text, chosen_voice, actual_rate, actual_pitch)
 
     # Return cached audio if present
     if cache_file.exists() and cache_file.stat().st_size > 500:
@@ -118,7 +138,7 @@ def synthesize_speech(
         loop = asyncio.new_event_loop()
         try:
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(_async_generate(clean_text, chosen_voice, rate, pitch, tmp_file))
+            loop.run_until_complete(_async_generate(clean_text, chosen_voice, actual_rate, actual_pitch, tmp_file))
         finally:
             loop.close()
 

@@ -61,7 +61,7 @@ if (!THEME_HEX[themeName]) themeName = 'stonic';
 const N = 34000;
 function savedChar() {
   const c = localStorage.getItem('myra_char');
-  if (c === 'core' || c === 'male' || c === 'female') return c;
+  if (c === 'core' || c === 'male' || c === 'female' || c === 'custom') return c;
   const old = localStorage.getItem('stonic_gender');
   return old === 'male' ? 'male' : 'female';
 }
@@ -292,9 +292,21 @@ function buildCorePoints() {
   return pts;
 }
 
+function buildCustomPoints() {
+  const pts = buildBustPoints(true);
+  const CY = 1.95;
+  for (let i = 0; i < 4000; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = rand(0.55, 0.78);
+    pushPt(pts, Math.cos(a) * r + rand(-0.02, 0.02), CY + rand(-0.06, 0.06), Math.sin(a) * r + rand(-0.02, 0.02), rand(0.95, 1.45), 0.5);
+  }
+  return pts;
+}
+
 function buildFigure(charType) {
   let pts;
   if (charType === 'core') pts = buildCorePoints();
+  else if (charType === 'custom') pts = buildCustomPoints();
   else pts = buildBustPoints(charType === 'female');
   while (pts.length > N) pts.pop();
   while (pts.length < N) {
@@ -411,6 +423,7 @@ function initHologram() {
   };
 
   let lastX = 0;
+  const mouseParallax = { x: 0, y: 0, targetX: 0, targetY: 0 };
   canvas.addEventListener('pointerdown', (e) => { HOLO.dragging = true; lastX = e.clientX; canvas.setPointerCapture(e.pointerId); });
   canvas.addEventListener('pointermove', (e) => {
     if (!HOLO.dragging) return;
@@ -420,6 +433,15 @@ function initHologram() {
   const stopDrag = () => { HOLO.dragging = false; };
   canvas.addEventListener('pointerup', stopDrag);
   canvas.addEventListener('pointercancel', stopDrag);
+
+  // Smooth 3D mouse parallax cursor tracking
+  window.addEventListener('pointermove', (e) => {
+    if (HOLO.dragging) return;
+    const nx = (e.clientX / window.innerWidth) * 2 - 1;
+    const ny = (e.clientY / window.innerHeight) * 2 - 1;
+    mouseParallax.targetX = nx * 0.35;
+    mouseParallax.targetY = ny * 0.18;
+  });
 
   const resize = () => {
     const w = wrap.clientWidth, h = wrap.clientHeight;
@@ -451,8 +473,8 @@ function initHologram() {
       }
     }
     if (HOLO.morph && HOLO.power) {
-      HOLO.morph.t += dt * 0.85;
-      if (HOLO.morph.t >= 1.4) HOLO.morph = null;
+      HOLO.morph.t += dt * 0.82;
+      if (HOLO.morph.t >= 1.45) HOLO.morph = null;
     }
     const formT = HOLO.formT;
     const ff = HOLO.bootDone ? 1 : clamp((formT - 0.72) / 0.28, 0, 1); // life factor
@@ -461,8 +483,9 @@ function initHologram() {
     HOLO.speakBlend += (sTarget - HOLO.speakBlend) * 0.07;
     const sb = HOLO.speakBlend;
 
-    const nodA = (0.018 * Math.sin(t * 1.15) + sb * 0.08 * Math.sin(t * 7.3)) * ff;
-    const tiltA = (0.014 * Math.sin(t * 0.85 + 1) + sb * 0.045 * Math.sin(t * 3.0)) * ff;
+    // Smooth subtle breathing motion — NO violent bobbing/nodding on voice
+    const nodA = (0.012 * Math.sin(t * 0.95)) * ff;
+    const tiltA = (0.008 * Math.sin(t * 0.75 + 1)) * ff;
     const cosN = Math.cos(nodA), sinN = Math.sin(nodA);
     const cosT2 = Math.cos(tiltA), sinT2 = Math.sin(tiltA);
     const PIVOT_Y = 1.42;
@@ -480,7 +503,7 @@ function initHologram() {
       /* goal position: target + life shimmer + head motion */
       let gx = targets[i3], gy = targets[i3 + 1], gz = targets[i3 + 2];
       const ph = phase[i];
-      const shim = Math.sin(t * 2.3 + ph) * (0.0036 + sb * 0.009 * headW[i]) * ff;
+      const shim = Math.sin(t * 2.3 + ph) * (0.0036 + sb * 0.004 * headW[i]) * ff;
       const rl0 = Math.sqrt(gx * gx + gz * gz) || 1e-4;
       gx += (gx / rl0) * shim; gz += (gz / rl0) * shim;
       gy += Math.sin(t * 1.7 + ph * 1.3) * 0.0026 * ff;
@@ -514,13 +537,22 @@ function initHologram() {
         y += Math.sin(p * Math.PI) * (1 - p) * 0.12 * Math.sin(ph * 3 + t * 2);
         brightScale = 0.35 + 0.65 * e;
       } else if (morph) {
-        /* shape-shift: dots flow from old shape into the new one */
+        /* shape-shift: dots disperse outward in a 3D cosmic burst then reassemble into new form */
         const p = clamp((morph.t - delay[i] * 0.35) / 0.65, 0, 1);
         const e = 1 - Math.pow(1 - p, 3);
-        x = morph.fromPos[i3] + (gx - morph.fromPos[i3]) * e;
-        y = morph.fromPos[i3 + 1] + (gy - morph.fromPos[i3 + 1]) * e + Math.sin(e * Math.PI) * 0.07;
-        z = morph.fromPos[i3 + 2] + (gz - morph.fromPos[i3 + 2]) * e;
-        brightScale = 0.75 + 0.45 * Math.sin(e * Math.PI);
+        const burst = Math.sin(e * Math.PI) * 0.85;
+        const dx = (morph.fromPos[i3] || 0.1);
+        const dy = (morph.fromPos[i3 + 1] - 1.4);
+        const dz = (morph.fromPos[i3 + 2] || 0.1);
+        const dLen = Math.hypot(dx, dy, dz) || 1;
+        const bx = (dx / dLen) * burst * (1 + ((i % 17) / 17) * 0.85);
+        const by = (dy / dLen) * burst * (1 + ((i % 23) / 23) * 0.85);
+        const bz = (dz / dLen) * burst * (1 + ((i % 19) / 19) * 0.85);
+
+        x = morph.fromPos[i3] + (gx - morph.fromPos[i3]) * e + bx;
+        y = morph.fromPos[i3 + 1] + (gy - morph.fromPos[i3 + 1]) * e + by;
+        z = morph.fromPos[i3 + 2] + (gz - morph.fromPos[i3 + 2]) * e + bz;
+        brightScale = 0.85 + 0.95 * Math.sin(e * Math.PI);
       } else {
         x = gx; y = gy; z = gz;
         brightScale = 1;
@@ -544,8 +576,13 @@ function initHologram() {
     const pulse = HOLO.formedChar === 'core' ? 1 + sb * 0.045 * Math.sin(t * 9) + 0.012 * Math.sin(t * 2.2) : 1;
     figure.scale.setScalar(pulse);
 
+    // Smooth 3D mouse parallax tracking
+    mouseParallax.x += (mouseParallax.targetX - mouseParallax.x) * 0.05;
+    mouseParallax.y += (mouseParallax.targetY - mouseParallax.y) * 0.05;
+
     if (!HOLO.dragging && HOLO.power) HOLO.autoRot += dt * 0.09;
-    world.rotation.y += ((HOLO.targetRotY + HOLO.autoRot) - world.rotation.y) * 0.08;
+    world.rotation.y += ((HOLO.targetRotY + HOLO.autoRot + mouseParallax.x) - world.rotation.y) * 0.08;
+    world.rotation.x += (-mouseParallax.y - world.rotation.x) * 0.08;
 
     pMat.opacity += ((HOLO.power ? 0.88 : 0.03) - pMat.opacity) * 0.07;
     HOLO.accentMats.forEach((m) => {
@@ -561,8 +598,9 @@ function initHologram() {
 /* ----- Character switching (morph — no re-formation) ----- */
 const IDLE_STATUS = {
   core: '⬢ Core online — listening',
-  male: '🎩 At your service. Listening…',
-  female: "💗 I'm right here with you… listening",
+  male: '🎩 JARVIS online. At your service, Sir.',
+  female: "💗 I'm right here with you, dear… listening",
+  custom: '✨ Custom companion online — listening',
 };
 function idleStatus() { return IDLE_STATUS[HOLO.char] || IDLE_STATUS.core; }
 
@@ -570,7 +608,7 @@ function syncCharUI() {
   document.querySelectorAll('[data-char]').forEach((el) => {
     el.classList.toggle('active', el.dataset.char === HOLO.char);
   });
-  ['core', 'male', 'female'].forEach((c) => {
+  ['core', 'male', 'female', 'custom'].forEach((c) => {
     const card = $('card-' + c);
     if (card) {
       card.classList.toggle('is-active', c === HOLO.char);
@@ -878,11 +916,13 @@ async function fetchOneFeed(feed) {
   } finally { clearTimeout(to); }
 }
 async function fetchNews(manual) {
+  triggerOfficeAgent('research', true);
   if (!navigator.onLine) {
     setLiveBadge(loadNewsCache() ? 'cached' : 'off');
     renderNews();
     if (manual) toast('📡 You are offline — showing the last saved headlines.');
     logEvent('news: offline, cache shown');
+    setTimeout(() => triggerOfficeAgent('research', false), 1500);
     return;
   }
   try {
@@ -906,6 +946,8 @@ async function fetchNews(manual) {
     renderNews();
     logEvent('news: fetch failed, fallback shown');
     if (manual) toast('📡 Could not reach the news service right now — showing ' + (had ? 'cached' : 'offline') + ' headlines.');
+  } finally {
+    setTimeout(() => triggerOfficeAgent('research', false), 2500);
   }
 }
 
@@ -1026,6 +1068,8 @@ async function speakDemo(text) {
   stopSpeaking();
   HOLO.speaking = true;
   setWaveSpeaking(true);
+  updateMicWave(0);
+  triggerOfficeAgent('voice', true);
   const lang = speechLangFor(text);
   setHoloStatus('🗣️ ' + (lang.startsWith('bn') ? 'মায়রা কথা বলছে…' : 'MYRA is speaking…'));
 
@@ -1034,6 +1078,20 @@ async function speakDemo(text) {
     setWaveSpeaking(false);
     setHoloStatus(idleStatus());
     currentPlayingAudio = null;
+    updateMicWave(0);
+    triggerOfficeAgent('voice', false);
+
+    // Continuous Live Conversational Flow (like ChatGPT Voice / Gemini Live)
+    if (MIC_ARMED && speechRecognizer) {
+      setTimeout(() => {
+        if (MIC_ARMED && !HOLO.speaking) {
+          try { speechRecognizer.start(); } catch (e) {}
+          setHoloState('LISTENING…');
+          setHoloStatus('🎤 Listening… I am right here.');
+          updateMicWave(1);
+        }
+      }, 400);
+    }
   };
 
   // 1. Try Backend Ultra-Realistic Neural Human Voice Studio (GitHub Open-Source)
@@ -1249,6 +1307,8 @@ async function sendChat() {
       personality: currentPersonality(),
       assistant_name: localStorage.getItem('myra_name') || 'MYRA',
       owner_name: localStorage.getItem('myra_owner') || 'Saidul',
+      provider: localStorage.getItem('myra_brain_provider') || 'auto',
+      custom_prompt: HOLO.char === 'custom' ? (localStorage.getItem('myra_custom_persona_prompt') || '') : undefined,
     };
     const res = await fetch('/api/chat', {
       method: 'POST',
@@ -1345,13 +1405,31 @@ let MIC_ARMED = false;
 let speechRecognizer = null;
 let speechSilenceTimer = null;
 
+function updateMicWave(level) {
+  const meter = $('micWaveMeter');
+  if (!meter) return;
+  const isListening = MIC_ARMED && !HOLO.speaking;
+  meter.classList.toggle('mic-listening', isListening);
+  const bars = meter.querySelectorAll('.meter-bar');
+  if (bars && bars.length) {
+    bars.forEach((b, idx) => {
+      if (isListening) {
+        const h = Math.min(15, Math.max(3, (level || 1) * (4 + (idx % 3) * 3)));
+        b.style.height = `${h}px`;
+      } else {
+        b.style.height = '4px';
+      }
+    });
+  }
+}
+
 function setupSpeechRecognition() {
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRec) return null;
   const rec = new SpeechRec();
   rec.continuous = true;
   rec.interimResults = true;
-  rec.lang = 'en-US';
+  rec.lang = localStorage.getItem('myra_speech_lang') || 'bn-BD';
 
   rec.onresult = (event) => {
     clearTimeout(speechSilenceTimer);
@@ -1364,27 +1442,35 @@ function setupSpeechRecognition() {
     const txt = (final || interim).trim();
     if (txt) {
       $('chatInput').value = txt;
-      setHoloStatus('👂 Listening: "' + txt + '"');
+      setHoloStatus('👂 ' + (isBengaliText(txt) ? 'শুনছি: "' : 'Listening: "') + txt + '"');
       setHoloState('LISTENING…');
+      updateMicWave(2.5);
+
+      // Continuous conversation mode: 2200ms natural silence tolerance
       speechSilenceTimer = setTimeout(() => {
         if ($('chatInput').value.trim()) {
           sendChat();
-          setMic(false);
+          // Temporarily pause recognition while generating reply/speaking
+          try { rec.stop(); } catch (err) {}
+          updateMicWave(0);
         }
-      }, 1300);
+      }, 2200);
     }
   };
 
   rec.onerror = (e) => {
     logEvent('speech error: ' + e.error);
-    if (e.error !== 'no-speech') {
-      setMic(false, true);
+    if (e.error !== 'no-speech' && e.error !== 'network') {
+      updateMicWave(0);
     }
   };
 
   rec.onend = () => {
-    if (MIC_ARMED) {
+    if (MIC_ARMED && !HOLO.speaking) {
       try { rec.start(); } catch (err) {}
+      updateMicWave(1);
+    } else {
+      updateMicWave(0);
     }
   };
 
@@ -1397,12 +1483,14 @@ function setMic(on, silent) {
   btn.classList.toggle('on', on);
   btn.classList.toggle('mic-listening', on);
   btn.textContent = on ? '🔴' : '🎤';
+  updateMicWave(on ? 1 : 0);
 
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRec) {
     if (on) toast('🎤 Speech recognition is not supported in this browser. You can still type below!');
     MIC_ARMED = false;
     btn.classList.remove('on', 'mic-listening');
+    updateMicWave(0);
     return;
   }
 
@@ -1410,13 +1498,15 @@ function setMic(on, silent) {
 
   if (on) {
     setHoloState('LISTENING…');
-    setHoloStatus('🎤 Listening… speak now, I will answer when you finish.');
+    setHoloStatus('🎤 Listening live… speak naturally, I will answer smoothly.');
     try { speechRecognizer.start(); } catch (err) {}
-    if (!silent) toast('🎤 Listening active — speak naturally, MYRA responds after silence.');
-    logEvent('mic armed (silence detection active)');
+    updateMicWave(1);
+    if (!silent) toast('🎤 Live continuous voice active — talk freely like ChatGPT/Gemini Live.');
+    logEvent('mic armed (continuous live conversation)');
   } else {
     clearTimeout(speechSilenceTimer);
     try { speechRecognizer.stop(); } catch (err) {}
+    updateMicWave(0);
     setHoloState(HOLO.power ? 'IDLE // ONLINE' : 'OFFLINE');
     setHoloStatus(idleStatus());
     if (!silent) toast('🎤 Mic off.');
@@ -1558,14 +1648,227 @@ function setupDropdown(btnId, dropId) {
 }
 
 /* =========================================================
+   Deep Space Floating Starfield (Stonic AI Aesthetic)
+   ========================================================= */
+function initStarfield() {
+  const canvas = $('starfieldCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  let w = (canvas.width = window.innerWidth);
+  let h = (canvas.height = window.innerHeight);
+
+  const numStars = 180;
+  const stars = [];
+  for (let i = 0; i < numStars; i++) {
+    stars.push({
+      x: Math.random() * w,
+      y: Math.random() * h,
+      z: Math.random() * 1.6 + 0.3,
+      r: Math.random() * 1.5 + 0.4,
+      alpha: Math.random() * 0.8 + 0.2,
+      fadeSpeed: (Math.random() * 0.008 + 0.004) * (Math.random() < 0.5 ? 1 : -1),
+    });
+  }
+
+  window.addEventListener('resize', () => {
+    w = canvas.width = window.innerWidth;
+    h = canvas.height = window.innerHeight;
+  });
+
+  let mouseX = 0, mouseY = 0;
+  window.addEventListener('pointermove', (e) => {
+    mouseX = (e.clientX - w / 2) * 0.015;
+    mouseY = (e.clientY - h / 2) * 0.015;
+  });
+
+  function drawStarfield() {
+    ctx.clearRect(0, 0, w, h);
+    for (let i = 0; i < numStars; i++) {
+      const s = stars[i];
+      s.x += s.z * 0.12;
+      s.alpha += s.fadeSpeed;
+      if (s.alpha > 0.95 || s.alpha < 0.15) s.fadeSpeed = -s.fadeSpeed;
+      if (s.x > w) s.x = 0;
+      if (s.x < 0) s.x = w;
+
+      const px = s.x - mouseX * s.z;
+      const py = s.y - mouseY * s.z;
+
+      ctx.beginPath();
+      ctx.arc(px, py, s.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(180, 215, 255, ${Math.max(0, Math.min(1, s.alpha))})`;
+      if (s.r > 1.2) {
+        ctx.shadowBlur = 6;
+        ctx.shadowColor = '#60a5fa';
+      } else {
+        ctx.shadowBlur = 0;
+      }
+      ctx.fill();
+    }
+    requestAnimationFrame(drawStarfield);
+  }
+  drawStarfield();
+}
+
+/* =========================================================
+   Visual Hub: Sensors & Cyber Agent Office (Cartoonist 3-Cabin)
+   ========================================================= */
+function initVisualHubTabs() {
+  const sensorBtn = $('vhSensorTabBtn');
+  const officeBtn = $('vhOfficeTabBtn');
+  const sensorView = $('vhSensorView');
+  const officeView = $('vhOfficeView');
+
+  if (sensorBtn && officeBtn && sensorView && officeView) {
+    sensorBtn.addEventListener('click', () => {
+      sensorBtn.classList.add('active');
+      officeBtn.classList.remove('active');
+      sensorView.classList.remove('hidden');
+      officeView.classList.add('hidden');
+    });
+    officeBtn.addEventListener('click', () => {
+      officeBtn.classList.add('active');
+      sensorBtn.classList.remove('active');
+      officeView.classList.remove('hidden');
+      sensorView.classList.add('hidden');
+    });
+  }
+}
+
+function triggerOfficeAgent(cabinType, active) {
+  const toggle = $('officeAnimToggle');
+  if (toggle && !toggle.checked) return;
+  const cabinMap = {
+    research: { box: $('cabinResearch'), badge: $('badgeResearch'), text: 'ANALYZING' },
+    coder: { box: $('cabinCoder'), badge: $('badgeCoder'), text: 'EXECUTING' },
+    voice: { box: $('cabinVoice'), badge: $('badgeVoice'), text: 'COMMUNICATING' },
+  };
+  const target = cabinMap[cabinType];
+  if (!target || !target.box) return;
+  if (active) {
+    target.box.classList.add('active-worker');
+    if (target.badge) target.badge.textContent = target.text;
+  } else {
+    target.box.classList.remove('active-worker');
+    if (target.badge) target.badge.textContent = cabinType === 'voice' ? 'READY' : 'STANDBY';
+  }
+}
+
+/* =========================================================
+   Direct Brain Switcher (Gemini / Groq / Auto)
+   ========================================================= */
+function setupBrainSwitcher() {
+  const select = $('quickBrainSelect');
+  if (!select) return;
+  const saved = localStorage.getItem('myra_brain_provider') || 'auto';
+  select.value = saved;
+  select.addEventListener('change', () => {
+    localStorage.setItem('myra_brain_provider', select.value);
+    toast('⚡ AI Brain set to: ' + select.options[select.selectedIndex].text);
+    logEvent('brain provider → ' + select.value);
+  });
+}
+
+/* =========================================================
+   Custom Persona Creator & Names
+   ========================================================= */
+function initCustomPersona() {
+  const saveBtn = $('saveCustomPersonaBtn');
+  const nameInput = $('customPersonaName');
+  const promptInput = $('customPersonaPrompt');
+  const customTitle = $('customCardTitle');
+
+  const savedName = localStorage.getItem('myra_custom_persona_name');
+  const savedPrompt = localStorage.getItem('myra_custom_persona_prompt');
+
+  if (nameInput && savedName) nameInput.value = savedName;
+  if (promptInput && savedPrompt) promptInput.value = savedPrompt;
+  if (customTitle && savedName) customTitle.textContent = savedName.toUpperCase();
+
+  if (saveBtn) {
+    saveBtn.addEventListener('click', () => {
+      const name = (nameInput.value || 'Custom Companion').trim();
+      const prompt = (promptInput.value || '').trim();
+      localStorage.setItem('myra_custom_persona_name', name);
+      localStorage.setItem('myra_custom_persona_prompt', prompt);
+      if (customTitle) customTitle.textContent = name.toUpperCase();
+      toast('✅ Custom Persona saved! Shifting into custom form…');
+      setChar('custom');
+    });
+  }
+
+  const ownerInput = $('ownerNameChar');
+  if (ownerInput) {
+    ownerInput.value = localStorage.getItem('myra_owner') || 'Saidul';
+  }
+}
+
+/* =========================================================
+   Cinematic First-Run Onboarding Modal
+   ========================================================= */
+function checkOnboarding() {
+  const onboarded = localStorage.getItem('myra_onboarded');
+  const modal = $('onboardModal');
+  if (!modal) return;
+  if (!onboarded) {
+    modal.classList.remove('hidden');
+    const ownerName = localStorage.getItem('myra_owner') || 'Saidul';
+    const userNameInput = $('onboardUserName');
+    if (userNameInput) userNameInput.value = ownerName;
+
+    const voiceTest = $('onboardVoiceTestBtn');
+    if (voiceTest) {
+      voiceTest.addEventListener('click', () => {
+        const welcomeText = "Hello! I have been waiting for you. Let's personalize your companion.";
+        speakDemo(welcomeText);
+      });
+    }
+
+    const startBtn = $('onboardStartBtn');
+    if (startBtn) {
+      startBtn.addEventListener('click', async () => {
+        const uName = ($('onboardUserName').value || 'Saidul').trim();
+        const aName = ($('onboardAiName').value || 'MYRA').trim();
+        const persona = $('onboardPersonaSelect').value || 'female';
+        const apiKey = ($('onboardApiKey').value || '').trim();
+
+        localStorage.setItem('myra_owner', uName);
+        localStorage.setItem('myra_name', aName);
+        localStorage.setItem('myra_onboarded', 'true');
+
+        if (apiKey) {
+          try {
+            await fetch('/api/keys', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ gemini: apiKey }),
+            });
+          } catch (e) {}
+        }
+
+        setChar(persona);
+        modal.classList.add('hidden');
+        toast(`✨ Welcome ${uName}! MYRA is online.`);
+        speakDemo(`Hello ${uName}! I am happy to meet you.`);
+      });
+    }
+  }
+}
+
+/* =========================================================
    Event wiring
    ========================================================= */
 document.addEventListener('DOMContentLoaded', () => {
   document.body.dataset.theme = themeName;
   logEvent('MYRA shell boot · theme=' + themeName + ' · char=' + HOLO.char);
 
+  initStarfield();
   initHologram();
   initMap();
+  initVisualHubTabs();
+  setupBrainSwitcher();
+  initCustomPersona();
+  checkOnboarding();
   syncCharUI();
   renderMemories();
   loadNewsCache();
@@ -1674,7 +1977,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   $('muteBtn').addEventListener('click', () => setMute(!VOICE_MUTED));
 
-  /* Character switch — the ONLY place */
+  /* Character switch */
   document.querySelectorAll('[data-char]').forEach((el) => {
     el.addEventListener('click', () => {
       if (!HOLO.power) { toast('⏻ System is off — press ACTIVATE first!'); return; }
@@ -1682,8 +1985,18 @@ document.addEventListener('DOMContentLoaded', () => {
       setChar(c);
       toast(c === 'core' ? '⬢ CORE form — pure AI light.'
         : c === 'male' ? '♂ MALE form — your JARVIS-style assistant.'
-        : '♀ FEMALE form — your companion. 💗');
+        : c === 'female' ? '♀ FEMALE form — your companion. 💗'
+        : '✨ CUSTOM form — tailored personal companion.');
     });
+  });
+  ['core', 'male', 'female', 'custom'].forEach((c) => {
+    const card = $('card-' + c);
+    if (card) {
+      card.addEventListener('click', () => {
+        if (!HOLO.power) { toast('⏻ System is off — press ACTIVATE first!'); return; }
+        setChar(c);
+      });
+    }
   });
 
   /* Full-screen windows */
@@ -1755,6 +2068,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btn = $('agentBtn');
     log.textContent = `🚀 Dispatched Agent task: "${task}"\nConnecting to agent engine…\n`;
     btn.disabled = true;
+    triggerOfficeAgent('coder', true);
     try {
       const res = await fetch('/api/agent/run', {
         method: 'POST',
@@ -1776,6 +2090,7 @@ document.addEventListener('DOMContentLoaded', () => {
       toast('❌ Agent task failed: ' + err.message);
     } finally {
       btn.disabled = false;
+      setTimeout(() => triggerOfficeAgent('coder', false), 2500);
     }
   };
   $('agentBtn').addEventListener('click', runAgentTask);

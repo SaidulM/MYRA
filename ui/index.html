@@ -10,6 +10,7 @@
 <script src="vendor/three.min.js"></script>
 </head>
 <body>
+<canvas id="starfieldCanvas" class="starfield-canvas"></canvas>
 
 <!-- ===== Top Bar ===== -->
 <header class="topbar">
@@ -64,6 +65,15 @@
         <option value="hacker">🔴 Hacker Crimson</option>
       </select>
     </label>
+
+    <div class="brain-switch-wrap" title="Direct Brain Switcher (Gemini / Groq / Auto)">
+      <span class="aw-label">BRAIN</span>
+      <select id="quickBrainSelect" class="brain-switch-select">
+        <option value="auto">✨ Auto (Gemini + Groq)</option>
+        <option value="gemini">⚡ Gemini Only</option>
+        <option value="groq">🚀 Groq Only</option>
+      </select>
+    </div>
 
     <div class="dd-wrap">
       <button class="profile-btn" id="profileBtn">
@@ -150,6 +160,7 @@
           <button class="core-pill" data-char="core">⬢ CORE</button>
           <button class="core-pill" data-char="male">♂ MALE</button>
           <button class="core-pill" data-char="female">♀ FEMALE</button>
+          <button class="core-pill" data-char="custom">✨ CUSTOM</button>
         </div>
         <div class="stage" id="stage">
           <canvas id="holoCanvas"></canvas>
@@ -168,32 +179,107 @@
         </div>
         <div class="stage-controls">
           <button class="terminate-btn" id="terminateBtn">⏻ TERMINATE</button>
-          <button class="sq-btn mic-toggle" id="stageMicBtn" title="Microphone on/off (real listening in Stage 5)">🎤</button>
+          <button class="sq-btn mic-toggle" id="stageMicBtn" title="Microphone on/off (continuous live listening)">🎤</button>
+          <div class="mic-wave-meter" id="micWaveMeter" title="Live Speech Audio Level">
+            <div class="meter-bar"></div>
+            <div class="meter-bar"></div>
+            <div class="meter-bar"></div>
+            <div class="meter-bar"></div>
+            <div class="meter-bar"></div>
+          </div>
           <button class="sq-btn" id="muteBtn" title="Mute / stop MYRA's voice">🔊</button>
         </div>
       </div>
     </div>
 
-    <!-- VISUAL HUB (single home of camera/screen controls) -->
+    <!-- VISUAL HUB (single home of camera/screen controls & Cyber Agent Office) -->
     <section class="panel visual-hub">
-      <header class="mod-head"><span class="mod-index">VIS</span><h3>VISUAL HUB — Eyes of MYRA</h3><span class="led"></span></header>
-      <div class="vh-grid">
-        <div class="vh-preview">
-          <video id="vhVideo" class="vh-video hidden" autoplay playsinline muted></video>
-          <div class="vh-layers"><span></span><span></span><span></span></div>
-          <div class="vh-msg">Camera &amp; screen are OFF<br><small>Preview appears here when you turn one on (Stage 9)</small></div>
-          <div class="vh-chips">
-            <span class="vh-chip" id="camChip">CAM · OFF</span>
-            <span class="vh-chip" id="scrChip">SCREEN · OFF</span>
+      <header class="mod-head">
+        <span class="mod-index">VIS</span>
+        <h3>VISUAL HUB</h3>
+        <div style="display:flex; gap:6px; margin-left:auto; align-items:center;">
+          <button class="action-chip active" id="vhSensorTabBtn" style="padding:2px 8px; font-size:10px;">📷 SENSORS</button>
+          <button class="action-chip" id="vhOfficeTabBtn" style="padding:2px 8px; font-size:10px;">🏢 CYBER OFFICE</button>
+        </div>
+        <span class="led"></span>
+      </header>
+      
+      <div id="vhSensorView">
+        <div class="vh-grid">
+          <div class="vh-preview">
+            <video id="vhVideo" class="vh-video hidden" autoplay playsinline muted></video>
+            <div class="vh-layers"><span></span><span></span><span></span></div>
+            <div class="vh-msg">Camera &amp; screen are OFF<br><small>Preview appears here when you turn one on</small></div>
+            <div class="vh-chips">
+              <span class="vh-chip" id="camChip">CAM · OFF</span>
+              <span class="vh-chip" id="scrChip">SCREEN · OFF</span>
+            </div>
+          </div>
+          <div class="vh-actions">
+            <div class="vh-q">What should I look at? 👀</div>
+            <button class="vh-btn" id="vhCamBtn">📷 Look around me <small>— camera</small></button>
+            <button class="vh-btn" id="vhScrBtn">🖥️ Look at my screen <small>— screen share</small></button>
+            <button class="vh-btn" id="vhSnapBtn" style="border-color:var(--accent);">📸 Capture Snapshot <small>— vision snapshot</small></button>
+            <button class="vh-btn vh-suggest" data-vh="Look at my screen and help me with what I'm doing">💡 "See my screen and help me"</button>
+            <button class="vh-btn vh-suggest" data-vh="Look through the camera and tell me what you see around me">💡 "Tell me what you see around me"</button>
           </div>
         </div>
-        <div class="vh-actions">
-          <div class="vh-q">What should I look at? 👀</div>
-          <button class="vh-btn" id="vhCamBtn">📷 Look around me <small>— camera</small></button>
-          <button class="vh-btn" id="vhScrBtn">🖥️ Look at my screen <small>— screen share</small></button>
-          <button class="vh-btn" id="vhSnapBtn" style="border-color:var(--accent);">📸 Capture Snapshot <small>— vision snapshot</small></button>
-          <button class="vh-btn vh-suggest" data-vh="Look at my screen and help me with what I'm doing">💡 "See my screen and help me"</button>
-          <button class="vh-btn vh-suggest" data-vh="Look through the camera and tell me what you see around me">💡 "Tell me what you see around me"</button>
+      </div>
+
+      <div id="vhOfficeView" class="cyber-office hidden">
+        <div class="office-hud-top">
+          <span style="font-size:11px; font-weight:700; color:var(--accent); letter-spacing:1px;">CYBER AGENT OFFICE · 3-CABIN HQ</span>
+          <label class="switch switch-mini" title="Enable office animation">
+            <input type="checkbox" id="officeAnimToggle" checked><span class="slider"></span>
+          </label>
+        </div>
+        <div class="office-cabins">
+          <!-- Cabin 1: Research Agent -->
+          <div class="cabin-box" id="cabinResearch">
+            <div class="cabin-title">🔬 Cabin 1: Research</div>
+            <svg class="agent-character-svg" viewBox="0 0 64 64" fill="none">
+              <circle cx="32" cy="22" r="14" fill="#38bdf8" fill-opacity="0.25" stroke="#38bdf8" stroke-width="2"/>
+              <circle cx="27" cy="20" r="3" fill="#38bdf8"/>
+              <circle cx="37" cy="20" r="3" fill="#38bdf8"/>
+              <path d="M26 27 Q32 32 38 27" stroke="#38bdf8" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <path d="M18 52 C18 42 46 42 46 52" stroke="#38bdf8" stroke-width="2.5" fill="none"/>
+              <circle cx="48" cy="24" r="5" stroke="#a78bfa" stroke-width="1.5" fill="none"/>
+              <line x1="52" y1="28" x2="57" y2="33" stroke="#a78bfa" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <span class="agent-status-badge" id="badgeResearch">STANDBY</span>
+            <span style="font-size:9px; color:var(--muted); margin-top:4px;">Web &amp; World Intel</span>
+          </div>
+
+          <!-- Cabin 2: Task & Coder Agent -->
+          <div class="cabin-box" id="cabinCoder">
+            <div class="cabin-title">💻 Cabin 2: Task &amp; Code</div>
+            <svg class="agent-character-svg" viewBox="0 0 64 64" fill="none">
+              <circle cx="32" cy="22" r="14" fill="#34d399" fill-opacity="0.25" stroke="#34d399" stroke-width="2"/>
+              <circle cx="27" cy="20" r="3" fill="#34d399"/>
+              <circle cx="37" cy="20" r="3" fill="#34d399"/>
+              <path d="M28 27 Q32 29 36 27" stroke="#34d399" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <path d="M18 52 C18 42 46 42 46 52" stroke="#34d399" stroke-width="2.5" fill="none"/>
+              <rect x="24" y="44" width="16" height="10" rx="2" stroke="#34d399" stroke-width="1.5" fill="rgba(52,211,153,0.2)"/>
+            </svg>
+            <span class="agent-status-badge" id="badgeCoder">STANDBY</span>
+            <span style="font-size:9px; color:var(--muted); margin-top:4px;">Files &amp; Automation</span>
+          </div>
+
+          <!-- Cabin 3: Companion & Voice Agent -->
+          <div class="cabin-box" id="cabinVoice">
+            <div class="cabin-title">🎙️ Cabin 3: Companion</div>
+            <svg class="agent-character-svg" viewBox="0 0 64 64" fill="none">
+              <circle cx="32" cy="22" r="14" fill="#f43f5e" fill-opacity="0.25" stroke="#f43f5e" stroke-width="2"/>
+              <circle cx="27" cy="20" r="3" fill="#f43f5e"/>
+              <circle cx="37" cy="20" r="3" fill="#f43f5e"/>
+              <path d="M26 26 Q32 31 38 26" stroke="#f43f5e" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <path d="M18 52 C18 42 46 42 46 52" stroke="#f43f5e" stroke-width="2.5" fill="none"/>
+              <path d="M47 16 C50 18 50 24 47 26" stroke="#f43f5e" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <path d="M51 13 C56 17 56 27 51 31" stroke="#f43f5e" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+            </svg>
+            <span class="agent-status-badge" id="badgeVoice">READY</span>
+            <span style="font-size:9px; color:var(--muted); margin-top:4px;">Dialogue &amp; Neural Voice</span>
+          </div>
         </div>
       </div>
     </section>
@@ -421,13 +507,36 @@
         <small>A warm female presence. Caring, playful girlfriend-like companion personality — close and emotional.</small>
         <span class="cc-badge hidden">ACTIVE</span>
       </div>
+      <div class="char-card" id="card-custom">
+        <div class="cc-ico">✨</div>
+        <b id="customCardTitle">CUSTOM PERSONA</b>
+        <small id="customCardDesc">Create your own tailored personality, tone and role.</small>
+        <span class="cc-badge hidden">ACTIVE</span>
+      </div>
     </div>
 
     <div class="char-form">
-      <label class="field-label">Assistant name (shown under the hologram)</label>
-      <div class="input-row" style="max-width:520px;margin-top:2px">
-        <input type="text" id="nameInput" class="input chat-input" maxlength="16" placeholder="MYRA">
-        <button class="btn btn-send" id="nameSave">SAVE</button>
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; max-width:520px;">
+        <div>
+          <label class="field-label">Your name (User / Master)</label>
+          <input type="text" id="ownerNameChar" class="input" maxlength="24" placeholder="Saidul">
+        </div>
+        <div>
+          <label class="field-label">Assistant name</label>
+          <input type="text" id="nameInput" class="input" maxlength="16" placeholder="MYRA">
+        </div>
+      </div>
+      <button class="btn btn-send" id="nameSave" style="max-width:520px; margin-top:8px;">SAVE NAMES</button>
+
+      <div style="background:rgba(2,14,32,0.5); border:1px solid rgba(var(--accent-rgb),0.25); border-radius:10px; padding:14px; margin-top:14px; max-width:520px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <h4 style="margin:0; font-size:12px; color:var(--accent);">✨ CUSTOM PERSONA CREATOR</h4>
+          <button class="btn btn-send" id="saveCustomPersonaBtn" style="padding:4px 12px; font-size:11px;">SAVE PERSONA</button>
+        </div>
+        <label class="field-label">Persona Title</label>
+        <input type="text" id="customPersonaName" class="input" placeholder="e.g. My Anime Tutor, Zen Master, Cyber Hacker" maxlength="24" style="margin-bottom:8px;">
+        <label class="field-label">Persona Prompt / Instructions</label>
+        <textarea id="customPersonaPrompt" class="input" rows="3" placeholder="Describe how MYRA should speak, behave, and address you..."></textarea>
       </div>
       <label class="field-label">Personality style</label>
       <select id="personality" class="input" style="max-width:520px">
@@ -644,6 +753,52 @@
     <div id="updateProgressMsg" class="hint" style="color:var(--accent);"></div>
     <div class="modal-actions">
       <button class="btn btn-send" id="applyUpdateBtn" style="width:100%;padding:12px;">⬇️ Update MYRA Now</button>
+    </div>
+  </div>
+</div>
+
+<!-- CINEMATIC FIRST-RUN ONBOARDING MODAL -->
+<div class="onboard-backdrop hidden" id="onboardModal">
+  <div class="onboard-card">
+    <div class="onboard-avatar-hero">
+      <div class="onboard-glow-orb"></div>
+      <div>
+        <h2 style="margin:0 0 4px 0; font-family:'Orbitron',sans-serif; color:var(--accent); font-size:18px;">
+          Welcome to MYRA
+        </h2>
+        <p style="margin:0; font-size:13px; color:var(--text); line-height:1.4;" id="onboardHeroVoiceText">
+          "Hello! I have been waiting for you. Let's personalize your companion."
+        </p>
+      </div>
+    </div>
+
+    <div class="onboard-steps">
+      <div>
+        <label class="field-label">What should I call you? (Your Name)</label>
+        <input type="text" id="onboardUserName" class="input" placeholder="e.g. Saidul" maxlength="24">
+
+        <label class="field-label" style="margin-top:10px;">My Name (Assistant)</label>
+        <input type="text" id="onboardAiName" class="input" value="MYRA" maxlength="16">
+      </div>
+
+      <div>
+        <label class="field-label">Choose Companion Persona</label>
+        <select id="onboardPersonaSelect" class="input" style="margin-bottom:10px;">
+          <option value="female">♀ Female — Sweet Companion (Warm, Caring, Storyteller)</option>
+          <option value="male">♂ Male — JARVIS Butler (Sharp, Witty, Professional)</option>
+          <option value="core">⬢ Core — Hyper-Intelligent Objective AI</option>
+        </select>
+
+        <label class="field-label">Gemini API Key (Optional now, free)</label>
+        <input type="password" id="onboardApiKey" class="input" placeholder="Paste AIza... key or skip">
+      </div>
+    </div>
+
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+      <button class="top-link" id="onboardVoiceTestBtn" style="font-size:12px;">🔊 Hear Greeting Voice</button>
+      <button class="btn btn-send" id="onboardStartBtn" style="padding:10px 28px; font-weight:700;">
+        🚀 ENTER MYRA DESKTOP
+      </button>
     </div>
   </div>
 </div>

@@ -19,15 +19,32 @@ PORT = os.environ.get("MYRA_PORT", os.environ.get("STONIC_PORT", "8765"))
 def open_browser():
     time.sleep(1.2)  # give the server a moment to come up
     url = f"http://127.0.0.1:{PORT}"
-    # If Edge/Chrome exists, open in "app window" mode (feels like a desktop app)
-    for exe in ("msedge", "chrome", "google-chrome", "chromium"):
+
+    # Search candidates: command names as well as standard Windows desktop browser paths
+    candidates = ["msedge", "chrome", "google-chrome", "chromium"]
+    if os.name == "nt":
+        prog_files = os.environ.get("ProgramFiles", r"C:\Program Files")
+        prog_files_x86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+        local_app = os.environ.get("LOCALAPPDATA", "")
+        windows_paths = [
+            os.path.join(prog_files_x86, r"Microsoft\Edge\Application\msedge.exe"),
+            os.path.join(prog_files, r"Microsoft\Edge\Application\msedge.exe"),
+            os.path.join(prog_files, r"Google\Chrome\Application\chrome.exe"),
+            os.path.join(prog_files_x86, r"Google\Chrome\Application\chrome.exe"),
+            os.path.join(local_app, r"Microsoft\Edge\Application\msedge.exe"),
+            os.path.join(local_app, r"Google\Chrome\Application\chrome.exe"),
+        ]
+        candidates = [p for p in windows_paths if os.path.exists(p)] + candidates
+
+    # If Edge/Chrome exists, open in dedicated "app window" mode (frameless standalone desktop app)
+    for exe in candidates:
         try:
             subprocess.Popen(
                 [exe, f"--app={url}", "--window-size=1500,950"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             return
-        except FileNotFoundError:
+        except (FileNotFoundError, OSError):
             continue
     webbrowser.open(url)  # fallback: default browser
 
