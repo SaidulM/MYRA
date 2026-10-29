@@ -1,1 +1,1 @@
-"""Stonic AI ব্যাকএন্ড প্যাকেজ।"""
+"""MYRA backend package."""

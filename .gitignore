@@ -8,7 +8,14 @@ data/
 __pycache__/
 *.py[cod]
 .venv/
+.venv-build/
+.venv-desktop/
 venv/
+
+# === Desktop build output ===
+build/
+dist/
+*.spec.bak
 
 # === OS / Editor ===
 .DS_Store

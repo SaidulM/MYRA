@@ -1,3 +1,8 @@
 # MYRA requirements
-# Natural Human Neural Voice Studio (GitHub Open-Source)
+# Most of the backend uses only the Python standard library.
+# Natural Human Neural Voice Studio (open-source Edge TTS client):
 edge-tts>=7.0.0
+
+# Native PySide6 desktop dependencies are optional and live in
+# requirements-desktop.txt. Browser/desktop automation engines should be
+# added only when those features are implemented and tested.

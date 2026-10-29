@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import socket
-import ssl
 from datetime import datetime
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -33,6 +32,7 @@ except ImportError:
 
 
 DEFAULT_GEMINI_MODELS = (
+    "gemini-2.5-flash",
     "gemini-1.5-flash",
     "gemini-1.5-pro",
     "gemini-2.0-flash",
@@ -75,11 +75,9 @@ TIMEOUT_SECONDS = 25
 
 
 def default_opener(request, timeout=TIMEOUT_SECONDS):
-    try:
-        return urlopen(request, timeout=timeout)
-    except (ssl.SSLError, URLError):
-        ctx = ssl._create_unverified_context()
-        return urlopen(request, timeout=timeout, context=ctx)
+    # Never silently downgrade to an unverified TLS connection: provider
+    # requests carry API credentials in headers.
+    return urlopen(request, timeout=timeout)
 
 
 class ChatError(Exception):
@@ -206,12 +204,32 @@ def build_system_prompt(payload):
         "If you are uncertain, say what is uncertain instead of inventing facts.",
     ]
 
-    try:
-        mem_ctx = memory.get_memory_context()
-        if mem_ctx:
-            prompt_lines.append(mem_ctx)
-    except Exception:
-        pass
+    # Core 2.0 service may supply a small, relevant set of user-approved
+    # memories. This is additive to (and can replace) the legacy memory
+    # context below; MYRA must not invent facts beyond supplied context.
+    raw_memory = payload.get("memory_context") if isinstance(payload, dict) else None
+    memory_lines = []
+    if isinstance(raw_memory, list):
+        for item in raw_memory[:6]:
+            text = item.get("text", "") if isinstance(item, dict) else item
+            text = _clean_short(text, "", 700)
+            if text:
+                memory_lines.append(f"- {text}")
+    elif isinstance(raw_memory, str) and raw_memory.strip():
+        memory_lines.append("- " + _clean_short(raw_memory, "", 2000))
+    if memory_lines:
+        prompt_lines.append(
+            "Relevant user-approved local memory/context supplied by MYRA "
+            "(use only when it helps; do not invent beyond it):\n" + "\n".join(memory_lines)
+        )
+
+    if not isinstance(payload, dict) or payload.get("include_legacy_memory", True) is not False:
+        try:
+            mem_ctx = memory.get_memory_context()
+            if mem_ctx:
+                prompt_lines.append(mem_ctx)
+        except Exception:
+            pass
 
     return "\n".join(prompt_lines)
 
@@ -227,7 +245,8 @@ def discover_gemini_models(api_key: str, opener=default_opener) -> tuple:
     if clean_key in _DISCOVERED_GEMINI_MODELS:
         return _DISCOVERED_GEMINI_MODELS[clean_key]
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={quote(clean_key, safe='')}"
+    # Keep the key in the header only; URLs are much more likely to be logged.
+    url = "https://generativelanguage.googleapis.com/v1beta/models"
     headers = {"x-goog-api-key": clean_key, "User-Agent": UA_STRING}
     req = Request(url, headers=headers)
     try:
@@ -245,6 +264,7 @@ def discover_gemini_models(api_key: str, opener=default_opener) -> tuple:
             if models:
                 def priority(mid: str) -> int:
                     m = mid.lower()
+                    if m == "gemini-2.5-flash": return -1
                     if m == "gemini-1.5-flash": return 0
                     if m == "gemini-2.0-flash": return 1
                     if m == "gemini-1.5-pro": return 2
@@ -305,7 +325,9 @@ def discover_groq_models(api_key: str, opener=default_opener) -> tuple:
     return DEFAULT_GROQ_MODELS
 
 
-def _models_for(provider, api_key="", opener=default_opener):
+def _models_for(provider, api_key="", opener=default_opener, override=None):
+    if isinstance(override, str) and override.strip() and override.strip().lower() != "auto":
+        return (override.strip(),)
     if provider == "gemini":
         configured = config.get("GEMINI_MODEL").strip()
         if configured and configured.lower() != "auto":
@@ -372,7 +394,11 @@ def _post_json(url, payload, headers, provider, opener):
             raw_error = exc.read(4096) if exc.fp else b""
         except Exception:
             raw_error = b""
-        raise _provider_http_error(provider, exc.code, raw_error.decode("utf-8", errors="ignore")) from None
+        if isinstance(raw_error, bytes):
+            raw_error_text = raw_error.decode("utf-8", errors="ignore")
+        else:
+            raw_error_text = str(raw_error or "")
+        raise _provider_http_error(provider, exc.code, raw_error_text) from None
     except (TimeoutError, socket.timeout):
         raise ChatError("timeout", f"{_provider_label(provider)} took too long to answer.", provider=provider, status=503) from None
     except URLError:
@@ -424,7 +450,7 @@ def _extract_openai_text(data, provider="openai"):
     return text
 
 
-def _call_gemini(messages, system_prompt, api_key, opener, image=None):
+def _call_gemini(messages, system_prompt, api_key, opener, image=None, model_override=None):
     contents = []
     for i, msg in enumerate(messages):
         is_user = msg["role"] == "user"
@@ -446,7 +472,7 @@ def _call_gemini(messages, system_prompt, api_key, opener, image=None):
         })
 
     headers = {"x-goog-api-key": api_key, "User-Agent": UA_STRING}
-    models = _models_for("gemini", api_key, opener=opener)
+    models = _models_for("gemini", api_key, opener=opener, override=model_override)
 
     last_error = None
     for model in models:
@@ -455,7 +481,7 @@ def _call_gemini(messages, system_prompt, api_key, opener, image=None):
             "contents": contents,
             "generationConfig": {"temperature": 0.75, "maxOutputTokens": MAX_OUTPUT_TOKENS},
         }
-        url = f"{GEMINI_URL.format(model=quote(model, safe='-._~'))}?key={quote(api_key, safe='')}"
+        url = GEMINI_URL.format(model=quote(model, safe='-._~'))
         try:
             data = _post_json(url, payload, headers, "gemini", opener)
             return _extract_gemini_text(data), model
@@ -566,32 +592,38 @@ def get_reply(payload, opener=default_opener):
 
     messages = normalize_messages(payload.get("messages"))
     image = payload.get("image")  # base64 webcam / screen snapshot if active
+    model_overrides = payload.get("models") if isinstance(payload.get("models"), dict) else {}
 
-    # Zero-Token Local Desktop Action Intent Check (Play music, Gold rate, Shopping, Camera, Reminders, Files, Browser)
+    # Legacy web UI may explicitly use zero-token local intents. Core/API v1
+    # Chat sends allow_local_intent=False so ordinary Chat Mode cannot gain
+    # computer actions by accident; bounded work belongs in Agent Mode.
     latest_user_text = messages[-1]["text"] if messages and messages[-1]["role"] == "user" else ""
-    try:
-        import agent
-        local_intent = agent.parse_and_execute_local_intent(latest_user_text)
-        if local_intent and local_intent.get("ok"):
-            return {
-                "ok": True,
-                "reply": local_intent.get("voice_reply") or local_intent.get("report", ""),
-                "provider": "local_agent",
-                "provider_label": "MYRA Desktop Agent (0 Tokens)",
-                "model": "local-intent",
-                "fallback": False,
-                "action": local_intent.get("action"),
-                "client_trigger": local_intent.get("client_trigger", False),
-            }
-    except Exception:
-        pass
+    if payload.get("allow_local_intent", True) is not False:
+        try:
+            import agent
+            local_intent = agent.parse_and_execute_local_intent(latest_user_text)
+            if local_intent and local_intent.get("ok"):
+                return {
+                    "ok": True,
+                    "reply": local_intent.get("voice_reply") or local_intent.get("report", ""),
+                    "provider": "local_agent",
+                    "provider_label": "MYRA Desktop Agent (0 Tokens)",
+                    "model": "local-intent",
+                    "fallback": False,
+                    "action": local_intent.get("action"),
+                    "client_trigger": local_intent.get("client_trigger", False),
+                }
+        except Exception:
+            pass
 
-    # Automatic Persistent Memory Extraction from chat
+    # Legacy automatic memory extraction can likewise be disabled by the
+    # Core service, which only stores user-approved long-term memories.
     learned_fact = None
-    try:
-        learned_fact = memory.auto_learn_from_text(latest_user_text)
-    except Exception:
-        pass
+    if payload.get("auto_learn", True) is not False:
+        try:
+            learned_fact = memory.auto_learn_from_text(latest_user_text)
+        except Exception:
+            pass
 
     system_prompt = build_system_prompt(payload)
 
@@ -628,7 +660,14 @@ def get_reply(payload, opener=default_opener):
     for prov in providers:
         if prov == "gemini" and gemini_k:
             try:
-                reply, model = _call_gemini(messages, system_prompt, gemini_k, opener, image=image)
+                reply, model = _call_gemini(
+                    messages,
+                    system_prompt,
+                    gemini_k,
+                    opener,
+                    image=image,
+                    model_override=model_overrides.get("gemini"),
+                )
                 return {
                     "ok": True,
                     "reply": reply,
@@ -643,7 +682,7 @@ def get_reply(payload, opener=default_opener):
 
         elif prov == "groq" and groq_k:
             try:
-                models = _models_for("groq", groq_k, opener=opener)
+                models = _models_for("groq", groq_k, opener=opener, override=model_overrides.get("groq"))
                 reply, model = _call_openai_compatible(messages, system_prompt, groq_k, GROQ_URL, models, "groq", opener, image=image)
                 notice = ""
                 if gemini_k and preferred_provider == "auto":

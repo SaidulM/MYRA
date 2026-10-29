@@ -1,0 +1,2 @@
+# Windows executable build-only dependency.
+pyinstaller>=6

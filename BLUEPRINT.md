@@ -206,3 +206,14 @@ which the owner can show the agent when reporting a problem.
 - Talk to the owner in **Bengali**, step by step, with clear test instructions.
   The app UI itself is in **English**.
 - End of every stage: stop → give test steps → wait for approval.
+
+---
+
+## 11. Core 2.0 integration (Oct 2026)
+
+MYRA now has a service-oriented Core 2.0 layer beside the existing web build:
+
+- `backend/service.py`, `backend/providers.py`, `backend/skill_registry.py`, `backend/core_agent.py` and `backend/core_memory.py` provide persistent Core conversations/memories/notes, twelve typed skills, a bounded confirmable Agent, `/api/v1`, one-frame vision and a PySide6 native source window.
+- MAIN's newer web UI and legacy modules remain available. The legacy web store (`data/myra.db`) and Core app-data store are **not unified yet**; lossless migration remains a future stage.
+- Core Chat has no computer-control tools and disables legacy local-intent execution/silent auto-learning. The legacy web chat keeps its previous behavior for compatibility.
+- Native hologram parity, realtime voice, continuous live screen/camera understanding, browser research, semantic Windows control and a physically tested EXE/installer remain unfinished. See `docs/ARCHITECTURE.md`, `docs/REFERENCE_ANALYSIS.md` and `docs/VOICE_EVALUATION.md`.

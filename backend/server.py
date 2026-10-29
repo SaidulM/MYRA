@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import agent  # noqa: E402
+from api_v1 import CoreApiMixin  # noqa: E402
 import chat  # noqa: E402
 import config  # noqa: E402
 import memory  # noqa: E402
@@ -42,7 +43,9 @@ except Exception:
 
 UI_DIR = ROOT / "ui"
 
-HOST = config.get("MYRA_HOST", config.get("STONIC_HOST", "0.0.0.0"))
+# Loopback is the safe default. Set MYRA_HOST=0.0.0.0 explicitly only when
+# the owner intentionally wants LAN/mobile access on a trusted network.
+HOST = config.get("MYRA_HOST", config.get("STONIC_HOST", "127.0.0.1"))
 PORT = int(config.get("MYRA_PORT", config.get("STONIC_PORT", "8765")))
 
 MAX_BODY = 1024 * 1024
@@ -61,14 +64,20 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
-class MyraHandler(SimpleHTTPRequestHandler):
-    """Serves ui/ and answers all /api/* routes with JSON."""
+class MyraHandler(CoreApiMixin, SimpleHTTPRequestHandler):
+    """Serves ui/ and answers legacy /api/* plus Core /api/v1/* routes."""
+
+    server_version = "MYRA/Core2"
 
     # ---------- GET ----------
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
         query = parse_qs(parsed.query)
+
+        if path.startswith("/api/v1/"):
+            self._handle_api_v1("GET")
+            return
 
         if path == "/api/health":
             self._send_json({
@@ -77,11 +86,15 @@ class MyraHandler(SimpleHTTPRequestHandler):
                 "stage": 11,
                 "version": "1.0.0",
                 "ready": True,
+                "api_v1": True,
             })
             return
 
-        if path == "/api/settings":
-            self._send_json(config.key_status())
+        if path in {"/api/settings", "/api/settings/keys"}:
+            status = config.key_status()
+            # Flat fields keep the web UI working; "keys" is used by the
+            # native desktop client and older Core clients.
+            self._send_json({"ok": True, **status, "keys": status})
             return
 
         if path == "/api/memory":
@@ -172,6 +185,10 @@ class MyraHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
 
+        if path.startswith("/api/v1/"):
+            self._handle_api_v1("POST")
+            return
+
         # 1. Chat
         if path == "/api/chat":
             data = self._read_json(max_bytes=MAX_CHAT_BODY)
@@ -209,24 +226,24 @@ class MyraHandler(SimpleHTTPRequestHandler):
             if data is None:
                 return
             status = config.save_keys(
-                gemini=data.get("gemini_key"),
-                groq=data.get("groq_key"),
+                gemini=data.get("gemini_key", data.get("gemini")),
+                groq=data.get("groq_key", data.get("groq")),
                 gemini_model=data.get("gemini_model"),
                 groq_model=data.get("groq_model"),
-                openrouter=data.get("openrouter_key"),
+                openrouter=data.get("openrouter_key", data.get("openrouter")),
                 openrouter_model=data.get("openrouter_model"),
-                openai=data.get("openai_key"),
+                openai=data.get("openai_key", data.get("openai")),
                 openai_model=data.get("openai_model"),
-                anthropic=data.get("anthropic_key"),
+                anthropic=data.get("anthropic_key", data.get("anthropic")),
                 anthropic_model=data.get("anthropic_model"),
-                deepseek=data.get("deepseek_key"),
+                deepseek=data.get("deepseek_key", data.get("deepseek")),
                 deepseek_model=data.get("deepseek_model"),
-                mistral=data.get("mistral_key"),
+                mistral=data.get("mistral_key", data.get("mistral")),
                 mistral_model=data.get("mistral_model"),
                 ollama_url=data.get("ollama_url"),
                 ollama_model=data.get("ollama_model"),
             )
-            self._send_json({"ok": True, **status})
+            self._send_json({"ok": True, **status, "keys": status})
             return
 
         # 2b. Ultra-Realistic Neural Voice TTS Speak endpoint
@@ -285,8 +302,8 @@ class MyraHandler(SimpleHTTPRequestHandler):
             data = self._read_json()
             if data is None:
                 return
-            gemini = data.get("gemini_key") or config.gemini_key()
-            groq = data.get("groq_key") or config.groq_key()
+            gemini = data.get("gemini_key", data.get("gemini")) or config.gemini_key()
+            groq = data.get("groq_key", data.get("groq")) or config.groq_key()
             res = chat.verify_key_connection(gemini=gemini, groq=groq)
             self._send_json(res)
             return
@@ -304,7 +321,7 @@ class MyraHandler(SimpleHTTPRequestHandler):
             else:
                 self._send_json({"error": "Unknown key name."}, status=400)
                 return
-            self._send_json({"ok": True, **status})
+            self._send_json({"ok": True, **status, "keys": status})
             return
 
         # 5. Memory routes
@@ -399,14 +416,19 @@ class MyraHandler(SimpleHTTPRequestHandler):
         pass
 
 
+def create_server(host=HOST, port=PORT):
+    handler = partial(MyraHandler, directory=str(UI_DIR))
+    return ThreadingHTTPServer((host, port), handler)
+
+
 def main():
-    # Initialize SQLite database
+    # Initialize the legacy SQLite tables used by the main web UI. The
+    # Core service initializes its separate app-data database lazily.
     memory.init_db()
     notes.init_db()
     reminders.init_db()
 
-    handler = partial(MyraHandler, directory=str(UI_DIR))
-    server = ThreadingHTTPServer((HOST, PORT), handler)
+    server = create_server()
     print(f"🤖 MYRA is running at http://{HOST}:{PORT}")
     print("Press Ctrl+C to quit.")
     try:

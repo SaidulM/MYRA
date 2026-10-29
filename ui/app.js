@@ -2008,12 +2008,20 @@ function checkOnboarding() {
 
         if (apiKey) {
           try {
-            await fetch('/api/keys', {
+            const keyRes = await fetch('/api/settings/keys', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ gemini: apiKey }),
             });
-          } catch (e) {}
+            const keyData = await keyRes.json();
+            const keyStatus = keyData.keys || keyData;
+            if (!keyRes.ok || !(keyStatus.gemini && keyStatus.gemini.set)) {
+              throw new Error((keyData && (keyData.message || keyData.error)) || 'Key was not confirmed saved');
+            }
+            toast('🔑 Gemini key confirmed saved locally.');
+          } catch (e) {
+            toast('⚠️ The onboarding key could not be confirmed saved. Please save it again in SETTING. (' + e.message + ')', 5600);
+          }
         }
 
         setChar(persona);

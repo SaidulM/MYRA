@@ -44,6 +44,17 @@
 - 🌍 **World Monitor:** Spinnable 3D Earth, interactive map, and live RSS news feed (cached for offline reading) with read-aloud support.
 - 🛡️ **Zero Data Leakage:** Your `.env` and personal memory databases are strictly kept on your laptop.
 
+### Core 2.0 service/native layer (integrated Oct 2026)
+
+The existing web experience above remains intact. MYRA also now includes a separate service-oriented **Core 2.0 foundation**:
+
+- `/api/v1` routes for persistent conversations, user-approved memories, notes, skills, bounded Agent tasks, one-frame vision, export/backup and voice-model status.
+- Twelve typed, validated skills. Confirmable write/launch/open actions are limited to MYRA's safe workspace or an allowlist; Core Chat receives no computer-control tools.
+- A PySide6 native operational window (`MYRA-Desktop.bat` for the source test build) using the same backend. Full Three.js MALE/FEMALE hologram parity in Qt and a physically tested EXE/installer are still future work.
+- API secrets prefer the OS credential store when `keyring` is available; the private `.env` remains the fallback. Settings responses are masked and accept both current and older key field names.
+
+For a safe merge, the legacy web memory/notes in `data/myra.db` and the Core database under Windows app data (`%LOCALAPPDATA%\MYRA`) currently remain separate. Unifying those stores without data loss is a later migration step. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/REFERENCE_ANALYSIS.md`](docs/REFERENCE_ANALYSIS.md) for the honest capability boundaries.
+
 ---
 
 ## 💻 Installation & Usage (English)
@@ -100,14 +111,21 @@ MYRA/
 ├── BLUEPRINT.md          ← Master architectural plan (all 11 stages completed)
 ├── README.md             ← Documentation and usage instructions
 ├── backend/
-│   ├── server.py         ← Unified HTTP server & API routing
-│   ├── chat.py           ← Gemini + Groq AI brain with key verification
-│   ├── memory.py         ← SQLite local memory engine (Stage 4)
-│   ├── notes.py          ← SQLite notes CRUD engine (Stage 7)
-│   ├── skills_manager.py ← Built-in skills (Calculator, Web search, Weather, System)
-│   ├── agent.py          ← Autonomous multi-step research agent (Stage 8)
+│   ├── server.py         ← Unified legacy HTTP server & API routing
+│   ├── api_v1.py         ← Core 2.0 `/api/v1` route mixin
+│   ├── service.py        ← UI-independent Core service
+│   ├── providers.py      ← Gemini/Groq Core planner/vision adapter
+│   ├── skill_registry.py ← Typed Core skills and permissions
+│   ├── core_agent.py     ← Bounded, confirmable Core Agent
+│   ├── core_memory.py    ← App-data Core SQLite store
+│   ├── chat.py           ← Multi-provider chat with key verification
+│   ├── memory.py         ← Legacy SQLite local memory engine (Stage 4)
+│   ├── notes.py          ← Legacy SQLite notes CRUD engine (Stage 7)
+│   ├── skills_manager.py ← Legacy skills (Calculator, Web search, Weather, System)
+│   ├── agent.py          ← Legacy multi-step research/local-intent agent (Stage 8)
+│   ├── voice.py          ← Core voice-model records and consent-based downloads
 │   ├── news.py           ← World Monitor RSS news feed & offline caching (Stage 10)
-│   └── config.py         ← .env secure configuration manager
+│   └── config.py         ← `.env` + OS credential-store configuration manager
 ├── ui/
 │   ├── index.html        ← UI shell + modals + 3D stages + full-screen windows
 │   ├── style.css         ← Theme styling (Normal / Friendly / Hacker) & animations
@@ -121,7 +139,7 @@ MYRA/
 
 ## 🔒 Security & Privacy
 
-- Real API keys are saved exclusively in a local `.env` file on your laptop.
+- Real API keys prefer the Windows/OS credential store when `keyring` is available, with the private local `.env` as fallback. Set `MYRA_SECRET_STORE=env` to force `.env`-only behavior.
 - The UI never exposes full API keys (only masked tails like `••••a1b2`).
-- The local SQLite database (`data/myra.db`) is git-ignored and never leaves your laptop.
-- The server binds to `127.0.0.1` by default, so only your laptop can access it.
+- The legacy SQLite database (`data/myra.db`) and Core app-data database are private/local and never committed.
+- The server binds to `127.0.0.1` by default, so only your laptop can access it. `MYRA_HOST=0.0.0.0` is an explicit opt-in for trusted-LAN/mobile use; API v1 action routes then also require `MYRA_API_TOKEN`.
