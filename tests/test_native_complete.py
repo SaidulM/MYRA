@@ -510,6 +510,13 @@ class PurePythonLaunchTests(unittest.TestCase):
         self.assertIn("spokenMainText", js)
         self.assertIn("characterVoiceGender", js)
         self.assertIn(".agent-approval", css)
+        # Finished live speech is submitted directly; it is not copied into
+        # the typed-message box or left waiting for a manual Send tap.
+        self.assertIn("async function sendChat(voiceText)", js)
+        self.assertIn("sendChat(text)", js)
+        self.assertIn("liveVoiceTranscript", js)
+        self.assertNotIn("$('chatInput').value = text", js)
+        self.assertNotIn("$('chatInput').value = txt", js)
 
 
 if __name__ == "__main__":

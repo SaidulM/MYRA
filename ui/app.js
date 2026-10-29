@@ -1354,10 +1354,14 @@ function addMsg(text, who, skipHistory) {
   if (text && !skipHistory) pushHistory(who, text);
   return bubble;
 }
-async function sendChat() {
+async function sendChat(voiceText) {
   if (chatBusy) return;
   const input = $('chatInput');
-  const text = input.value.trim();
+  // Live speech is delivered directly to MYRA. It is never placed in the
+  // typed-message box and it never needs a manual Send tap. A typed draft
+  // already sitting in that box is left untouched during a voice turn.
+  const directText = typeof voiceText === 'string' ? voiceText.trim() : '';
+  const text = directText || input.value.trim();
   if (!text) return;
   if (!HOLO.power) {
     toast('⏻ System is off — press ACTIVATE first!');
@@ -1367,7 +1371,7 @@ async function sendChat() {
   addMsg(text, 'user');
   chatContext.push({ role: 'user', text });
   chatContext = chatContext.slice(-MAX_CHAT_CONTEXT);
-  input.value = '';
+  if (!directText) input.value = '';
   setChatBusy(true);
   setHoloStatus('🤔 MYRA is thinking…');
   setHoloState('THINKING…');
@@ -1522,6 +1526,7 @@ function setPower(on) {
 let MIC_ARMED = false;
 let speechRecognizer = null;
 let speechSilenceTimer = null;
+let liveVoiceTranscript = '';
 let liveVoiceMode = null; // 'browser' | 'backend'
 let liveVoiceStatusCache = null;
 let liveVoiceStatusAt = 0;
@@ -1621,6 +1626,7 @@ function stopBackendMic(discard = false, restart = false) {
 }
 
 function pauseLiveListeningForSpeech() {
+  liveVoiceTranscript = '';
   if (BACKEND_MIC.recorder) stopBackendMic(true, false);
   if (speechRecognizer && liveVoiceMode === 'browser') {
     try { speechRecognizer.stop(); } catch (e) {}
@@ -1706,11 +1712,12 @@ async function transcribeBackendBlob(blob) {
       setTimeout(() => resumeLiveListening(), 300);
       return;
     }
-    $('chatInput').value = text;
     setHoloState('THINKING…');
     setHoloStatus('👂 ' + (isBengaliText(text) ? 'শুনেছি: “' : 'Heard: “') + text + '”');
     logEvent('live voice heard: ' + text.slice(0, 120));
-    sendChat();
+    // Bypass the typed-message box completely: the finished utterance is
+    // already a submitted voice turn, not a draft waiting for Send.
+    sendChat(text);
   } catch (err) {
     BACKEND_MIC.busy = false;
     const message = String(err.message || err);
@@ -1883,18 +1890,21 @@ function setupSpeechRecognition() {
     }
     const txt = (final || interim).trim();
     if (txt) {
-      $('chatInput').value = txt;
+      // Keep the live transcript in memory and on the hologram status only;
+      // never copy it into the typed-message send box.
+      liveVoiceTranscript = txt;
       setHoloStatus('👂 ' + (isBengaliText(txt) ? 'শুনছি: "' : 'Listening: "') + txt + '"');
       setHoloState('LISTENING…');
       updateMicWave(2.5);
 
-      // Fast auto-send on silence (650ms if final sentence, 1300ms if interim)
+      // Fast automatic delivery on silence (650ms if final, 1300ms interim).
       const silenceDelay = hasFinal ? 650 : 1300;
       speechSilenceTimer = setTimeout(() => {
-        const val = $('chatInput').value.trim();
+        const val = liveVoiceTranscript.trim();
         if (val && !chatBusy) {
+          liveVoiceTranscript = '';
           setHoloStatus(isBengaliText(val) ? 'মাইরা শুনেছে, উত্তর দিচ্ছে এক্ষুনি…' : 'MYRA has heard you, replying now…');
-          sendChat();
+          sendChat(val);
           try { rec.stop(); } catch (err) {}
           updateMicWave(0);
         }
@@ -1903,13 +1913,15 @@ function setupSpeechRecognition() {
   };
 
   rec.onspeechend = () => {
-    const val = $('chatInput').value.trim();
+    const val = liveVoiceTranscript.trim();
     if (val && !chatBusy) {
       clearTimeout(speechSilenceTimer);
       speechSilenceTimer = setTimeout(() => {
-        if ($('chatInput').value.trim() && !chatBusy) {
-          setHoloStatus(isBengaliText(val) ? 'মাইরা শুনেছে, উত্তর দিচ্ছে এক্ষুনি…' : 'MYRA has heard you, replying now…');
-          sendChat();
+        const spoken = liveVoiceTranscript.trim();
+        if (spoken && !chatBusy) {
+          liveVoiceTranscript = '';
+          setHoloStatus(isBengaliText(spoken) ? 'মাইরা শুনেছে, উত্তর দিচ্ছে এক্ষুনি…' : 'MYRA has heard you, replying now…');
+          sendChat(spoken);
           try { rec.stop(); } catch (err) {}
           updateMicWave(0);
         }
@@ -1922,6 +1934,7 @@ function setupSpeechRecognition() {
     if (MIC_ARMED && ['not-allowed', 'service-not-allowed', 'audio-capture', 'network'].includes(e.error)) {
       // WebView2/Chromium shells often expose the recognizer object but no
       // working speech service. Switch to MYRA's own mic→backend hearing.
+      liveVoiceTranscript = '';
       liveVoiceMode = 'backend';
       setHoloStatus('🎤 Switching to MYRA live-voice engine…');
       setTimeout(() => startBackendLiveVoice(), 300);
@@ -1931,11 +1944,12 @@ function setupSpeechRecognition() {
   };
 
   rec.onend = () => {
-    const val = $('chatInput').value.trim();
+    const val = liveVoiceTranscript.trim();
     if (val && !chatBusy && !HOLO.speaking) {
       clearTimeout(speechSilenceTimer);
+      liveVoiceTranscript = '';
       setHoloStatus(isBengaliText(val) ? 'মাইরা শুনেছে, উত্তর দিচ্ছে এক্ষুনি…' : 'MYRA has heard you, replying now…');
-      sendChat();
+      sendChat(val);
       updateMicWave(0);
     } else if (MIC_ARMED && !HOLO.speaking && liveVoiceMode !== 'backend') {
       try { rec.start(); } catch (err) {}
@@ -1954,6 +1968,7 @@ async function setMic(on, silent) {
 
   if (!on) {
     clearTimeout(speechSilenceTimer);
+    liveVoiceTranscript = '';
     if (speechRecognizer) { try { speechRecognizer.stop(); } catch (err) {} }
     stopBackendMic(true, false);
     liveVoiceMode = null;
