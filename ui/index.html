@@ -429,6 +429,14 @@
         <input type="password" id="geminiKey" class="input" placeholder="Paste your Gemini key (starts with AIza…)" autocomplete="off">
         <button class="icon-btn key-remove hidden" id="removeGemini" title="Remove the saved Gemini key">✕</button>
       </div>
+      <label class="field-label">Gemini AI Model (Auto-detects Free / Paid)</label>
+      <select id="geminiModelSelect" class="input" style="margin-bottom: 10px;">
+        <option value="auto">✨ Auto-Detect (Best working model for your key)</option>
+        <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (Fast, Free &amp; Paid default)</option>
+        <option value="gemini-1.5-pro">💎 Gemini 1.5 Pro (High intelligence / Paid &amp; Free)</option>
+        <option value="gemini-2.0-flash">🚀 Gemini 2.0 Flash (Next-Gen)</option>
+        <option value="gemini-1.5-flash-8b">🍃 Gemini 1.5 Flash-8B (Ultra-Lightweight)</option>
+      </select>
       <label class="field-label">Groq API Key (backup) <span class="key-status" id="groqKeyStatus">checking…</span></label>
       <div class="key-row">
         <input type="password" id="groqKey" class="input" placeholder="Paste your Groq key (starts with gsk_…)" autocomplete="off">
@@ -507,8 +515,17 @@
       The key is tested and saved securely on your laptop only.
     </p>
     <div>
-      <label class="field-label">Gemini API Key (Primary — Free)</label>
+      <label class="field-label">Gemini API Key (Free or Paid Tier)</label>
       <input type="password" id="welcomeGeminiKey" class="input" placeholder="Paste your Gemini key (starts with AIza…)" autocomplete="off">
+    </div>
+    <div>
+      <label class="field-label">AI Model Preference</label>
+      <select id="welcomeModelSelect" class="input" style="margin-bottom: 6px;">
+        <option value="auto">✨ Auto-Detect (Works with any Free or Paid key)</option>
+        <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (Recommended)</option>
+        <option value="gemini-1.5-pro">💎 Gemini 1.5 Pro (Paid / Pro keys)</option>
+        <option value="gemini-2.0-flash">🚀 Gemini 2.0 Flash</option>
+      </select>
     </div>
     <div>
       <label class="field-label">Groq API Key (Optional Backup — Free)</label>

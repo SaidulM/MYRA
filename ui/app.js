@@ -1815,6 +1815,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await res.json();
       paintKeyStatus('geminiKeyStatus', 'removeGemini', data.gemini);
       paintKeyStatus('groqKeyStatus', 'removeGroq', data.groq);
+      if (data.gemini && data.gemini.model && $('geminiModelSelect')) {
+        $('geminiModelSelect').value = data.gemini.model;
+      }
     } catch (e) {
       const g = $('geminiKeyStatus');
       const q = $('groqKeyStatus');
@@ -1848,6 +1851,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const body = {};
     if (gemini) body.gemini_key = gemini;
     if (groq) body.groq_key = groq;
+    if ($('geminiModelSelect')) body.gemini_model = $('geminiModelSelect').value;
 
     try {
       const res = await fetch('/api/settings/keys', {
@@ -2024,13 +2028,16 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error(errDetail);
       }
 
+      const geminiModel = $('welcomeModelSelect') ? $('welcomeModelSelect').value : 'auto';
       await fetch('/api/settings/keys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gemini_key: gemini, groq_key: groq }),
+        body: JSON.stringify({ gemini_key: gemini, groq_key: groq, gemini_model: geminiModel }),
       });
 
-      statusEl.textContent = '✅ Connected successfully! Brain is active.';
+      const modelUsed = (vData.results && vData.results.gemini && vData.results.gemini.model) || '';
+      const modelInfo = modelUsed ? ` (Model: ${modelUsed})` : '';
+      statusEl.textContent = '✅ Connected successfully! Brain is active' + modelInfo + '.';
       statusEl.style.color = '#4ade80';
       refreshKeyStatus();
 

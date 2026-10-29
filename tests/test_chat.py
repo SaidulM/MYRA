@@ -119,6 +119,51 @@ class ChatTests(unittest.TestCase):
         self.assertTrue(result["fallback"])
         self.assertEqual(result["reply"], "Backup brain is here.")
 
+    def test_gemini_auto_model_discovery(self):
+        def fake_discovery_opener(request, timeout):
+            if "models" in request.full_url:
+                return FakeResponse({
+                    "models": [
+                        {"name": "models/gemini-pro", "supportedGenerationMethods": ["generateContent"]},
+                        {"name": "models/gemini-1.5-pro", "supportedGenerationMethods": ["generateContent"]},
+                        {"name": "models/gemini-1.5-flash", "supportedGenerationMethods": ["generateContent"]},
+                        {"name": "models/embedding-001", "supportedGenerationMethods": ["embedContent"]},
+                    ]
+                })
+            return FakeResponse({})
+
+        models = chat.discover_gemini_models("test-key-123", opener=fake_discovery_opener)
+        self.assertIn("gemini-1.5-flash", models)
+        self.assertIn("gemini-1.5-pro", models)
+        self.assertNotIn("embedding-001", models)
+        # Verify 1.5-flash is prioritized first
+        self.assertEqual(models[0], "gemini-1.5-flash")
+
+    def test_gemini_fallback_on_model_unavailable(self):
+        attempts = []
+
+        def fallback_opener(request, timeout):
+            attempts.append(request.full_url)
+            if "gemini-1.5-flash" in request.full_url:
+                # Simulate 404 model not found
+                import urllib.error
+                raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, None)
+            if "gemini-1.5-pro" in request.full_url:
+                return FakeResponse({
+                    "candidates": [{"content": {"parts": [{"text": "Hello from Gemini 1.5 Pro!"}]}}]
+                })
+            raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, None)
+
+        with patch.object(chat, "_models_for", return_value=("gemini-1.5-flash", "gemini-1.5-pro")), patch.object(
+            chat.config, "gemini_key", return_value="fake-gemini-key"
+        ), patch.object(chat.config, "groq_key", return_value=""):
+            result = chat.get_reply(self.payload(), opener=fallback_opener)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["model"], "gemini-1.5-pro")
+        self.assertEqual(result["reply"], "Hello from Gemini 1.5 Pro!")
+        self.assertEqual(len(attempts), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

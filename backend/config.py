@@ -55,13 +55,14 @@ def key_status():
     env = load_env()
     gemini = env.get(GEMINI, "")
     groq = env.get(GROQ, "")
+    model = env.get("GEMINI_MODEL", "auto")
     return {
-        "gemini": {"set": bool(gemini), "masked": _mask(gemini)},
+        "gemini": {"set": bool(gemini), "masked": _mask(gemini), "model": model},
         "groq": {"set": bool(groq), "masked": _mask(groq)},
     }
 
 
-def save_keys(gemini=None, groq=None):
+def save_keys(gemini=None, groq=None, gemini_model=None):
     """Update .env in place.
 
     ``None`` = leave that key untouched, ``""`` = remove it,
@@ -73,6 +74,8 @@ def save_keys(gemini=None, groq=None):
         updates[GEMINI] = gemini.strip()
     if groq is not None:
         updates[GROQ] = groq.strip()
+    if gemini_model is not None:
+        updates["GEMINI_MODEL"] = gemini_model.strip()
 
     lines = []
     if ENV_PATH.exists():

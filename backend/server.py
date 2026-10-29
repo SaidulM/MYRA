@@ -163,11 +163,12 @@ class MyraHandler(SimpleHTTPRequestHandler):
                 return
             gemini = data.get("gemini_key")
             groq = data.get("groq_key")
-            for value in (gemini, groq):
+            gemini_model = data.get("gemini_model")
+            for value in (gemini, groq, gemini_model):
                 if value is not None and (not isinstance(value, str) or len(value) > 300):
-                    self._send_json({"error": "Invalid key format."}, status=400)
+                    self._send_json({"error": "Invalid format."}, status=400)
                     return
-            status = config.save_keys(gemini=gemini, groq=groq)
+            status = config.save_keys(gemini=gemini, groq=groq, gemini_model=gemini_model)
             self._send_json({"ok": True, **status})
             return
 

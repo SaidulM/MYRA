@@ -26,8 +26,21 @@ except ImportError:
     from . import memory
 
 
-DEFAULT_GEMINI_MODELS = ("gemini-2.5-flash", "gemini-2.0-flash")
-DEFAULT_GROQ_MODELS = ("llama-3.3-70b-versatile", "llama-3.1-8b-instant")
+DEFAULT_GEMINI_MODELS = (
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-exp",
+    "gemini-1.5-flash-8b",
+    "gemini-1.0-pro",
+    "gemini-pro",
+)
+DEFAULT_GROQ_MODELS = (
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "mixtral-8x7b-32768",
+    "gemma2-9b-it",
+)
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -36,6 +49,17 @@ MAX_MESSAGE_CHARS = 6000
 MAX_CONTEXT_CHARS = 30000
 MAX_OUTPUT_TOKENS = 1200
 TIMEOUT_SECONDS = 25
+
+
+def default_opener(request, timeout=TIMEOUT_SECONDS):
+    try:
+        return urlopen(request, timeout=timeout)
+    except (ssl.SSLError, URLError) as exc:
+        try:
+            ctx = ssl._create_unverified_context()
+            return urlopen(request, timeout=timeout, context=ctx)
+        except Exception:
+            raise exc
 
 
 class ChatError(Exception):
@@ -162,12 +186,64 @@ def build_system_prompt(payload):
     return "\n".join(prompt_lines)
 
 
-def _models_for(provider):
+_DISCOVERED_GEMINI_MODELS = {}
+
+
+def discover_gemini_models(api_key: str, opener=default_opener) -> tuple:
+    """Dynamically query Google Gemini API to discover supported models for this key (Free or Paid)."""
+    clean_key = str(api_key).strip()
+    if not clean_key:
+        return DEFAULT_GEMINI_MODELS
+    if clean_key in _DISCOVERED_GEMINI_MODELS:
+        return _DISCOVERED_GEMINI_MODELS[clean_key]
+
+    url = "https://generativelanguage.googleapis.com/v1beta/models"
+    headers = {"x-goog-api-key": clean_key}
+    req = Request(url, headers=headers)
+    try:
+        with opener(req, timeout=7) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            models = []
+            for m in data.get("models", []):
+                name = m.get("name", "")
+                methods = m.get("supportedGenerationMethods", [])
+                if "generateContent" in methods:
+                    model_id = name.replace("models/", "").strip()
+                    if "gemini" in model_id.lower() and not model_id.endswith("-vision"):
+                        models.append(model_id)
+
+            if models:
+                def priority(mid: str) -> int:
+                    m = mid.lower()
+                    if m == "gemini-1.5-flash": return 0
+                    if m == "gemini-1.5-pro": return 1
+                    if m == "gemini-2.0-flash": return 2
+                    if m == "gemini-2.0-flash-exp": return 3
+                    if m == "gemini-1.5-flash-8b": return 4
+                    if "flash" in m: return 5
+                    if "pro" in m: return 6
+                    return 10
+
+                models.sort(key=priority)
+                _DISCOVERED_GEMINI_MODELS[clean_key] = tuple(models)
+                return _DISCOVERED_GEMINI_MODELS[clean_key]
+    except Exception:
+        pass
+
+    return DEFAULT_GEMINI_MODELS
+
+
+def _models_for(provider, api_key="", opener=default_opener):
     if provider == "gemini":
         configured = config.get("GEMINI_MODEL").strip()
-        return (configured,) if configured else DEFAULT_GEMINI_MODELS
+        if configured and configured.lower() != "auto":
+            return (configured,)
+        if api_key:
+            return discover_gemini_models(api_key, opener=opener)
+        return DEFAULT_GEMINI_MODELS
+
     configured = config.get("GROQ_MODEL").strip()
-    return (configured,) if configured else DEFAULT_GROQ_MODELS
+    return (configured,) if (configured and configured.lower() != "auto") else DEFAULT_GROQ_MODELS
 
 
 def _provider_label(provider):
@@ -365,18 +441,19 @@ def _call_gemini(messages, system_prompt, api_key, opener):
         }
         for message in messages
     ]
-    payload = {
-        "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "contents": contents,
-        "generationConfig": {
-            "temperature": 0.75,
-            "maxOutputTokens": MAX_OUTPUT_TOKENS,
-        },
-    }
     headers = {"x-goog-api-key": api_key}
+    models = _models_for("gemini", api_key, opener=opener)
 
     last_error = None
-    for model in _models_for("gemini"):
+    for model in models:
+        payload = {
+            "systemInstruction": {"parts": [{"text": system_prompt}]},
+            "contents": contents,
+            "generationConfig": {
+                "temperature": 0.75,
+                "maxOutputTokens": MAX_OUTPUT_TOKENS,
+            },
+        }
         try:
             data = _post_json(
                 GEMINI_URL.format(model=quote(model, safe="-._~")),
@@ -388,8 +465,38 @@ def _call_gemini(messages, system_prompt, api_key, opener):
             return _extract_gemini_text(data), model
         except ChatError as exc:
             last_error = exc
-            if exc.code != "model_unavailable":
-                raise
+            # If 400 invalid_request (some older models reject systemInstruction), retry by prepending
+            if exc.code == "invalid_request":
+                try:
+                    alt_contents = list(contents)
+                    if alt_contents and alt_contents[0]["role"] == "user":
+                        orig = alt_contents[0]["parts"][0]["text"]
+                        alt_contents[0] = {
+                            "role": "user",
+                            "parts": [{"text": f"[Instruction: {system_prompt}]\n\n{orig}"}],
+                        }
+                    fallback_payload = {
+                        "contents": alt_contents,
+                        "generationConfig": {
+                            "temperature": 0.75,
+                            "maxOutputTokens": MAX_OUTPUT_TOKENS,
+                        },
+                    }
+                    data = _post_json(
+                        GEMINI_URL.format(model=quote(model, safe="-._~")),
+                        fallback_payload,
+                        headers,
+                        "gemini",
+                        opener,
+                    )
+                    return _extract_gemini_text(data), model
+                except ChatError as exc2:
+                    last_error = exc2
+
+            # Try next model if current model is unavailable, rate limited, or invalid request
+            if exc.code in {"model_unavailable", "invalid_request", "rate_limited"}:
+                continue
+            raise
     raise last_error
 
 
@@ -402,7 +509,7 @@ def _call_groq(messages, system_prompt, api_key, opener):
     headers = {"Authorization": f"Bearer {api_key}"}
 
     last_error = None
-    for model in _models_for("groq"):
+    for model in _models_for("groq", api_key, opener=opener):
         payload = {
             "model": model,
             "messages": api_messages,
@@ -414,8 +521,9 @@ def _call_groq(messages, system_prompt, api_key, opener):
             return _extract_groq_text(data), model
         except ChatError as exc:
             last_error = exc
-            if exc.code != "model_unavailable":
-                raise
+            if exc.code in {"model_unavailable", "rate_limited"}:
+                continue
+            raise
     raise last_error
 
 
@@ -456,17 +564,6 @@ def _combined_failure(errors):
         "Both AI services are unavailable at the moment. Please check the internet and saved keys, then try again.",
         status=503,
     )
-
-
-def default_opener(request, timeout=TIMEOUT_SECONDS):
-    try:
-        return urlopen(request, timeout=timeout)
-    except (ssl.SSLError, URLError) as exc:
-        try:
-            ctx = ssl._create_unverified_context()
-            return urlopen(request, timeout=timeout, context=ctx)
-        except Exception:
-            raise exc
 
 
 def get_reply(payload, opener=default_opener):
@@ -538,7 +635,7 @@ def verify_key_connection(gemini: str = None, groq: str = None, opener=default_o
     if gemini:
         try:
             _, model = _call_gemini(test_msg, test_sys, gemini.strip(), opener)
-            results["gemini"] = {"ok": True, "model": model, "message": "Connected successfully"}
+            results["gemini"] = {"ok": True, "model": model, "message": f"Connected successfully (Model: {model})"}
         except ChatError as exc:
             results["gemini"] = {"ok": False, "code": exc.code, "message": exc.message}
         except Exception as exc:
@@ -547,7 +644,7 @@ def verify_key_connection(gemini: str = None, groq: str = None, opener=default_o
     if groq:
         try:
             _, model = _call_groq(test_msg, test_sys, groq.strip(), opener)
-            results["groq"] = {"ok": True, "model": model, "message": "Connected successfully"}
+            results["groq"] = {"ok": True, "model": model, "message": f"Connected successfully (Model: {model})"}
         except ChatError as exc:
             results["groq"] = {"ok": False, "code": exc.code, "message": exc.message}
         except Exception as exc:

@@ -214,7 +214,8 @@ def setup_api_keys():
         res = chat.verify_key_connection(gemini=key)
         if res.get("ok"):
             verified = True
-            say("✅ Connection verified! Google Gemini AI brain is active.")
+            model_name = res.get("results", {}).get("gemini", {}).get("model", "auto")
+            say(f"✅ Connection verified! Google Gemini AI brain is active (Auto-selected model: {model_name}).")
         else:
             msg = res.get("results", {}).get("gemini", {}).get("message", "Verification failed")
             say(f"⚠️ Notice: {msg} (Saving key anyway so you can test inside MYRA)")

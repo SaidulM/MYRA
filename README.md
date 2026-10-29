@@ -14,10 +14,11 @@
    - এরপর গিটহাব (`https://github.com/SaidulM/MYRA`) থেকে প্রয়োজনীয় সমস্ত ফাইল স্বয়ংক্রিয়ভাবে ডাউনলোড করে আপনার ল্যাপটপে (`C:\Users\<user>\MYRA`) সেভ করবে।
    - আপনার Desktop এবং Start Menu-তে **MYRA** নামে শর্টকাট আইকন তৈরি করে দেবে।
 
-২. **এপিআই (API Key) দেওয়া ও কানেক্ট হওয়া:**
+২. **এপিআই (API Key) দেওয়া ও স্বয়ংক্রিয় মডেল নির্বাচন (Free & Paid Both Supported):**
    - সফটওয়্যারটি চালু হওয়ার সাথে সাথে স্ক্রিনে **"Connect MYRA AI Brain"** উইন্ডো আসবে।
-   - সেখানে আপনার ফ্রি **Google Gemini API Key** (কিংবা Groq Key) পেস্ট করে **"Connect & Activate"** বাটনে ক্লিক করুন।
-   - সিস্টেমটি ইন্টারনেটের মাধ্যমে এপিআই কি-টি ভেরিফাই করবে এবং কানেক্ট হয়ে সবুজ সংকেত দিয়ে স্বয়ংক্রিয়ভাবে চালু হয়ে যাবে!
+   - সেখানে আপনার **Google Gemini API Key** (ফ্রি টিয়ার কিংবা পেইড/প্রো টিয়ার যেকোনো কি) পেস্ট করে **"Connect & Activate"** বাটনে ক্লিক করুন।
+   - সিস্টেমটি ইন্টারনেটের মাধ্যমে স্বয়ংক্রিয়ভাবে গুগলের মডেল লিস্ট থেকে আপনার কি-এর জন্য সেরা মডেলটি (`gemini-1.5-flash`, `gemini-1.5-pro`, `gemini-2.0-flash` ইত্যাদি) নিজে থেকেই বেছে নেবে।
+   - পেইড এবং ফ্রি যেকোনো কি দিলেই এটি নিজে থেকে মডেল ডিটেক্ট করে কানেক্ট হয়ে যাবে।
    - (ফ্রি এপিআই কি পাওয়ার লিঙ্ক: [aistudio.google.com](https://aistudio.google.com))
 
 ৩. **অটোমেটিক আপডেট (Auto-Update System):**
@@ -28,7 +29,7 @@
 
 ## 🌟 Key Features
 
-- 🧠 **Dual AI Brain:** Google Gemini API (primary) + Groq API (fallback) on free tiers with live key verification.
+- 🧠 **Dual AI Brain:** Google Gemini (Free & Paid keys supported with dynamic auto-model discovery: 1.5-Flash, 1.5-Pro, 2.0-Flash) + Groq API (fallback) with live key verification.
 - ✨ **3D Hologram Particle Characters:**
   - `CORE` (living orb of light)
   - `MALE` (professional JARVIS-style assistant)
