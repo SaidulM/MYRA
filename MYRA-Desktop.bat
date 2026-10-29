@@ -20,7 +20,7 @@ if not exist ".venv-desktop\Scripts\python.exe" (
     exit /b 1
   )
   ".venv-desktop\Scripts\python.exe" -m pip install --upgrade pip
-  ".venv-desktop\Scripts\python.exe" -m pip install -r requirements-desktop.txt
+  ".venv-desktop\Scripts\python.exe" -m pip install -r requirements-desktop.txt -r requirements-voice.txt -r requirements-automation.txt
   if !errorlevel! neq 0 (
     echo Desktop dependency install failed. Check the internet connection and try again.
     pause
@@ -28,5 +28,6 @@ if not exist ".venv-desktop\Scripts\python.exe" (
   )
 )
 
-".venv-desktop\Scripts\python.exe" run_desktop.py
-if !errorlevel! neq 0 pause
+rem Preferred no-console path is MYRA.pyw.  This compatibility batch file
+rem now launches pythonw and exits instead of keeping a CMD window open.
+start "MYRA" ".venv-desktop\Scripts\pythonw.exe" "%~dp0MYRA.pyw"

@@ -236,7 +236,11 @@ class AgentEngine:
             result = self.registry.execute(
                 skill_id,
                 arguments,
-                context=SkillContext(memory=self.memory, task_id=task["id"]),
+                context=SkillContext(
+                    memory=self.memory,
+                    task_id=task["id"],
+                    service=getattr(self, "service", None),
+                ),
             )
             status = "completed"
         except SkillError as exc:

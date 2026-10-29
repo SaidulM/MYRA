@@ -38,6 +38,7 @@ class SkillContext:
     memory: object = None
     task_id: str | None = None
     workspace: Path = field(default_factory=lambda: paths.workspace_dir())
+    service: object = None
 
 
 @dataclass
@@ -335,6 +336,69 @@ def _workspace_write(args, context):
     }
 
 
+def _workspace_search_text(args, context):
+    root = _workspace_path(context, args.get("path", "."))
+    if not root.is_dir():
+        raise SkillError("Workspace folder was not found.", "not_found")
+    query = args["query"].casefold()
+    limit = int(args.get("limit", 50))
+    matches = []
+    for path in sorted(root.rglob("*")):
+        if len(matches) >= limit:
+            break
+        if not path.is_file() or path.stat().st_size > 1_000_000:
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except (UnicodeDecodeError, OSError):
+            continue
+        for number, line in enumerate(lines, 1):
+            if query in line.casefold():
+                matches.append({"path": _relative(context, path), "line": number, "text": line[:300]})
+                if len(matches) >= limit:
+                    break
+    return {"query": args["query"], "matches": matches, "count": len(matches), "verified": True}
+
+
+def _python_syntax_check(args, context):
+    path = _workspace_path(context, args["path"])
+    if not path.is_file():
+        raise SkillError("Workspace Python file was not found.", "not_found")
+    if path.suffix.lower() != ".py":
+        raise SkillError("Python syntax check only accepts .py files.", "unsupported_file")
+    try:
+        source = path.read_text(encoding="utf-8")
+        compile(source, str(path), "exec")
+    except SyntaxError as exc:
+        raise SkillError(f"Syntax error at line {exc.lineno}: {exc.msg}", "syntax_error") from exc
+    except UnicodeDecodeError:
+        raise SkillError("That file is not UTF-8 text.", "unsupported_file") from None
+    return {"path": _relative(context, path), "syntax_ok": True, "verified": True}
+
+
+def _multimodal_analyze_workspace_image(args, context):
+    if context.service is None:
+        raise SkillError("Vision service is not available in this execution context.", "vision_unavailable")
+    path = _workspace_path(context, args["path"])
+    if not path.is_file():
+        raise SkillError("Workspace image was not found.", "not_found")
+    mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}.get(path.suffix.lower())
+    if not mime:
+        raise SkillError("Only JPEG, PNG or WebP workspace images can be analyzed.", "unsupported_file")
+    raw = path.read_bytes()
+    if len(raw) > 6 * 1024 * 1024:
+        raise SkillError("Workspace image exceeds the 6 MB vision limit.", "file_too_large")
+    import base64
+    result = context.service.analyze_image({
+        "image_base64": base64.b64encode(raw).decode("ascii"),
+        "mime_type": mime,
+        "prompt": args.get("prompt") or "Describe this workspace image and help with what is visible.",
+        "consent": True,
+        "source": "upload",
+    })
+    return {"path": _relative(context, path), **result, "verified": bool(result.get("text"))}
+
+
 def _safe_destination(destination):
     if not destination.exists():
         return destination
@@ -411,7 +475,11 @@ def _app_launch(args, context):
         "explorer": ["explorer.exe"],
     }
     app = args["app"]
-    process = subprocess.Popen(commands[app], close_fds=True)
+    process = subprocess.Popen(
+        commands[app],
+        close_fds=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
     return {"app": app, "pid": process.pid, "verified": process.poll() is None or app == "explorer"}
 
 
@@ -424,6 +492,166 @@ def _web_open(args, context):
     if not opened:
         raise SkillError("The operating system could not open a browser.", "browser_unavailable")
     return {"url": url, "opened": True, "verified": True}
+
+
+def _reminders_create(args, context):
+    reminder = _require_memory(context).create_reminder(
+        args["text"], due_at=args.get("due_at"), minutes=args.get("minutes")
+    )
+    return {"reminder": reminder, "verified": reminder is not None}
+
+
+def _reminders_list(args, context):
+    reminders = _require_memory(context).list_reminders(
+        active_only=bool(args.get("active_only", True)), limit=args.get("limit", 50)
+    )
+    return {"reminders": reminders, "count": len(reminders), "verified": True}
+
+
+def _reminders_complete(args, context):
+    reminder = _require_memory(context).complete_reminder(args["id"], completed=True)
+    return {"reminder": reminder, "verified": bool(reminder and reminder.get("completed"))}
+
+
+def _reminders_delete(args, context):
+    deleted = _require_memory(context).delete_reminder(args["id"])
+    return {"deleted": args["id"], "verified": bool(deleted)}
+
+
+def _data_migrate_legacy(args, context):
+    legacy = Path(__file__).resolve().parent.parent / "data" / "myra.db"
+    return _require_memory(context).import_legacy_database(legacy)
+
+
+def _web_research(args, context):
+    payload = {"query": args["query"], "max_sources": args.get("max_sources", 5)}
+    try:
+        if context.service is not None:
+            return context.service.research(payload)
+        import research as research_module
+        return research_module.research(payload["query"], max_sources=payload["max_sources"])
+    except Exception as exc:
+        raise SkillError(str(exc), "research_failed") from exc
+
+
+def _web_fetch_text(args, context):
+    try:
+        import research as research_module
+        page = research_module.fetch_page(args["url"])
+        page["text"] = page.get("text", "")[: int(args.get("max_chars", 10000))]
+        return {**page, "verified": True}
+    except Exception as exc:
+        raise SkillError(str(exc), "web_fetch_failed") from exc
+
+
+def _world_news(args, context):
+    try:
+        import news
+        result = news.get_news(region=args.get("region", "all"), force_refresh=bool(args.get("force_refresh", False)))
+        result["verified"] = bool(result.get("articles"))
+        return result
+    except Exception as exc:
+        raise SkillError(str(exc), "news_failed") from exc
+
+
+def _browser_call(method, *call_args, **call_kwargs):
+    try:
+        from browser_control import get_browser_controller
+        return getattr(get_browser_controller(), method)(*call_args, **call_kwargs)
+    except Exception as exc:
+        raise SkillError(str(exc), "browser_failed") from exc
+
+
+def _browser_status(args, context):
+    from browser_control import browser_status
+    return {**browser_status(), "verified": True}
+
+
+def _browser_snapshot(args, context):
+    return _browser_call("snapshot", args["url"])
+
+
+def _browser_screenshot(args, context):
+    return _browser_call("screenshot", args["url"], args.get("filename", "browser.png"))
+
+
+def _browser_click(args, context):
+    return _browser_call("click", args["url"], selector=args.get("selector", ""), text=args.get("text", ""))
+
+
+def _browser_fill(args, context):
+    return _browser_call(
+        "fill", args["url"], args["selector"], args["value"], submit=bool(args.get("submit", False))
+    )
+
+
+def _windows_call(method, *call_args, **call_kwargs):
+    try:
+        from windows_control import get_windows_controller
+        return getattr(get_windows_controller(), method)(*call_args, **call_kwargs)
+    except Exception as exc:
+        raise SkillError(str(exc), "windows_control_failed") from exc
+
+
+def _windows_status(args, context):
+    return {**_windows_call("status"), "verified": True}
+
+
+def _windows_list(args, context):
+    return _windows_call("list_windows")
+
+
+def _windows_observe(args, context):
+    return _windows_call("observe", window_title=args.get("window_title", ""), max_controls=args.get("max_controls", 160))
+
+
+def _windows_focus(args, context):
+    return _windows_call("focus_window", args["window_title"])
+
+
+def _windows_query(args):
+    return {
+        "window_title": args.get("window_title", ""),
+        "name": args.get("name", ""),
+        "automation_id": args.get("automation_id", ""),
+        "control_type": args.get("control_type", ""),
+        "class_name": args.get("class_name", ""),
+        "index": args.get("index", 0),
+    }
+
+
+def _windows_invoke(args, context):
+    return _windows_call("invoke_control", **_windows_query(args))
+
+
+def _windows_set_text(args, context):
+    return _windows_call("set_text", args["text"], **_windows_query(args))
+
+
+def _windows_send_keys(args, context):
+    return _windows_call("send_keys", args["keys"], window_title=args.get("window_title", ""))
+
+
+def _windows_click_point(args, context):
+    return _windows_call(
+        "click_point", args["x"], args["y"], button=args.get("button", "left"), double=bool(args.get("double", False))
+    )
+
+
+def _windows_type_text(args, context):
+    return _windows_call("type_text", args["text"], interval_seconds=args.get("interval_seconds", 0.01))
+
+
+def _windows_hotkey(args, context):
+    return _windows_call("hotkey", args["keys"])
+
+
+def _windows_emergency_stop(args, context):
+    return {**_windows_call("emergency_stop"), "verified": True}
+
+
+def _windows_reset_stop(args, context):
+    return {**_windows_call("reset_emergency_stop"), "verified": True}
 
 
 def build_default_registry(memory_store=None):
@@ -489,6 +717,32 @@ def build_default_registry(memory_store=None):
         },
         ["read:workspace", "write:workspace"], _workspace_organize,
         risk="medium", requires_confirmation=True,
+    ))
+    add(SkillDefinition(
+        "workspace.search_text", "Search workspace text", "Search UTF-8 text inside MYRA's safe workspace and return bounded line matches.",
+        "1.0.0", "development",
+        {"type": "object", "properties": {
+            "query": {"type": "string", "minLength": 1, "maxLength": 300},
+            "path": {"type": "string", "maxLength": 300},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+        }, "required": ["query"], "additionalProperties": False},
+        ["read:workspace"], _workspace_search_text,
+    ))
+    add(SkillDefinition(
+        "development.python_syntax_check", "Check Python syntax", "Compile-check one .py file in MYRA's workspace without executing it.",
+        "1.0.0", "development",
+        {"type": "object", "properties": {"path": {"type": "string", "minLength": 1, "maxLength": 300}}, "required": ["path"], "additionalProperties": False},
+        ["read:workspace"], _python_syntax_check,
+    ))
+    add(SkillDefinition(
+        "multimodal.analyze_workspace_image", "Analyze workspace image", "Send one explicitly selected JPEG/PNG/WebP image from MYRA's workspace to the configured vision provider.",
+        "1.0.0", "multimodal",
+        {"type": "object", "properties": {
+            "path": {"type": "string", "minLength": 1, "maxLength": 300},
+            "prompt": {"type": "string", "maxLength": 2000},
+        }, "required": ["path"], "additionalProperties": False},
+        ["read:workspace", "network:vision"], _multimodal_analyze_workspace_image,
+        risk="medium", requires_confirmation=True, timeout_seconds=90,
     ))
     add(SkillDefinition(
         "memory.remember", "Remember approved fact", "Save one explicit, user-approved memory in local SQLite.",
@@ -572,5 +826,208 @@ def build_default_registry(memory_store=None):
         },
         ["open:browser"], _web_open,
         risk="medium", requires_confirmation=True,
+    ))
+
+    # Unified productivity/data skills
+    add(SkillDefinition(
+        "reminders.create", "Create reminder", "Create a local reminder in MYRA's unified SQLite database.",
+        "1.0.0", "productivity",
+        {"type": "object", "properties": {
+            "text": {"type": "string", "minLength": 1, "maxLength": 1000},
+            "due_at": {"type": "string", "maxLength": 80},
+            "minutes": {"type": "number", "minimum": 0, "maximum": 525600},
+        }, "required": ["text"], "additionalProperties": False},
+        ["write:reminders"], _reminders_create, risk="medium", requires_confirmation=True,
+    ))
+    add(SkillDefinition(
+        "reminders.list", "List reminders", "List local reminders from the unified database.",
+        "1.0.0", "productivity",
+        {"type": "object", "properties": {
+            "active_only": {"type": "boolean"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+        }, "additionalProperties": False},
+        ["read:reminders"], _reminders_list,
+    ))
+    add(SkillDefinition(
+        "reminders.complete", "Complete reminder", "Mark one local reminder completed.",
+        "1.0.0", "productivity",
+        {"type": "object", "properties": {"id": {"type": "integer", "minimum": 1}}, "required": ["id"], "additionalProperties": False},
+        ["write:reminders"], _reminders_complete, risk="medium", requires_confirmation=True,
+    ))
+    add(SkillDefinition(
+        "reminders.delete", "Delete reminder", "Delete one local reminder.",
+        "1.0.0", "productivity",
+        {"type": "object", "properties": {"id": {"type": "integer", "minimum": 1}}, "required": ["id"], "additionalProperties": False},
+        ["write:reminders"], _reminders_delete, risk="medium", requires_confirmation=True,
+    ))
+    add(SkillDefinition(
+        "data.migrate_legacy", "Import legacy MYRA data", "Idempotently import the old repository data/myra.db into the unified app-data database.",
+        "1.0.0", "system", _empty_schema(), ["write:database"], _data_migrate_legacy,
+        risk="medium", requires_confirmation=True, timeout_seconds=60,
+    ))
+
+    # Public web research and world headlines
+    add(SkillDefinition(
+        "web.research", "Research the web", "Search public web sources, fetch bounded pages and return a cited synthesis or transparent source excerpts.",
+        "1.0.0", "web",
+        {"type": "object", "properties": {
+            "query": {"type": "string", "minLength": 2, "maxLength": 300},
+            "max_sources": {"type": "integer", "minimum": 1, "maximum": 8},
+        }, "required": ["query"], "additionalProperties": False},
+        ["network:public-web"], _web_research, timeout_seconds=90,
+    ))
+    add(SkillDefinition(
+        "web.fetch_text", "Fetch public page text", "Fetch and extract readable text from one public http/https page. Private/local URLs are refused.",
+        "1.0.0", "web",
+        {"type": "object", "properties": {
+            "url": {"type": "string", "minLength": 8, "maxLength": 2000},
+            "max_chars": {"type": "integer", "minimum": 500, "maximum": 20000},
+        }, "required": ["url"], "additionalProperties": False},
+        ["network:public-web"], _web_fetch_text, timeout_seconds=30,
+    ))
+    add(SkillDefinition(
+        "world.news", "World headlines", "Read MYRA's RSS World Monitor headlines, with offline cache fallback in the backend.",
+        "1.0.0", "web",
+        {"type": "object", "properties": {
+            "region": {"type": "string", "enum": ["all", "global", "mideast", "tech", "asia"]},
+            "force_refresh": {"type": "boolean"},
+        }, "additionalProperties": False},
+        ["network:public-web"], _world_news, timeout_seconds=35,
+    ))
+
+    # Optional visible Playwright automation
+    add(SkillDefinition(
+        "browser.status", "Browser automation status", "Report whether optional Playwright browser automation is installed.",
+        "1.0.0", "web", _empty_schema(), ["read:browser"], _browser_status,
+    ))
+    add(SkillDefinition(
+        "browser.snapshot", "Browser page snapshot", "Open a page in a visible Playwright browser and return title, text, links and controls. Refuses CAPTCHA/MFA pages.",
+        "1.0.0", "web",
+        {"type": "object", "properties": {"url": {"type": "string", "minLength": 8, "maxLength": 2000}}, "required": ["url"], "additionalProperties": False},
+        ["read:browser", "network:public-web"], _browser_snapshot, timeout_seconds=60,
+    ))
+    add(SkillDefinition(
+        "browser.screenshot", "Browser screenshot", "Open a page visibly with Playwright and save a screenshot into MYRA's workspace.",
+        "1.0.0", "web",
+        {"type": "object", "properties": {
+            "url": {"type": "string", "minLength": 8, "maxLength": 2000},
+            "filename": {"type": "string", "maxLength": 120},
+        }, "required": ["url"], "additionalProperties": False},
+        ["read:browser", "write:workspace"], _browser_screenshot,
+        risk="medium", requires_confirmation=True, timeout_seconds=60,
+    ))
+    add(SkillDefinition(
+        "browser.click", "Browser click", "Click one selector or visible text in a visible Playwright browser, then return the after-state snapshot.",
+        "1.0.0", "web",
+        {"type": "object", "properties": {
+            "url": {"type": "string", "minLength": 8, "maxLength": 2000},
+            "selector": {"type": "string", "maxLength": 500},
+            "text": {"type": "string", "maxLength": 200},
+        }, "required": ["url"], "additionalProperties": False},
+        ["control:browser"], _browser_click, risk="high", requires_confirmation=True, timeout_seconds=60,
+    ))
+    add(SkillDefinition(
+        "browser.fill", "Browser fill field", "Fill one non-secret browser field by CSS selector and optionally submit with Enter. Password/OTP fields are refused.",
+        "1.0.0", "web",
+        {"type": "object", "properties": {
+            "url": {"type": "string", "minLength": 8, "maxLength": 2000},
+            "selector": {"type": "string", "minLength": 1, "maxLength": 500},
+            "value": {"type": "string", "maxLength": 5000},
+            "submit": {"type": "boolean"},
+        }, "required": ["url", "selector", "value"], "additionalProperties": False},
+        ["control:browser"], _browser_fill, risk="high", requires_confirmation=True, timeout_seconds=60,
+    ))
+
+    # Semantic/coordinate Windows control.  Action skills are OFF until
+    # the owner explicitly enables them in Skills; Agent confirmation is
+    # still required for every write/control action.
+    control_query = {
+        "window_title": {"type": "string", "maxLength": 250},
+        "name": {"type": "string", "maxLength": 250},
+        "automation_id": {"type": "string", "maxLength": 250},
+        "control_type": {"type": "string", "maxLength": 100},
+        "class_name": {"type": "string", "maxLength": 250},
+        "index": {"type": "integer", "minimum": 0, "maximum": 100},
+    }
+    add(SkillDefinition(
+        "windows.status", "Windows control status", "Report semantic/coordinate Windows-control availability and emergency-stop state.",
+        "1.0.0", "desktop", _empty_schema(), ["read:system"], _windows_status,
+    ))
+    add(SkillDefinition(
+        "windows.list_windows", "List Windows windows", "List visible top-level Windows windows using UI Automation.",
+        "1.0.0", "desktop", _empty_schema(), ["observe:windows"], _windows_list, enabled_default=False,
+    ))
+    add(SkillDefinition(
+        "windows.observe", "Observe Windows window", "Observe a Windows window's semantic controls. Password values are redacted/refused.",
+        "1.0.0", "desktop",
+        {"type": "object", "properties": {
+            "window_title": {"type": "string", "maxLength": 250},
+            "max_controls": {"type": "integer", "minimum": 1, "maximum": 500},
+        }, "additionalProperties": False},
+        ["observe:windows"], _windows_observe, enabled_default=False, timeout_seconds=30,
+    ))
+    add(SkillDefinition(
+        "windows.focus", "Focus Windows window", "Bring one named Windows window to focus.",
+        "1.0.0", "desktop",
+        {"type": "object", "properties": {"window_title": {"type": "string", "minLength": 1, "maxLength": 250}}, "required": ["window_title"], "additionalProperties": False},
+        ["control:windows"], _windows_focus, risk="medium", requires_confirmation=True, enabled_default=False,
+    ))
+    add(SkillDefinition(
+        "windows.invoke_control", "Invoke Windows control", "Invoke/click one semantic Windows control found by name, automation id, type or class.",
+        "1.0.0", "desktop",
+        {"type": "object", "properties": control_query, "additionalProperties": False},
+        ["control:windows"], _windows_invoke, risk="high", requires_confirmation=True, enabled_default=False,
+    ))
+    add(SkillDefinition(
+        "windows.set_text", "Set Windows control text", "Set text in one non-password semantic Windows control and verify where possible.",
+        "1.0.0", "desktop",
+        {"type": "object", "properties": {**control_query, "text": {"type": "string", "maxLength": 10000}}, "required": ["text"], "additionalProperties": False},
+        ["control:windows"], _windows_set_text, risk="high", requires_confirmation=True, enabled_default=False,
+    ))
+    add(SkillDefinition(
+        "windows.send_keys", "Send Windows keys", "Send pywinauto keyboard syntax to a focused/named Windows window.",
+        "1.0.0", "desktop",
+        {"type": "object", "properties": {
+            "keys": {"type": "string", "minLength": 1, "maxLength": 1000},
+            "window_title": {"type": "string", "maxLength": 250},
+        }, "required": ["keys"], "additionalProperties": False},
+        ["control:windows"], _windows_send_keys, risk="high", requires_confirmation=True, enabled_default=False,
+    ))
+    add(SkillDefinition(
+        "windows.click_point", "Click screen point", "Coordinate fallback: click one on-screen point with PyAutoGUI failsafe enabled.",
+        "1.0.0", "desktop",
+        {"type": "object", "properties": {
+            "x": {"type": "integer", "minimum": 0, "maximum": 20000},
+            "y": {"type": "integer", "minimum": 0, "maximum": 20000},
+            "button": {"type": "string", "enum": ["left", "right", "middle"]},
+            "double": {"type": "boolean"},
+        }, "required": ["x", "y"], "additionalProperties": False},
+        ["control:windows"], _windows_click_point, risk="high", requires_confirmation=True, enabled_default=False,
+    ))
+    add(SkillDefinition(
+        "windows.type_text", "Type text at focus", "Coordinate fallback: type text into the currently focused control. Never use for passwords/OTPs.",
+        "1.0.0", "desktop",
+        {"type": "object", "properties": {
+            "text": {"type": "string", "minLength": 1, "maxLength": 5000},
+            "interval_seconds": {"type": "number", "minimum": 0, "maximum": 0.2},
+        }, "required": ["text"], "additionalProperties": False},
+        ["control:windows"], _windows_type_text, risk="high", requires_confirmation=True, enabled_default=False, timeout_seconds=60,
+    ))
+    add(SkillDefinition(
+        "windows.hotkey", "Press Windows hotkey", "Coordinate fallback: press a bounded key combination with PyAutoGUI.",
+        "1.0.0", "desktop",
+        {"type": "object", "properties": {
+            "keys": {"type": "array", "maxItems": 5},
+        }, "required": ["keys"], "additionalProperties": False},
+        ["control:windows"], _windows_hotkey, risk="high", requires_confirmation=True, enabled_default=False,
+    ))
+    add(SkillDefinition(
+        "windows.emergency_stop", "Emergency-stop Windows control", "Immediately block further MYRA Windows-control actions until manually reset in the UI.",
+        "1.0.0", "desktop", _empty_schema(), ["control:windows"], _windows_emergency_stop,
+    ))
+    add(SkillDefinition(
+        "windows.reset_emergency_stop", "Reset Windows emergency stop", "Allow Windows-control actions again after an emergency stop. Owner confirmation required.",
+        "1.0.0", "desktop", _empty_schema(), ["control:windows"], _windows_reset_stop,
+        risk="high", requires_confirmation=True,
     ))
     return registry

@@ -11,17 +11,18 @@ separate memories table.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import paths
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 
 
@@ -59,8 +60,55 @@ class MemoryStore:
         conn.execute("PRAGMA journal_mode = WAL")
         return conn
 
+    @staticmethod
+    def _table_columns(conn, table):
+        try:
+            return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        except sqlite3.Error:
+            return set()
+
+    def _migrate_existing_tables(self, conn):
+        """Upgrade an old combined MYRA DB without losing legacy rows."""
+        notes_columns = self._table_columns(conn, "notes")
+        if notes_columns and "content" in notes_columns and "body" not in notes_columns:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS notes_v2 (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    body TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                INSERT OR IGNORE INTO notes_v2(id,title,body,created_at,updated_at)
+                SELECT id,
+                       COALESCE(NULLIF(title,''), 'Untitled note'),
+                       COALESCE(content, ''),
+                       COALESCE(NULLIF(created_at,''), CURRENT_TIMESTAMP),
+                       COALESCE(NULLIF(updated_at,''), COALESCE(NULLIF(created_at,''), CURRENT_TIMESTAMP))
+                FROM notes;
+                DROP TABLE notes;
+                ALTER TABLE notes_v2 RENAME TO notes;
+                """
+            )
+
+        memory_columns = self._table_columns(conn, "memories")
+        if memory_columns:
+            if "source" not in memory_columns:
+                conn.execute("ALTER TABLE memories ADD COLUMN source TEXT NOT NULL DEFAULT 'legacy'")
+            if "pinned" not in memory_columns:
+                conn.execute("ALTER TABLE memories ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+
+        reminder_columns = self._table_columns(conn, "reminders")
+        if reminder_columns:
+            if "due_at" not in reminder_columns:
+                conn.execute("ALTER TABLE reminders ADD COLUMN due_at TEXT NOT NULL DEFAULT ''")
+            if "notified" not in reminder_columns:
+                conn.execute("ALTER TABLE reminders ADD COLUMN notified INTEGER NOT NULL DEFAULT 0")
+
     def _initialise(self):
         with self._connect() as conn:
+            self._migrate_existing_tables(conn)
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -126,6 +174,26 @@ class MemoryStore:
                     error TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS reminders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    text TEXT NOT NULL,
+                    due_at TEXT NOT NULL,
+                    due_timestamp REAL NOT NULL,
+                    due_str TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    completed INTEGER NOT NULL DEFAULT 0,
+                    notified INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS idx_reminders_due
+                    ON reminders(completed, due_timestamp);
+                CREATE TABLE IF NOT EXISTS legacy_id_map (
+                    source_key TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    legacy_id TEXT NOT NULL,
+                    core_id TEXT NOT NULL,
+                    imported_at TEXT NOT NULL,
+                    PRIMARY KEY(source_key, kind, legacy_id)
                 );
                 """
             )
@@ -411,6 +479,255 @@ class MemoryStore:
                 raise KeyError("note not found")
         return True
 
+    def clear_memories(self):
+        with self._connect() as conn:
+            conn.execute("DELETE FROM memories")
+        return True
+
+    def clear_notes(self):
+        with self._connect() as conn:
+            conn.execute("DELETE FROM notes")
+        return True
+
+    # ------------------------------------------------------------------
+    # Reminders (canonical replacement for the old separate legacy table)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _parse_due(due_at=None, minutes=None):
+        now = datetime.now().astimezone()
+        if due_at:
+            if isinstance(due_at, (int, float)):
+                due = datetime.fromtimestamp(float(due_at)).astimezone()
+            else:
+                raw = str(due_at).strip().replace("Z", "+00:00")
+                try:
+                    due = datetime.fromisoformat(raw)
+                except ValueError as exc:
+                    raise ValueError("due_at must be an ISO date/time") from exc
+                if due.tzinfo is None:
+                    due = due.replace(tzinfo=now.tzinfo)
+                due = due.astimezone()
+        elif minutes is not None:
+            due = now + timedelta(minutes=float(minutes))
+        else:
+            due = now + timedelta(minutes=10)
+        return due
+
+    def create_reminder(self, text, due_at=None, minutes=None):
+        text = _clean_text(text, 1000, "reminder text")
+        due = self._parse_due(due_at=due_at, minutes=minutes)
+        now = _now()
+        with self._connect() as conn:
+            cur = conn.execute(
+                """INSERT INTO reminders(text,due_at,due_timestamp,due_str,created_at,completed,notified)
+                   VALUES(?,?,?,?,?,0,0)""",
+                (
+                    text,
+                    due.astimezone(timezone.utc).isoformat(timespec="seconds"),
+                    due.timestamp(),
+                    due.strftime("%Y-%m-%d %I:%M %p"),
+                    now,
+                ),
+            )
+            reminder_id = cur.lastrowid
+        return self.get_reminder(reminder_id)
+
+    def get_reminder(self, reminder_id):
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM reminders WHERE id=?", (reminder_id,)).fetchone()
+        if not row:
+            return None
+        item = dict(row)
+        item["completed"] = bool(item.get("completed"))
+        item["notified"] = bool(item.get("notified"))
+        item["ok"] = True
+        return item
+
+    def list_reminders(self, active_only=True, limit=200):
+        query = "SELECT * FROM reminders"
+        if active_only:
+            query += " WHERE completed=0"
+        query += " ORDER BY due_timestamp ASC LIMIT ?"
+        with self._connect() as conn:
+            rows = conn.execute(query, (max(1, min(int(limit or 200), 1000)),)).fetchall()
+        out = []
+        for row in rows:
+            item = dict(row)
+            item["completed"] = bool(item.get("completed"))
+            item["notified"] = bool(item.get("notified"))
+            out.append(item)
+        return out
+
+    def complete_reminder(self, reminder_id, completed=True):
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE reminders SET completed=? WHERE id=?",
+                (int(bool(completed)), reminder_id),
+            )
+            if cur.rowcount == 0:
+                raise KeyError("reminder not found")
+        return self.get_reminder(reminder_id)
+
+    def delete_reminder(self, reminder_id):
+        with self._connect() as conn:
+            cur = conn.execute("DELETE FROM reminders WHERE id=?", (reminder_id,))
+            if cur.rowcount == 0:
+                raise KeyError("reminder not found")
+        return True
+
+    def due_reminders(self, mark_completed=True):
+        now_ts = datetime.now().timestamp()
+        due = [
+            item for item in self.list_reminders(active_only=True, limit=1000)
+            if float(item.get("due_timestamp") or 0) <= now_ts
+        ]
+        if mark_completed and due:
+            with self._connect() as conn:
+                conn.executemany(
+                    "UPDATE reminders SET completed=1, notified=1 WHERE id=?",
+                    [(item["id"],) for item in due],
+                )
+            for item in due:
+                item["completed"] = True
+                item["notified"] = True
+        return due
+
+    # ------------------------------------------------------------------
+    # Legacy database import / unification
+    # ------------------------------------------------------------------
+    def import_legacy_database(self, legacy_path):
+        """Import legacy repo ``data/myra.db`` into this canonical DB.
+
+        The operation is idempotent: it de-duplicates by content and keeps
+        a source/id map, so it is safe to run on every desktop start.
+        """
+        legacy_path = Path(legacy_path).expanduser()
+        result = {
+            "ok": True,
+            "source": str(legacy_path),
+            "skipped": False,
+            "memories_imported": 0,
+            "notes_imported": 0,
+            "reminders_imported": 0,
+        }
+        if not legacy_path.exists():
+            result.update({"ok": False, "skipped": True, "reason": "legacy database not found"})
+            return result
+        try:
+            if legacy_path.resolve() == self.db_path.resolve():
+                result.update({"skipped": True, "reason": "already the canonical database"})
+                return result
+        except OSError:
+            pass
+
+        source_key = hashlib.sha256(str(legacy_path).encode("utf-8")).hexdigest()[:24]
+        source = sqlite3.connect(f"file:{legacy_path}?mode=ro", uri=True)
+        source.row_factory = sqlite3.Row
+        try:
+            tables = {
+                row[0] for row in source.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+            existing_memories = {
+                " ".join((m.get("text") or "").split()).casefold() for m in self.list_memories(limit=5000)
+            }
+            existing_notes = {
+                ((n.get("title") or ""), (n.get("body") or "")) for n in self.list_notes(limit=5000)
+            }
+            existing_reminders = {
+                ((r.get("text") or ""), round(float(r.get("due_timestamp") or 0), 3))
+                for r in self.list_reminders(active_only=False, limit=5000)
+            }
+
+            if "memories" in tables:
+                for row in source.execute("SELECT * FROM memories"):
+                    data = dict(row)
+                    text = " ".join(str(data.get("text") or "").split()).strip()
+                    if not text or text.casefold() in existing_memories:
+                        continue
+                    created = data.get("created_at") or _now()
+                    updated = data.get("updated_at") or created
+                    with self._connect() as conn:
+                        cur = conn.execute(
+                            "INSERT INTO memories(text,category,source,pinned,created_at,updated_at) VALUES(?,?,?,?,?,?)",
+                            (text[:2000], str(data.get("category") or "general")[:60],
+                             str(data.get("source") or "legacy-import")[:40],
+                             int(bool(data.get("pinned", 0))), str(created), str(updated)),
+                        )
+                        core_id = cur.lastrowid
+                        conn.execute(
+                            "INSERT OR IGNORE INTO legacy_id_map(source_key,kind,legacy_id,core_id,imported_at) VALUES(?,?,?,?,?)",
+                            (source_key, "memory", str(data.get("id", "")), str(core_id), _now()),
+                        )
+                    existing_memories.add(text.casefold())
+                    result["memories_imported"] += 1
+
+            if "notes" in tables:
+                for row in source.execute("SELECT * FROM notes"):
+                    data = dict(row)
+                    title = (str(data.get("title") or "").strip() or "Untitled note")[:160]
+                    body = str(data.get("body") if data.get("body") is not None else data.get("content") or "")[:30000]
+                    key = (title, body)
+                    if key in existing_notes:
+                        continue
+                    created = data.get("created_at") or _now()
+                    updated = data.get("updated_at") or created
+                    with self._connect() as conn:
+                        cur = conn.execute(
+                            "INSERT INTO notes(title,body,created_at,updated_at) VALUES(?,?,?,?)",
+                            (title, body, str(created), str(updated)),
+                        )
+                        core_id = cur.lastrowid
+                        conn.execute(
+                            "INSERT OR IGNORE INTO legacy_id_map(source_key,kind,legacy_id,core_id,imported_at) VALUES(?,?,?,?,?)",
+                            (source_key, "note", str(data.get("id", "")), str(core_id), _now()),
+                        )
+                    existing_notes.add(key)
+                    result["notes_imported"] += 1
+
+            if "reminders" in tables:
+                for row in source.execute("SELECT * FROM reminders"):
+                    data = dict(row)
+                    text = str(data.get("text") or "").strip()
+                    if not text:
+                        continue
+                    due_ts = float(data.get("due_timestamp") or 0)
+                    if not due_ts and data.get("due_at"):
+                        try:
+                            due_ts = self._parse_due(due_at=data.get("due_at")).timestamp()
+                        except ValueError:
+                            continue
+                    key = (text, round(due_ts, 3))
+                    if key in existing_reminders:
+                        continue
+                    due_local = datetime.fromtimestamp(due_ts).astimezone() if due_ts else datetime.now().astimezone()
+                    with self._connect() as conn:
+                        cur = conn.execute(
+                            "INSERT INTO reminders(text,due_at,due_timestamp,due_str,created_at,completed,notified) VALUES(?,?,?,?,?,?,?)",
+                            (
+                                text[:1000],
+                                str(data.get("due_at") or due_local.astimezone(timezone.utc).isoformat(timespec="seconds")),
+                                due_ts,
+                                str(data.get("due_str") or due_local.strftime("%Y-%m-%d %I:%M %p")),
+                                str(data.get("created_at") or _now()),
+                                int(bool(data.get("completed", 0))),
+                                int(bool(data.get("notified", data.get("completed", 0)))),
+                            ),
+                        )
+                        core_id = cur.lastrowid
+                        conn.execute(
+                            "INSERT OR IGNORE INTO legacy_id_map(source_key,kind,legacy_id,core_id,imported_at) VALUES(?,?,?,?,?)",
+                            (source_key, "reminder", str(data.get("id", "")), str(core_id), _now()),
+                        )
+                    existing_reminders.add(key)
+                    result["reminders_imported"] += 1
+        finally:
+            source.close()
+
+        self.set_preference("last_legacy_import", result)
+        return result
+
     # ------------------------------------------------------------------
     # Preferences and skill settings
     # ------------------------------------------------------------------
@@ -573,6 +890,7 @@ class MemoryStore:
             ],
             "memories": self.list_memories(limit=1000),
             "notes": self.list_notes(limit=1000),
+            "reminders": self.list_reminders(active_only=False, limit=1000),
             "preferences": self.all_preferences(),
         }
 
@@ -593,6 +911,6 @@ class MemoryStore:
     def stats(self):
         with self._connect() as conn:
             counts = {}
-            for table in ("conversations", "messages", "memories", "notes", "agent_tasks"):
+            for table in ("conversations", "messages", "memories", "notes", "reminders", "agent_tasks"):
                 counts[table] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         return {"database": str(self.db_path), "schema_version": SCHEMA_VERSION, **counts}

@@ -36,7 +36,7 @@
   - `FEMALE` (warm, caring companion)
   - Smooth wave-particle transitions, scan-light lighting, and 3D rotation.
 - 🎤 **Voice with Smart Silence Detection:** Talk naturally into your microphone; MYRA listens, detects when you stop speaking, and speaks her answer back aloud.
-- 💾 **Local Memory Engine (SQLite):** Remembers facts and preferences about you on your laptop (`data/myra.db`). Never uploaded to any cloud.
+- 💾 **Local Memory Engine (SQLite):** Remembers facts and preferences about you in one unified database in Windows app data (`%LOCALAPPDATA%\MYRA\myra.db`); any older `data/myra.db` contents are imported automatically. Never uploaded to any cloud.
 - 🤖 **Autonomous Agent Mode:** Give a complex task or query, and MYRA's agent conducts multi-step web research, gathers sources, and generates a structured intelligence report.
 - 📝 **Offline Notes Mode:** Create, view, and delete personal notes stored in local SQLite database.
 - 🧩 **Built-in Skills Engine:** Safe math calculator, live weather reports, system diagnostics, and web search.
@@ -44,20 +44,26 @@
 - 🌍 **World Monitor:** Spinnable 3D Earth, interactive map, and live RSS news feed (cached for offline reading) with read-aloud support.
 - 🛡️ **Zero Data Leakage:** Your `.env` and personal memory databases are strictly kept on your laptop.
 
-### Core 2.0 service/native layer (integrated Oct 2026)
+### Native Python desktop app — the primary interface (Oct 2026)
 
-The existing web experience above remains intact. MYRA also now includes a separate service-oriented **Core 2.0 foundation**:
+The existing web experience above remains intact for compatibility, but MYRA's primary owner-facing interface is now a **pure Python / PySide6 desktop application**:
 
-- `/api/v1` routes for persistent conversations, user-approved memories, notes, skills, bounded Agent tasks, one-frame vision, export/backup and voice-model status.
-- Twelve typed, validated skills. Confirmable write/launch/open actions are limited to MYRA's safe workspace or an allowlist; Core Chat receives no computer-control tools.
-- A PySide6 native operational window (`MYRA-Desktop.bat` for the source test build) using the same backend. Full Three.js MALE/FEMALE hologram parity in Qt and a physically tested EXE/installer are still future work.
-- API secrets prefer the OS credential store when `keyring` is available; the private `.env` remains the fallback. Settings responses are masked and accept both current and older key field names.
+- **No console windows, ever.** Source mode starts from `MYRA.pyw` (double-click, via `pythonw`); the packaged build is a windowed `MYRA.exe`. The backend runs in a thread inside the same GUI process — no Command Prompt, PowerShell, child Python process or browser window is needed. A first-run Python setup window creates `.venv-desktop` and installs the pinned packages for you.
+- **Native dotted hologram.** CORE, MALE and FEMALE chest-up point-cloud busts are rendered directly by Qt (no WebEngine/Three.js): one-time formation on first open, in-place morphing between forms, drag-to-rotate, bottom-to-top scan lighting, and Normal/Friendly/Hacker themes.
+- **Thirteen pages:** Chat (streaming where the provider supports it), Agent, Voice, Live Vision, Research, Computer, Skills, Memory, Notes, Reminders, World, Settings and Diagnostics.
+- **One unified local database.** Memories, notes, reminders, conversations, preferences and tasks live in a single SQLite store under Windows app data (`%LOCALAPPDATA%\MYRA`). Any legacy `data/myra.db` rows are imported once, idempotently and without data loss (Diagnostics also has an "Import legacy data" button).
+- **40 typed, permission-checked skills** behind `/api/v1`, with confirmation gates for write/control actions. Ordinary Chat never receives computer-control tools.
+- **Realtime voice pipeline:** microphone → local faster-whisper → cloud AI → Edge TTS / Windows SAPI → speaker, with mute, barge-in and end-call controls. Speech models download only after explicit confirmation, are checksum-recorded, and stay installed between restarts.
+- **Consent-based live vision** (screen/camera, sampled frames, pause/resume/stop with immediate device release), **cited web research**, optional **visible browser automation** (Playwright) and **semantic Windows app control** (UI Automation/pywinauto with a visible "MYRA IS CONTROLLING" banner and emergency stop). CAPTCHA/MFA/password steps are always refused and left to you.
+- **Packaging:** `python packaging/build_windows.py` builds the windowed `MYRA.exe` (and optional Inno Setup installer) on Windows.
+- API secrets prefer the OS credential store when `keyring` is available; the private `.env` remains the fallback. Settings responses are masked. Keys for Gemini, Groq, OpenRouter, OpenAI, Anthropic, DeepSeek and Mistral can be saved from the Settings page.
 
-For a safe merge, the legacy web memory/notes in `data/myra.db` and the Core database under Windows app data (`%LOCALAPPDATA%\MYRA`) currently remain separate. Unifying those stores without data loss is a later migration step. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/REFERENCE_ANALYSIS.md`](docs/REFERENCE_ANALYSIS.md) for the honest capability boundaries.
-
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/WINDOWS_NATIVE.md`](docs/WINDOWS_NATIVE.md) and [`docs/REFERENCE_ANALYSIS.md`](docs/REFERENCE_ANALYSIS.md) for details and honest capability boundaries. Code, fake-backend and packaging-config tests pass in automated checks; final microphone/camera/UI-Automation acceptance happens on the owner's Windows laptop.
 ---
 
 ## 💻 Installation & Usage (English)
+
+**Already have the MYRA folder?** The primary interface is the native desktop app: your existing **MYRA** Desktop/Start-Menu shortcut now opens it after the usual auto-update, or double-click **`MYRA.pyw`** in the MYRA folder to start instantly with no console window. First run shows a small Python setup window that prepares everything once. Full day-to-day guide: [`docs/WINDOWS_NATIVE.md`](docs/WINDOWS_NATIVE.md).
 
 ### Option 1: 1-Click Installer (Recommended for Windows)
 1. Download **`MYRA-Installer.bat`** (or download the full repository ZIP from GitHub and extract).
@@ -78,11 +84,11 @@ irm https://raw.githubusercontent.com/SaidulM/MYRA/main/install.ps1 | iex
 ### Option 3: Manual Start (Any OS)
 Install Python 3.8+ and run:
 ```bash
-python launcher.py   # checks GitHub updates + starts MYRA
+python launcher.py   # checks GitHub updates + starts MYRA (desktop app on Windows)
 # or
-python run.py        # starts MYRA directly
+python run.py        # starts the legacy web version directly
 ```
-Then open `http://127.0.0.1:8765` in your browser.
+For the web version, open `http://127.0.0.1:8765` in your browser. For the native desktop app on Windows, double-click `MYRA.pyw` instead — no browser or console window is involved.
 
 ---
 
@@ -105,9 +111,11 @@ MYRA/
 ├── MYRA.bat              ← Main Windows start launcher (Desktop shortcut target)
 ├── start.bat             ← Instant start script
 ├── install.ps1           ← 1-line PowerShell installer
-├── launcher.py           ← Smart GitHub auto-update sync & runner
+├── launcher.py           ← Smart GitHub auto-update sync, then opens the desktop app
 ├── auto_setup.py         ← Setup engine (copies files, stamps version, configures keys)
-├── run.py                ← Core application runner (HTTP server + app window)
+├── MYRA.pyw              ← Native desktop entry (pythonw, no console window)
+├── run_desktop.py        ← Desktop GUI entry / first-run bootstrap trigger
+├── run.py                ← Legacy web application runner (HTTP server + browser UI)
 ├── BLUEPRINT.md          ← Master architectural plan (all 11 stages completed)
 ├── README.md             ← Documentation and usage instructions
 ├── backend/
@@ -126,6 +134,8 @@ MYRA/
 │   ├── voice.py          ← Core voice-model records and consent-based downloads
 │   ├── news.py           ← World Monitor RSS news feed & offline caching (Stage 10)
 │   └── config.py         ← `.env` + OS credential-store configuration manager
+├── desktop/              ← Primary pure-Python PySide6 app (embedded backend, Qt hologram)
+├── packaging/            ← Python-only MYRA.exe builder, PyInstaller spec, Inno Setup
 ├── ui/
 │   ├── index.html        ← UI shell + modals + 3D stages + full-screen windows
 │   ├── style.css         ← Theme styling (Normal / Friendly / Hacker) & animations
@@ -141,5 +151,5 @@ MYRA/
 
 - Real API keys prefer the Windows/OS credential store when `keyring` is available, with the private local `.env` as fallback. Set `MYRA_SECRET_STORE=env` to force `.env`-only behavior.
 - The UI never exposes full API keys (only masked tails like `••••a1b2`).
-- The legacy SQLite database (`data/myra.db`) and Core app-data database are private/local and never committed.
+- The unified SQLite database lives in Windows app data (`%LOCALAPPDATA%\MYRA\myra.db`); it and any legacy `data/myra.db` are private/local and never committed.
 - The server binds to `127.0.0.1` by default, so only your laptop can access it. `MYRA_HOST=0.0.0.0` is an explicit opt-in for trusted-LAN/mobile use; API v1 action routes then also require `MYRA_API_TOKEN`.

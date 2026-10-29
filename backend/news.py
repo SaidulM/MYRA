@@ -6,29 +6,26 @@ standard library and caches them locally so they are accessible offline.
 from __future__ import annotations
 
 import json
-import ssl
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Dict, List
-from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 def _safe_urlopen(req, timeout=7):
-    try:
-        return urlopen(req, timeout=timeout)
-    except (ssl.SSLError, URLError):
-        ctx = ssl._create_unverified_context()
-        return urlopen(req, timeout=timeout, context=ctx)
+    # Verified TLS only.  Offline/error cases fall back to the disk cache.
+    return urlopen(req, timeout=timeout)
+
+import paths
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = ROOT / "data"
+DATA_DIR = paths.data_dir(create=False)
 CACHE_FILE = DATA_DIR / "news_cache.json"
 
 FEEDS = [
     {
         "name": "BBC World News",
-        "url": "http://feeds.bbci.co.uk/news/world/rss.xml",
+        "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
         "region": "global",
     },
     {

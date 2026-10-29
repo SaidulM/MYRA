@@ -1,4 +1,4 @@
-# MYRA Core 2.0 Architecture
+# MYRA Architecture (Core 3.0 — Python-native desktop)
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
@@ -31,23 +31,23 @@
                     └───────────────────┘
 ```
 
-## Main integration note (Oct 2026)
+## Integration note (updated Oct 2026)
 
-Core 2.0 was merged beside the newer `main` web experience rather than replacing it:
-
-- The main web UI continues to use its legacy routes/modules (`backend/memory.py`, `backend/notes.py`, `backend/agent.py`, `backend/skills_manager.py`, etc.).
-- The native desktop and `/api/v1` use the Core modules (`backend/core_memory.py`, `backend/core_agent.py`, `backend/service.py`, `backend/skill_registry.py`).
-- The legacy web database (`data/myra.db`) and Core app-data database are currently separate. A lossless migration/unification is a later step; do not assume a note or memory created in one surface automatically appears in the other yet.
+- The **native PySide6 desktop app is the primary interface**. `desktop/embedded_backend.py` runs `server.create_server(...)` in a daemon thread inside the GUI process (`MYRA.pyw`/`pythonw` in source mode, windowed `MYRA.exe` when packaged). No CMD/PowerShell/browser or child Python process exists at runtime.
+- The web UI remains available for compatibility via the same server; the auto-update `launcher.py` now opens the desktop app after updating (`--web` forces the legacy UI).
+- **One unified SQLite store.** `backend/core_memory.py` (schema v2, app-data `myra.db`) owns conversations, memories, notes, reminders, preferences and tasks. Legacy `backend/memory.py`, `notes.py` and `reminders.py` keep their old APIs but delegate to this store, and legacy `data/myra.db` rows are imported once (idempotent, legacy IDs tracked in `legacy_id_map`). A note or memory created in either surface now appears in both.
 - Core Chat calls the shared provider layer with legacy local-intent execution, silent auto-learning and legacy-memory injection disabled. The older web chat retains its existing behavior for compatibility, so its local actions are not the same confirmation boundary as Core Agent Mode.
-- The shared legacy chat supports MAIN's wider provider list for text chat. The Core tool planner/vision capability registry only advertises the implemented Gemini/Groq adapters.
+- Provider layer (`backend/providers.py`) implements streaming, validated structured JSON, tool calling and vision across Gemini/Groq/OpenAI-compatible providers, advertising only capabilities each adapter actually implements.
 
 ## Boundaries
 
 - **Core Chat Mode** cannot execute tools. It uses persistent conversations and a small amount of relevant local memory supplied by MYRA.
 - **Agent Mode** may request only registered, enabled skills. MYRA validates every argument, executes one skill at a time, records the observation and verifies built-in results where possible.
-- Write/launch/open skills require confirmation unless the user explicitly approved that skill for the current task or chose the task-wide approval mode.
+- Write/launch/open/control skills require confirmation unless the user explicitly approved that skill for the current task or chose the task-wide approval mode.
 - Built-in file skills are restricted to `%LOCALAPPDATA%\MYRA\workspace` on Windows. They refuse traversal and absolute paths.
-- There is no arbitrary shell skill, unrestricted file deletion, CAPTCHA/MFA bypass or blind coordinate desktop control in this foundation.
+- There is no arbitrary shell skill, unrestricted file deletion, or CAPTCHA/MFA/password bypass. Browser automation is visible and refuses challenge/secret fields; Windows control prefers semantic UI Automation (pywinauto), offers a separately gated coordinate fallback (PyAutoGUI), shows a "MYRA IS CONTROLLING" banner and honours an emergency stop.
+- Camera/screen capture is OFF by default, consent-gated, visibly indicated, sampled at a configurable interval, and released immediately on stop.
+- Desktop background work uses Qt worker threads whose Python wrappers are kept alive in `MyraWindow._workers` until they report (PySide6 does not keep QRunnable wrappers alive by itself).
 
 ## Local data
 
@@ -72,29 +72,36 @@ When the optional `keyring` package has a working backend, provider keys from th
 
 - `GET /api/v1/health`, `/providers`, `/skills`, `/voice/status`
 - `GET/POST /api/v1/conversations`, `GET/PUT/DELETE /api/v1/conversations/{id}`
-- `POST /api/v1/chat`
+- `POST /api/v1/chat`, `POST /api/v1/chat/stream` (NDJSON events), `POST /api/v1/structured`
 - `GET/POST /api/v1/memories`, `PUT/DELETE /api/v1/memories/{id}`
 - `GET/POST /api/v1/notes`, `PUT/DELETE /api/v1/notes/{id}`
+- `GET/POST /api/v1/reminders`, due polling with `?mark=1`
 - `POST /api/v1/skills/{id}/enabled`, `POST /api/v1/skills/{id}/run`
 - `GET/POST /api/v1/agent/tasks`, task start/pause/resume/cancel/approve/deny
 - `POST /api/v1/vision/analyze` (one explicitly consented frame)
-- `GET /api/v1/export`, `POST /api/v1/backup`
+- Live vision sessions (`/api/v1/live-vision/...`), voice turn + speech-model install/remove (`/api/v1/voice/...`)
+- `POST /api/v1/research`, world headlines, browser control (`/api/v1/browser/...`), Windows control + emergency stop (`/api/v1/windows/...`)
+- `POST /api/v1/data/migrate-legacy`, `GET /api/v1/export`, `POST /api/v1/backup`
 
 If the server is not bound to loopback, state-changing/private API v1 calls require `MYRA_API_TOKEN` through `X-MYRA-Token`.
 
 ## Honest capability status
 
-| Capability | Status in Core 2.0 foundation |
+Validated by the automated suite (48 tests) plus an offscreen Qt GUI smoke test. Items marked "owner acceptance" are code-complete but need the owner's physical Windows hardware to prove.
+
+| Capability | Status |
 |---|---|
-| Persistent Core chat/memory/notes | Implemented with the Core SQLite store; legacy web store remains separate for now |
-| Text chat | MAIN's multi-provider legacy chat retained; Core Chat uses the shared layer with legacy side effects disabled |
-| Provider tool calling | Gemini/Groq adapters implemented; real keys still owner-tested |
-| Agent Mode | Implemented for safe registered skills, bounded and confirmable |
-| One screenshot/image frame | Gemini service implemented; native desktop can send one explicit frame |
-| Continuous live screen | Not implemented yet |
-| Camera live understanding | Not implemented yet |
-| Streaming token UI | Not implemented; providers report it as false |
-| Realtime native voice | Not implemented yet; model manager/state foundation only (see `VOICE_EVALUATION.md`) |
-| Browser navigation/research | Not implemented yet; `web.open_url` only opens a URL for the user |
-| Semantic Windows app control | Not implemented yet; pywinauto is the later candidate |
-| Native three.js bust parity | Not reproduced in Qt yet; existing web UI remains available |
+| Persistent chat/memory/notes/reminders | Implemented in the unified app-data store; legacy data auto-imported |
+| Text chat | Multi-provider; Core Chat uses the shared layer with legacy side effects disabled |
+| Streaming replies | Implemented (`/api/v1/chat/stream`); desktop Chat consumes it |
+| Structured JSON output | Implemented with schema validation |
+| Provider tool calling | Gemini + OpenAI-compatible adapters; live keys owner-tested |
+| Agent Mode | Implemented for 40 registered skills, bounded and confirmable |
+| One screenshot/image frame | Implemented (Gemini, OpenAI/OpenRouter vision fallback) |
+| Continuous live screen/camera | Implemented as consent-based sampled frames (not provider-native video); owner acceptance pending |
+| Realtime voice | Modular mic → faster-whisper → cloud AI → Edge TTS/SAPI pipeline with VAD + barge-in; owner acceptance pending |
+| Web research | Implemented (SSRF-guarded search/fetch/extract with citations) |
+| Browser automation | Implemented with optional Playwright (visible, gated); owner acceptance pending |
+| Semantic Windows app control | Implemented with optional pywinauto + PyAutoGUI fallback; owner acceptance pending |
+| Native hologram parity | Implemented in Qt (CORE/MALE/FEMALE morphing busts, first-open formation, drag rotation) |
+| Packaged EXE/installer | Builder + spec implemented and self-test wired; actual build runs on Windows |

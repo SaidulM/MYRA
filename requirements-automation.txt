@@ -1,0 +1,6 @@
+# Optional computer-use packages. Semantic Windows actions remain disabled
+# by default in MYRA Skills even when these are installed.
+pywinauto>=0.6.8; platform_system == "Windows"
+pyautogui>=0.9.54
+playwright>=1.48
+pywin32>=308; platform_system == "Windows"
