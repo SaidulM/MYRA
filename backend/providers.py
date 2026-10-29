@@ -70,8 +70,16 @@ def _extract_groq_text(data):
     return chat._extract_openai_text(data, provider="groq")
 
 
+def _selected_model(provider, defaults, model_overrides):
+    configured = (model_overrides.get(provider) or config.get(f"{provider.upper()}_MODEL") or "").strip()
+    if configured and configured.lower() != "auto":
+        return configured
+    return defaults[0] if defaults else ""
+
+
 def provider_infos(model_overrides=None):
-    model_overrides = model_overrides or {}
+    if not isinstance(model_overrides, dict):
+        model_overrides = {}
     return [
         {
             "id": "gemini",
@@ -79,7 +87,7 @@ def provider_infos(model_overrides=None):
             "implemented": True,
             "configured": bool(config.gemini_key().strip()),
             "default_models": list(chat.DEFAULT_GEMINI_MODELS),
-            "selected_model": model_overrides.get("gemini") or config.get("GEMINI_MODEL") or chat.DEFAULT_GEMINI_MODELS[0],
+            "selected_model": _selected_model("gemini", chat.DEFAULT_GEMINI_MODELS, model_overrides),
             "capabilities": {
                 "text": True,
                 "streaming": False,
@@ -98,7 +106,7 @@ def provider_infos(model_overrides=None):
             "implemented": True,
             "configured": bool(config.groq_key().strip()),
             "default_models": list(chat.DEFAULT_GROQ_MODELS),
-            "selected_model": model_overrides.get("groq") or config.get("GROQ_MODEL") or chat.DEFAULT_GROQ_MODELS[0],
+            "selected_model": _selected_model("groq", chat.DEFAULT_GROQ_MODELS, model_overrides),
             "capabilities": {
                 "text": True,
                 "streaming": False,

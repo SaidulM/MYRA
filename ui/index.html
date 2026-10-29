@@ -8,8 +8,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="vendor/three.min.js"></script>
+<script src="vendor/qrcode.min.js"></script>
 </head>
 <body>
+<canvas id="starfieldCanvas" class="starfield-canvas"></canvas>
 
 <!-- ===== Top Bar ===== -->
 <header class="topbar">
@@ -22,6 +24,7 @@
       </div>
     </div>
     <nav class="top-links">
+      <button class="top-link" id="mobileLinkBtn" title="Control MYRA on your Laptop from your Mobile Phone">📱 Phone Link (QR)</button>
       <div class="dd-wrap">
         <button class="top-link" id="feedbackBtn">Feedback</button>
         <div class="dropdown hidden" id="feedbackDrop">
@@ -47,7 +50,8 @@
   </div>
 
   <div class="topbar-right">
-    <span class="version-chip" id="versionChip">v0.9 · Core 2.0 foundation</span>
+    <span class="version-chip" id="versionChip">v1.0 · Active</span>
+    <span class="update-chip hidden" id="updateChip">⬆️ UPDATE READY</span>
 
     <div class="awareness" title="Ambient awareness — MYRA proactively pays attention (real senses arrive in Stages 5 & 9)">
       <span class="aw-label">AWARENESS</span>
@@ -57,11 +61,26 @@
     <label class="theme-pick" title="Interface theme">
       <span class="aw-label">THEME</span>
       <select id="themeSelect" class="theme-select">
-        <option value="normal">⬛ Normal</option>
-        <option value="friendly">💚 Friendly</option>
-        <option value="hacker">🔴 Hacker</option>
+        <option value="stonic">⚡ Stonic AI (Cyber Azure)</option>
+        <option value="normal">⬛ Cyber Cyan</option>
+        <option value="friendly">💚 Friendly Emerald</option>
+        <option value="hacker">🔴 Hacker Crimson</option>
       </select>
     </label>
+
+    <div class="brain-switch-wrap" title="Direct Brain Switcher (Gemini / Groq / OpenRouter / OpenAI / DeepSeek / Ollama)">
+      <span class="aw-label">BRAIN</span>
+      <select id="quickBrainSelect" class="brain-switch-select">
+        <option value="auto">✨ Auto (Best Available Model)</option>
+        <option value="gemini">⚡ Google Gemini (Free / Paid)</option>
+        <option value="groq">🚀 Groq (Fast Free)</option>
+        <option value="openrouter">🌐 OpenRouter (Free &amp; Paid)</option>
+        <option value="openai">🤖 OpenAI ChatGPT (Paid)</option>
+        <option value="deepseek">💡 DeepSeek</option>
+        <option value="mistral">🌪️ Mistral AI</option>
+        <option value="ollama">🏠 Ollama (Local PC)</option>
+      </select>
+    </div>
 
     <div class="dd-wrap">
       <button class="profile-btn" id="profileBtn">
@@ -148,6 +167,7 @@
           <button class="core-pill" data-char="core">⬢ CORE</button>
           <button class="core-pill" data-char="male">♂ MALE</button>
           <button class="core-pill" data-char="female">♀ FEMALE</button>
+          <button class="core-pill" data-char="custom">✨ CUSTOM</button>
         </div>
         <div class="stage" id="stage">
           <canvas id="holoCanvas"></canvas>
@@ -155,36 +175,118 @@
           <div class="hud hud-bl"></div><div class="hud hud-br"></div>
           <div class="chip-state" id="holoState">BOOTING…</div>
           <div class="nameplate">
-            <div class="np-name" id="npName">MYRA</div>
-            <div class="np-status" id="holoStatus">✨ MYRA is waking up…</div>
+            <div class="np-name hidden" id="npName"></div>
+            <div class="np-status hidden" id="holoStatus"></div>
+            <div class="holo-wave-box" id="holoWaveBox">
+              <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+              <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+              <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+            </div>
           </div>
         </div>
         <div class="stage-controls">
           <button class="terminate-btn" id="terminateBtn">⏻ TERMINATE</button>
-          <button class="sq-btn mic-toggle" id="stageMicBtn" title="Microphone on/off (real listening in Stage 5)">🎤</button>
+          <button class="sq-btn mic-toggle" id="stageMicBtn" title="Microphone on/off (continuous live listening)">🎤</button>
+          <div class="mic-wave-meter" id="micWaveMeter" title="Live Speech Audio Level">
+            <div class="meter-bar"></div>
+            <div class="meter-bar"></div>
+            <div class="meter-bar"></div>
+            <div class="meter-bar"></div>
+            <div class="meter-bar"></div>
+          </div>
           <button class="sq-btn" id="muteBtn" title="Mute / stop MYRA's voice">🔊</button>
         </div>
       </div>
     </div>
 
-    <!-- VISUAL HUB (single home of camera/screen controls) -->
+    <!-- VISUAL HUB (single home of camera/screen controls & Cyber Agent Office) -->
     <section class="panel visual-hub">
-      <header class="mod-head"><span class="mod-index">VIS</span><h3>VISUAL HUB — Eyes of MYRA</h3><span class="led"></span></header>
-      <div class="vh-grid">
-        <div class="vh-preview">
-          <div class="vh-layers"><span></span><span></span><span></span></div>
-          <div class="vh-msg">Camera &amp; screen are OFF<br><small>Preview appears here when you turn one on (Stage 9)</small></div>
-          <div class="vh-chips">
-            <span class="vh-chip" id="camChip">CAM · OFF</span>
-            <span class="vh-chip" id="scrChip">SCREEN · OFF</span>
+      <header class="mod-head">
+        <span class="mod-index">VIS</span>
+        <h3>VISUAL HUB</h3>
+        <div style="display:flex; gap:6px; margin-left:auto; align-items:center;">
+          <button class="action-chip active" id="vhSensorTabBtn" style="padding:2px 8px; font-size:10px;">📷 SENSORS</button>
+          <button class="action-chip" id="vhOfficeTabBtn" style="padding:2px 8px; font-size:10px;">🏢 CYBER OFFICE</button>
+        </div>
+        <span class="led"></span>
+      </header>
+
+      <div id="vhSensorView">
+        <div class="vh-grid">
+          <div class="vh-preview">
+            <video id="vhVideo" class="vh-video hidden" autoplay playsinline muted></video>
+            <div class="vh-layers"><span></span><span></span><span></span></div>
+            <div class="vh-msg">Camera &amp; screen are OFF<br><small>Preview appears here when you turn one on</small></div>
+            <div class="vh-chips">
+              <span class="vh-chip" id="camChip">CAM · OFF</span>
+              <span class="vh-chip" id="scrChip">SCREEN · OFF</span>
+            </div>
+          </div>
+          <div class="vh-actions">
+            <div class="vh-q">What should I look at? 👀</div>
+            <button class="vh-btn" id="vhCamBtn">📷 Look around me <small>— camera</small></button>
+            <button class="vh-btn" id="vhScrBtn">🖥️ Look at my screen <small>— screen share</small></button>
+            <button class="vh-btn" id="vhSnapBtn" style="border-color:var(--accent);">📸 Capture Snapshot <small>— vision snapshot</small></button>
+            <button class="vh-btn vh-suggest" data-vh="Look at my screen and help me with what I'm doing">💡 "See my screen and help me"</button>
+            <button class="vh-btn vh-suggest" data-vh="Look through the camera and tell me what you see around me">💡 "Tell me what you see around me"</button>
           </div>
         </div>
-        <div class="vh-actions">
-          <div class="vh-q">What should I look at? 👀</div>
-          <button class="vh-btn" id="vhCamBtn">📷 Look around me <small>— camera</small></button>
-          <button class="vh-btn" id="vhScrBtn">🖥️ Look at my screen <small>— screen share</small></button>
-          <button class="vh-btn vh-suggest" data-vh="Look at my screen and help me with what I'm doing">💡 "See my screen and help me"</button>
-          <button class="vh-btn vh-suggest" data-vh="Look through the camera and tell me what you see around me">💡 "Tell me what you see around me"</button>
+      </div>
+
+      <div id="vhOfficeView" class="cyber-office hidden">
+        <div class="office-hud-top">
+          <span style="font-size:11px; font-weight:700; color:var(--accent); letter-spacing:1px;">CYBER AGENT OFFICE · 3-CABIN HQ</span>
+          <label class="switch switch-mini" title="Enable office animation">
+            <input type="checkbox" id="officeAnimToggle" checked><span class="slider"></span>
+          </label>
+        </div>
+        <div class="office-cabins">
+          <!-- Cabin 1: Research Agent -->
+          <div class="cabin-box" id="cabinResearch">
+            <div class="cabin-title">🔬 Cabin 1: Research</div>
+            <svg class="agent-character-svg" viewBox="0 0 64 64" fill="none">
+              <circle cx="32" cy="22" r="14" fill="#38bdf8" fill-opacity="0.25" stroke="#38bdf8" stroke-width="2"/>
+              <circle cx="27" cy="20" r="3" fill="#38bdf8"/>
+              <circle cx="37" cy="20" r="3" fill="#38bdf8"/>
+              <path d="M26 27 Q32 32 38 27" stroke="#38bdf8" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <path d="M18 52 C18 42 46 42 46 52" stroke="#38bdf8" stroke-width="2.5" fill="none"/>
+              <circle cx="48" cy="24" r="5" stroke="#a78bfa" stroke-width="1.5" fill="none"/>
+              <line x1="52" y1="28" x2="57" y2="33" stroke="#a78bfa" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <span class="agent-status-badge" id="badgeResearch">STANDBY</span>
+            <span style="font-size:9px; color:var(--muted); margin-top:4px;">Web &amp; World Intel</span>
+          </div>
+
+          <!-- Cabin 2: Task & Coder Agent -->
+          <div class="cabin-box" id="cabinCoder">
+            <div class="cabin-title">💻 Cabin 2: Task &amp; Code</div>
+            <svg class="agent-character-svg" viewBox="0 0 64 64" fill="none">
+              <circle cx="32" cy="22" r="14" fill="#34d399" fill-opacity="0.25" stroke="#34d399" stroke-width="2"/>
+              <circle cx="27" cy="20" r="3" fill="#34d399"/>
+              <circle cx="37" cy="20" r="3" fill="#34d399"/>
+              <path d="M28 27 Q32 29 36 27" stroke="#34d399" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <path d="M18 52 C18 42 46 42 46 52" stroke="#34d399" stroke-width="2.5" fill="none"/>
+              <rect x="24" y="44" width="16" height="10" rx="2" stroke="#34d399" stroke-width="1.5" fill="rgba(52,211,153,0.2)"/>
+            </svg>
+            <span class="agent-status-badge" id="badgeCoder">STANDBY</span>
+            <span style="font-size:9px; color:var(--muted); margin-top:4px;">Files &amp; Automation</span>
+          </div>
+
+          <!-- Cabin 3: Companion & Voice Agent -->
+          <div class="cabin-box" id="cabinVoice">
+            <div class="cabin-title">🎙️ Cabin 3: Companion</div>
+            <svg class="agent-character-svg" viewBox="0 0 64 64" fill="none">
+              <circle cx="32" cy="22" r="14" fill="#f43f5e" fill-opacity="0.25" stroke="#f43f5e" stroke-width="2"/>
+              <circle cx="27" cy="20" r="3" fill="#f43f5e"/>
+              <circle cx="37" cy="20" r="3" fill="#f43f5e"/>
+              <path d="M26 26 Q32 31 38 26" stroke="#f43f5e" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <path d="M18 52 C18 42 46 42 46 52" stroke="#f43f5e" stroke-width="2.5" fill="none"/>
+              <path d="M47 16 C50 18 50 24 47 26" stroke="#f43f5e" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <path d="M51 13 C56 17 56 27 51 31" stroke="#f43f5e" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+            </svg>
+            <span class="agent-status-badge" id="badgeVoice">READY</span>
+            <span style="font-size:9px; color:var(--muted); margin-top:4px;">Dialogue &amp; Neural Voice</span>
+          </div>
         </div>
       </div>
     </section>
@@ -212,7 +314,7 @@
         <div class="chat-log" id="chatLog">
           <div class="sys-ready">✦ SYSTEM READY ✦</div>
           <div class="msg msg-ai">
-            <div class="msg-bubble" id="greetingBubble">Hello, I'm <b>MYRA</b> — your personal desktop companion. 💗 My real AI chat is live: Gemini answers first and Groq is my backup. Conversations and approved memories now save locally in SQLite. Save your free keys in SETTING on your own laptop, then type below and talk to me!</div>
+            <div class="msg-bubble" id="greetingBubble">Hello, I'm <b>MYRA</b> — your personal desktop companion. 💗 My real AI chat is now live (Stage 3): Gemini answers first and Groq is my backup. Save your free keys in SETTING on your own laptop, then type below and talk to me!</div>
           </div>
         </div>
         <div class="input-row">
@@ -222,27 +324,41 @@
       </div>
 
       <div class="mode-panel" id="mode-agent">
-        <p class="hint">Safe Agent Mode is live for registered local skills (workspace files, notes, memory, system info, allowlisted apps). Browser research and full desktop control are not enabled yet. Write actions pause for your approval.</p>
+        <div class="action-chips">
+          <button class="action-chip" data-act="play song Arijit Singh">🎵 Play Music</button>
+          <button class="action-chip" data-act="open google">🌐 Open Google</button>
+          <button class="action-chip" data-act="list files">📁 List Files</button>
+          <button class="action-chip" data-act="remind me to check work in 10 minutes">⏰ Set Reminder</button>
+          <button class="action-chip" data-act="open camera">📷 Open Camera</button>
+          <button class="action-chip" data-act="share screen">🖥️ Screen Share</button>
+          <button class="action-chip" data-act="system status">💻 System Telemetry</button>
+        </div>
         <div class="agent-log" id="agentLog">AGENT standing by — awaiting orders…</div>
         <div class="input-row">
-          <input type="text" id="agentInput" class="input chat-input" placeholder="Describe the task…">
+          <input type="text" id="agentInput" class="input chat-input" placeholder="Type desktop task or query (e.g. play song, list files, open google)…">
           <button class="btn btn-send" id="agentBtn">▶</button>
-        </div>
-        <div class="input-row">
-          <button class="btn hidden" id="agentApproveBtn">✅ APPROVE</button>
-          <button class="btn hidden" id="agentDenyBtn">🚫 DENY</button>
-          <button class="btn hidden" id="agentPauseBtn">⏸ PAUSE</button>
-          <button class="btn hidden" id="agentResumeBtn">▶ RESUME</button>
-          <button class="btn btn-danger hidden" id="agentCancelBtn">⛔ STOP</button>
         </div>
       </div>
 
       <div class="mode-panel" id="mode-notes">
-        <div class="input-row" style="margin-top:2px">
-          <input type="text" id="noteInput" class="input chat-input" placeholder="Write a note… (saved locally in SQLite)">
-          <button class="btn btn-send" id="noteAdd">＋</button>
+        <div style="display:flex; gap:6px; margin-bottom:8px;">
+          <button class="action-chip active" id="tabNotesBtn" style="flex:1;">📝 Notes</button>
+          <button class="action-chip" id="tabRemindersBtn" style="flex:1;">⏰ Reminders</button>
         </div>
-        <ul class="notes-list" id="notesList"></ul>
+        <div id="notesSubPanel">
+          <div class="input-row" style="margin-top:2px">
+            <input type="text" id="noteInput" class="input chat-input" placeholder="Write a note…">
+            <button class="btn btn-send" id="noteAdd">＋</button>
+          </div>
+          <ul class="notes-list" id="notesList"></ul>
+        </div>
+        <div id="remindersSubPanel" class="hidden">
+          <div class="input-row" style="margin-top:2px">
+            <input type="text" id="remInput" class="input chat-input" placeholder="e.g. Call client in 15 mins">
+            <button class="btn btn-send" id="remAdd">⏰ ADD</button>
+          </div>
+          <div id="remindersList" style="margin-top:10px;"></div>
+        </div>
       </div>
     </section>
   </aside>
@@ -322,7 +438,7 @@
     <span class="fv-note">Stored only on your laptop — never in the cloud</span>
   </header>
   <div class="fv-body">
-    <p class="hint" style="margin-top:0">These are user-approved memories stored in MYRA's local SQLite database. Relevant memories can be supplied to Chat Mode; MYRA does not silently turn private conversation details into long-term memories.</p>
+    <p class="hint" style="margin-top:0">From Stage 4, MYRA will remember your name, your likes, your days — everything you share. You can already add memories below; they will plug into the real SQLite brain in Stage 4.</p>
     <div class="input-row" style="max-width:640px">
       <input type="text" id="memoryInput" class="input chat-input" placeholder="e.g. My favorite food is biryani">
       <button class="btn btn-send" id="memoryAdd">＋ ADD</button>
@@ -338,12 +454,35 @@
   <header class="fv-head">
     <button class="back-btn" data-back>← BACK</button>
     <h2>🧩 SKILLS</h2>
-    <span class="fv-note">Real registered skills · Agent Mode only</span>
+    <span class="fv-note">Skill engine activates in Stage 7</span>
   </header>
   <div class="fv-body">
-    <p class="hint" style="margin-top:0">Only skills actually implemented in MYRA's backend are listed here. Disabling a skill removes it from Agent Mode. External skill files are not executed for safety.</p>
-    <div class="skill-cards" id="skillCards">
-      <div class="empty-note">Loading registered skills from the local backend…</div>
+    <div class="skill-cards">
+      <div class="skill-card">
+        <div class="sk-ico">🌐</div>
+        <div class="sk-info"><b>Browser Agent</b><small>Opens the browser, searches and reports for you</small></div>
+        <label class="switch"><input type="checkbox" class="skill-toggle" data-skill="browser_agent" checked><span class="slider"></span></label>
+      </div>
+      <div class="skill-card">
+        <div class="sk-ico">📰</div>
+        <div class="sk-info"><b>News Reader</b><small>Reads today's headlines aloud on request</small></div>
+        <label class="switch"><input type="checkbox" class="skill-toggle" data-skill="news_reader" checked><span class="slider"></span></label>
+      </div>
+      <div class="skill-card">
+        <div class="sk-ico">📝</div>
+        <div class="sk-info"><b>Note Helper</b><small>Takes, finds and organizes your notes</small></div>
+        <label class="switch"><input type="checkbox" class="skill-toggle" data-skill="note_helper" checked><span class="slider"></span></label>
+      </div>
+      <div class="skill-card">
+        <div class="sk-ico">📷</div>
+        <div class="sk-info"><b>Camera Vision</b><small>Understands what the camera shows (only with permission)</small></div>
+        <label class="switch"><input type="checkbox" class="skill-toggle" data-skill="camera_vision"><span class="slider"></span></label>
+      </div>
+      <div class="skill-card skill-soon">
+        <div class="sk-ico">➕</div>
+        <div class="sk-info"><b>Add New Skill</b><small>Plug in new abilities here (Stage 7+)</small></div>
+        <span class="soon-tag">SOON</span>
+      </div>
     </div>
   </div>
 </section>
@@ -375,13 +514,36 @@
         <small>A warm female presence. Caring, playful girlfriend-like companion personality — close and emotional.</small>
         <span class="cc-badge hidden">ACTIVE</span>
       </div>
+      <div class="char-card" id="card-custom">
+        <div class="cc-ico">✨</div>
+        <b id="customCardTitle">CUSTOM PERSONA</b>
+        <small id="customCardDesc">Create your own tailored personality, tone and role.</small>
+        <span class="cc-badge hidden">ACTIVE</span>
+      </div>
     </div>
 
     <div class="char-form">
-      <label class="field-label">Assistant name (shown under the hologram)</label>
-      <div class="input-row" style="max-width:520px;margin-top:2px">
-        <input type="text" id="nameInput" class="input chat-input" maxlength="16" placeholder="MYRA">
-        <button class="btn btn-send" id="nameSave">SAVE</button>
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; max-width:520px;">
+        <div>
+          <label class="field-label">Your name (User / Master)</label>
+          <input type="text" id="ownerNameChar" class="input" maxlength="24" placeholder="Saidul">
+        </div>
+        <div>
+          <label class="field-label">Assistant name</label>
+          <input type="text" id="nameInput" class="input" maxlength="16" placeholder="MYRA">
+        </div>
+      </div>
+      <button class="btn btn-send" id="nameSave" style="max-width:520px; margin-top:8px;">SAVE NAMES</button>
+
+      <div style="background:rgba(2,14,32,0.5); border:1px solid rgba(var(--accent-rgb),0.25); border-radius:10px; padding:14px; margin-top:14px; max-width:520px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <h4 style="margin:0; font-size:12px; color:var(--accent);">✨ CUSTOM PERSONA CREATOR</h4>
+          <button class="btn btn-send" id="saveCustomPersonaBtn" style="padding:4px 12px; font-size:11px;">SAVE PERSONA</button>
+        </div>
+        <label class="field-label">Persona Title</label>
+        <input type="text" id="customPersonaName" class="input" placeholder="e.g. My Anime Tutor, Zen Master, Cyber Hacker" maxlength="24" style="margin-bottom:8px;">
+        <label class="field-label">Persona Prompt / Instructions</label>
+        <textarea id="customPersonaPrompt" class="input" rows="3" placeholder="Describe how MYRA should speak, behave, and address you..."></textarea>
       </div>
       <label class="field-label">Personality style</label>
       <select id="personality" class="input" style="max-width:520px">
@@ -391,7 +553,56 @@
         <option>Motivational coach</option>
         <option>Calm mentor</option>
       </select>
-      <p class="hint">🎙️ Browser read-aloud is available now. Full realtime voice will be enabled only after the one-time speech-model setup passes Windows microphone/STT/TTS/interruption tests. Personality already shapes real AI replies.</p>
+
+      <hr class="divider" style="margin: 20px 0 15px 0; max-width: 520px;">
+
+      <!-- VOICE STUDIO SECTION -->
+      <div class="voice-studio-box" style="max-width:520px; background:rgba(4,22,18,0.55); border:1px solid var(--panel-border); border-radius:10px; padding:16px; margin-top:10px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+          <h3 style="margin:0; font-size:14px; color:var(--accent); display:flex; align-items:center; gap:8px;">
+            🎙️ VOICE STUDIO — NATURAL SPEECH
+          </h3>
+          <span class="live-badge" id="voiceStudioStatus" style="font-size:10px;">NEURAL READY</span>
+        </div>
+        <p class="hint" style="margin-top:0; margin-bottom:10px; font-size:12px;">
+          Smart bilingual speech engine: speaks Bengali (বাংলা bn-BD/bn-IN) and English naturally according to text language.
+        </p>
+
+        <label class="field-label">Voice / Speaker Selection</label>
+        <select id="voiceStudioSelect" class="input" style="width:100%; margin-bottom:12px;">
+          <option value="auto">✨ Auto-Detect (Bengali &amp; English Natural Voices)</option>
+        </select>
+
+        <label class="field-label">Speech Style (কণ্ঠের ধরণ)</label>
+        <select id="voiceStyleSelect" class="input" style="width:100%; margin-bottom:12px;">
+          <option value="gentle">🌸 Sweet &amp; Gentle (কোমল ও মধুর — Human Intimacy)</option>
+          <option value="whisper">🤫 Whispering (ফিসফিসিয়ে মিষ্টি কথা — Ultra-Soft Whisper)</option>
+          <option value="chat">💬 Natural Chat (স্বাভাবিক আলাপ — Expressive)</option>
+          <option value="jarvis">🎩 JARVIS Butler (স্পষ্ট ও নির্ভরযোগ্য — Confident)</option>
+        </select>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:12px;">
+          <div>
+            <label class="field-label" style="display:flex; justify-content:space-between;">
+              Pitch Tone <span id="voicePitchVal" style="color:var(--accent);">1.00x</span>
+            </label>
+            <input type="range" id="voicePitchSlider" min="0.6" max="1.4" step="0.05" value="1.0" style="width:100%; accent-color:var(--accent); cursor:pointer;">
+          </div>
+          <div>
+            <label class="field-label" style="display:flex; justify-content:space-between;">
+              Speech Speed <span id="voiceSpeedVal" style="color:var(--accent);">1.00x</span>
+            </label>
+            <input type="range" id="voiceSpeedSlider" min="0.7" max="1.5" step="0.05" value="1.0" style="width:100%; accent-color:var(--accent); cursor:pointer;">
+          </div>
+        </div>
+
+        <div style="display:flex; gap:10px; align-items:center; margin-top:8px;">
+          <button class="btn btn-send" id="voiceTestBtn" style="padding:8px 16px; font-size:12px;">
+            ▶ Test Voice (বাংলা &amp; English)
+          </button>
+          <span class="hint" id="voiceTestNotice" style="margin:0; font-size:11px;">Tap to test natural pronunciation</span>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -411,14 +622,56 @@
         <input type="password" id="geminiKey" class="input" placeholder="Paste your Gemini key (starts with AIza…)" autocomplete="off">
         <button class="icon-btn key-remove hidden" id="removeGemini" title="Remove the saved Gemini key">✕</button>
       </div>
+      <label class="field-label">Gemini AI Model (Auto-detects Free / Paid)</label>
+      <select id="geminiModelSelect" class="input" style="margin-bottom: 10px;">
+        <option value="auto">✨ Auto-Detect (Best working model for your key)</option>
+        <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (Fast, Free &amp; Paid default)</option>
+        <option value="gemini-1.5-pro">💎 Gemini 1.5 Pro (High intelligence / Paid &amp; Free)</option>
+        <option value="gemini-2.0-flash">🚀 Gemini 2.0 Flash (Next-Gen)</option>
+        <option value="gemini-1.5-flash-8b">🍃 Gemini 1.5 Flash-8B (Ultra-Lightweight)</option>
+      </select>
       <label class="field-label">Groq API Key (backup) <span class="key-status" id="groqKeyStatus">checking…</span></label>
       <div class="key-row">
         <input type="password" id="groqKey" class="input" placeholder="Paste your Groq key (starts with gsk_…)" autocomplete="off">
         <button class="icon-btn key-remove hidden" id="removeGroq" title="Remove the saved Groq key">✕</button>
       </div>
+      <label class="field-label">Groq AI Model (Auto-detects active models)</label>
+      <select id="groqModelSelect" class="input" style="margin-bottom: 10px;">
+        <option value="auto">✨ Auto-Detect (Fastest &amp; best Groq model)</option>
+        <option value="llama-3.3-70b-versatile">⚡ Llama 3.3 70B Versatile (Recommended / Fast &amp; Smart)</option>
+        <option value="llama-3.1-8b-instant">🚀 Llama 3.1 8B Instant (Ultra-fast)</option>
+        <option value="openai/gpt-oss-120b">🧠 OpenAI GPT-OSS 120B</option>
+        <option value="qwen/qwen3.8-27b">🌐 Qwen 3.8 27B</option>
+        <option value="mixtral-8x7b-32768">🔮 Mixtral 8x7B (Long context)</option>
+        <option value="gemma2-9b-it">🍃 Gemma 2 9B-IT</option>
+      </select>
+
+      <label class="field-label">OpenRouter API Key (Free &amp; Paid Models) <span class="key-status" id="openrouterKeyStatus"></span></label>
+      <div class="key-row">
+        <input type="password" id="openrouterKey" class="input" placeholder="Paste your OpenRouter key (sk-or-…)" autocomplete="off">
+        <button class="icon-btn key-remove hidden" id="removeOpenrouter" title="Remove saved key">✕</button>
+      </div>
+
+      <label class="field-label">OpenAI ChatGPT API Key (Paid) <span class="key-status" id="openaiKeyStatus"></span></label>
+      <div class="key-row">
+        <input type="password" id="openaiKey" class="input" placeholder="Paste OpenAI key (sk-…)" autocomplete="off">
+        <button class="icon-btn key-remove hidden" id="removeOpenai" title="Remove saved key">✕</button>
+      </div>
+
+      <label class="field-label">DeepSeek API Key <span class="key-status" id="deepseekKeyStatus"></span></label>
+      <div class="key-row">
+        <input type="password" id="deepseekKey" class="input" placeholder="Paste DeepSeek key (sk-…)" autocomplete="off">
+        <button class="icon-btn key-remove hidden" id="removeDeepseek" title="Remove saved key">✕</button>
+      </div>
+
+      <label class="field-label">Ollama Local Model (Free offline, e.g. llama3, mistral, qwen)</label>
+      <div class="key-row">
+        <input type="text" id="ollamaModel" class="input" placeholder="Model name (e.g. llama3.2, mistral, qwen2.5)" autocomplete="off">
+        <button class="icon-btn key-remove hidden" id="removeOllama" title="Clear Ollama">✕</button>
+      </div>
       <button class="btn" id="saveKeys">💾 SAVE KEYS</button>
       <p class="hint hidden" id="keysPreviewNote">👀 <b>Preview mode:</b> keys can only be saved from the real app on your laptop (double-click <code>start.bat</code>) — not from this preview file.</p>
-      <p class="hint">Keys stay on your laptop, survive restarts, and afterwards only the last 4 characters are shown. MYRA uses the OS credential store when available; otherwise it uses the private local <code>.env</code>. Chat uses Gemini first and Groq as backup.</p>
+      <p class="hint">Keys are stored only on your laptop in a private <code>.env</code> file, survive restarts, and afterwards only the last 4 characters are shown. Stage 3 chat uses Gemini first and Groq as backup.</p>
       <p class="hint">🆓 <b>Get both keys free:</b><br>
       1. <a href="https://aistudio.google.com" target="_blank" rel="noopener">aistudio.google.com</a> → sign in → <b>Get API key</b> → <b>Create API key</b> → copy<br>
       2. <a href="https://console.groq.com" target="_blank" rel="noopener">console.groq.com</a> → sign in → <b>API Keys</b> → <b>Create API Key</b> → copy<br>
@@ -431,7 +684,7 @@
 
       <hr class="divider">
       <h3>ℹ️ About</h3>
-      <p class="hint"><b>MYRA</b> — Personal Desktop AI Assistant · <span id="aboutVersion">v0.9 · Core 2.0 foundation</span><br>
+      <p class="hint"><b>MYRA</b> — Personal Desktop AI Assistant · <span id="aboutVersion">v0.8 · Stage 3 (AI Chat)</span><br>
       Brain: Gemini (primary) + Groq (backup) — free cloud APIs · Memory: local SQLite · Runs light on 8GB RAM.<br>
       World Monitor attaches the open-source live dashboard at worldmonitor.app.</p>
     </div>
@@ -466,19 +719,177 @@
 
 <!-- ===== Footer: Build Progress ===== -->
 <footer class="footer">
-  <span class="ft-label">BUILD:</span>
+  <span class="ft-label">MYRA STATUS:</span>
   <span class="ft-stage current">1 · UI</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">2 · API Keys</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">3 · Chat</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">4 · Memory</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">5 · Voice</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">6 · Holo Sync</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">7 · Notes/Skills</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">8 · Agent</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">9 · Camera</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">10 · World</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">11 · Setup</span>
+  <span class="ft-stage current">2 · Keys</span><span class="ft-arrow">›</span>
+  <span class="ft-stage current">3 · Chat</span><span class="ft-arrow">›</span>
+  <span class="ft-stage current">4 · Memory</span><span class="ft-arrow">›</span>
+  <span class="ft-stage current">5 · Voice</span><span class="ft-arrow">›</span>
+  <span class="ft-stage current">6 · Sync</span><span class="ft-arrow">›</span>
+  <span class="ft-stage current">7 · Notes/Skills</span><span class="ft-arrow">›</span>
+  <span class="ft-stage current">8 · Agent</span><span class="ft-arrow">›</span>
+  <span class="ft-stage current">9 · Vision</span><span class="ft-arrow">›</span>
+  <span class="ft-stage current">10 · World</span><span class="ft-arrow">›</span>
+  <span class="ft-stage current">11 · Auto-Update</span>
 </footer>
+
+<!-- INITIAL CONNECT / API KEY MODAL -->
+<div class="modal-backdrop hidden" id="connectModal">
+  <div class="modal-box">
+    <h2>🤖 Connect MYRA AI Brain</h2>
+    <p class="modal-desc">
+      To activate MYRA on your laptop, enter your free Google Gemini API key below.
+      The key is tested and saved securely on your laptop only.
+    </p>
+    <div>
+      <label class="field-label">Gemini API Key (Free or Paid Tier)</label>
+      <input type="password" id="welcomeGeminiKey" class="input" placeholder="Paste your Gemini key (starts with AIza…)" autocomplete="off">
+    </div>
+    <div>
+      <label class="field-label">AI Model Preference</label>
+      <select id="welcomeModelSelect" class="input" style="margin-bottom: 6px;">
+        <option value="auto">✨ Auto-Detect (Works with any Free or Paid key)</option>
+        <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (Recommended)</option>
+        <option value="gemini-1.5-pro">💎 Gemini 1.5 Pro (Paid / Pro keys)</option>
+        <option value="gemini-2.0-flash">🚀 Gemini 2.0 Flash</option>
+      </select>
+    </div>
+    <div>
+      <label class="field-label">Groq API Key (Optional Backup — Free)</label>
+      <input type="password" id="welcomeGroqKey" class="input" placeholder="Paste your Groq key (optional, starts with gsk_…)" autocomplete="off">
+    </div>
+    <div>
+      <label class="field-label">Groq Model Preference</label>
+      <select id="welcomeGroqModelSelect" class="input" style="margin-bottom: 6px;">
+        <option value="auto">✨ Auto-Detect (Fastest &amp; best Groq model)</option>
+        <option value="llama-3.3-70b-versatile">⚡ Llama 3.3 70B Versatile (Recommended)</option>
+        <option value="llama-3.1-8b-instant">🚀 Llama 3.1 8B Instant (Ultra-fast)</option>
+        <option value="openai/gpt-oss-120b">🧠 OpenAI GPT-OSS 120B</option>
+        <option value="qwen/qwen3.8-27b">🌐 Qwen 3.8 27B</option>
+      </select>
+    </div>
+    <div id="welcomeStatus" class="hint" style="margin: 0; min-height: 20px;"></div>
+    <div class="modal-actions">
+      <a href="https://aistudio.google.com" target="_blank" rel="noopener" class="top-link" style="margin-right:auto;align-self:center">🔑 Get Free Key</a>
+      <button class="btn" id="welcomeLaterBtn" style="background:transparent;border:1px solid var(--panel-border)">Later</button>
+      <button class="btn btn-send" id="welcomeConnectBtn" style="padding: 9px 20px;">⚡ Connect &amp; Activate</button>
+    </div>
+  </div>
+</div>
+
+<!-- MANDATORY / AUTO-UPDATE MODAL -->
+<div class="modal-backdrop hidden" id="updateModal">
+  <div class="modal-box">
+    <h2>🚀 MYRA Update Required</h2>
+    <p class="modal-desc" id="updateModalDesc">
+      A newer version of MYRA is published on GitHub.
+      Updates ensure you have the latest AI enhancements, memory optimizations, and security fixes.
+    </p>
+    <div class="input-row" style="background:rgba(2,16,12,0.6);padding:10px;border-radius:8px;font-size:12px;">
+      <div>Current version: <b id="updateCurrentVer">...</b></div>
+      <div style="margin-left:auto;">Latest on GitHub: <b id="updateLatestVer" style="color:var(--accent);">...</b></div>
+    </div>
+    <div id="updateProgressMsg" class="hint" style="color:var(--accent);"></div>
+    <div class="modal-actions">
+      <button class="btn btn-send" id="applyUpdateBtn" style="width:100%;padding:12px;">⬇️ Update MYRA Now</button>
+    </div>
+  </div>
+</div>
+
+<!-- CINEMATIC FIRST-RUN ONBOARDING MODAL -->
+<div class="onboard-backdrop hidden" id="onboardModal">
+  <div class="onboard-card">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div class="onboard-avatar-hero" style="flex:1; margin-right:12px;">
+        <div class="onboard-glow-orb"></div>
+        <div>
+          <h2 style="margin:0 0 2px 0; font-family:'Orbitron',sans-serif; color:var(--accent); font-size:17px;">
+            Welcome to MYRA — Desktop AI Companion
+          </h2>
+          <p style="margin:0; font-size:12px; color:var(--text); line-height:1.4;" id="onboardHeroVoiceText">
+            "Hello! I am your personal desktop assistant. Choose your language and voice to begin."
+          </p>
+        </div>
+      </div>
+      <button class="icon-btn" id="onboardCloseBtn" title="Close / Skip for now" style="font-size:18px;">✕</button>
+    </div>
+
+    <div class="onboard-steps">
+      <div>
+        <label class="field-label" style="color:var(--accent); font-weight:700;">🌐 Choose Language (প্রথমেই আপনার ভাষা নির্বাচন করুন)</label>
+        <select id="onboardLangSelect" class="input" style="margin-bottom:10px; font-weight:600;">
+          <option value="bn-BD">🇧🇩 বাংলা (Bengali - বাংলাদেশ / ভারত)</option>
+          <option value="en-US">🇺🇸 English (Global / US / UK)</option>
+          <option value="hi-IN">🇮🇳 हिन्दी (Hindi)</option>
+          <option value="es-ES">🇪🇸 Español (Spanish)</option>
+          <option value="ar-SA">🇸🇦 العربية (Arabic)</option>
+          <option value="fr-FR">🇫🇷 Français (French)</option>
+          <option value="de-DE">🇩🇪 Deutsch (German)</option>
+          <option value="ja-JP">🇯🇵 日本語 (Japanese)</option>
+        </select>
+
+        <label class="field-label">Speech Style (কণ্ঠস্বরের ধরণ)</label>
+        <select id="onboardVoiceStyle" class="input" style="margin-bottom:10px;">
+          <option value="gentle">🌸 Sweet &amp; Gentle (কোমল ও মধুর — Human Intimacy)</option>
+          <option value="whisper">🤫 Whispering (ফিসফিসিয়ে মিষ্টি কথা — Ultra-Soft Whisper)</option>
+          <option value="chat">💬 Natural Conversational (স্বাভাবিক আলাপ)</option>
+          <option value="jarvis">🎩 JARVIS Butler (স্পষ্ট ও নির্ভরযোগ্য)</option>
+        </select>
+
+        <label class="field-label">Your Name (আপনার নাম)</label>
+        <input type="text" id="onboardUserName" class="input" placeholder="e.g. Saidul" maxlength="24">
+      </div>
+
+      <div>
+        <label class="field-label">Assistant Name (অ্যাসিস্ট্যান্টের নাম)</label>
+        <input type="text" id="onboardAiName" class="input" value="MYRA" maxlength="16" style="margin-bottom:10px;">
+
+        <label class="field-label">Choose Initial Persona</label>
+        <select id="onboardPersonaSelect" class="input" style="margin-bottom:10px;">
+          <option value="female">♀ Female — Sweet Companion (Warm, Caring, Storyteller)</option>
+          <option value="male">♂ Male — JARVIS Butler (Sharp, Witty, Professional)</option>
+          <option value="core">⬢ Core — Hyper-Intelligent Objective AI</option>
+        </select>
+
+        <label class="field-label">Gemini API Key (Optional — free)</label>
+        <input type="password" id="onboardApiKey" class="input" placeholder="Paste AIza... key or skip for offline mode">
+      </div>
+    </div>
+
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; flex-wrap:wrap; gap:8px;">
+      <button class="top-link" id="onboardVoiceTestBtn" style="font-size:12px;">🔊 Hear Greeting Voice</button>
+      <div style="display:flex; gap:10px; margin-left:auto;">
+        <button class="btn" id="onboardSkipBtn" style="background:transparent; border:1px solid rgba(var(--accent-rgb), 0.3); font-size:12px;">
+          ⚡ Skip &amp; Use Offline Mode
+        </button>
+        <button class="btn btn-send" id="onboardStartBtn" style="padding:10px 24px; font-weight:700;">
+          🚀 ENTER MYRA DESKTOP
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MOBILE PHONE LINK (QR) MODAL -->
+<div class="modal-backdrop hidden" id="mobileLinkModal">
+  <div class="qr-modal-box">
+    <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+      <h3 style="margin:0; font-family:'Orbitron',sans-serif; color:var(--accent); font-size:16px;">📱 Connect Mobile Phone</h3>
+      <button class="icon-btn" id="mobileLinkCloseBtn" style="font-size:16px;">✕</button>
+    </div>
+    <p style="margin:0; font-size:12px; color:var(--text); line-height:1.4;">
+      Scan this QR code with your phone camera or mobile browser (must be connected to the same Wi-Fi network) to control MYRA on your laptop!
+    </p>
+    <div class="qr-container" id="phoneQrContainer">
+      <div id="phoneQrBox"></div>
+    </div>
+    <div class="mobile-url-chip" id="mobileUrlDisplay">Loading network address...</div>
+    <div style="display:flex; gap:10px; width:100%;">
+      <button class="btn" id="copyMobileUrlBtn" style="flex:1; padding:8px 12px; font-size:12px;">📋 Copy Link</button>
+      <button class="btn btn-send" id="mobileLinkDoneBtn" style="flex:1; padding:8px 12px; font-size:12px;">Done</button>
+    </div>
+  </div>
+</div>
 
 <div id="toast" class="toast hidden"></div>
 

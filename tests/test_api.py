@@ -14,6 +14,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
+import api_v1  # noqa: E402
 import config  # noqa: E402
 import server  # noqa: E402
 import service as service_module  # noqa: E402
@@ -39,12 +40,10 @@ class ApiIntegrationTests(unittest.TestCase):
         registry = build_default_registry(memory)
         self.service = MyraService(memory_store=memory, registry=registry)
 
-        self.old_get_service = server.get_service
-        self.old_host = server.HOST
+        self.old_get_service = api_v1.get_service
         self.old_env_path = config.ENV_PATH
         self.old_env_example = config.ENV_EXAMPLE
-        server.get_service = lambda: self.service
-        server.HOST = "127.0.0.1"
+        api_v1.get_service = lambda: self.service
         config.ENV_PATH = self.root / ".env"
         config.ENV_EXAMPLE = self.root / "missing.env.example"
 
@@ -59,8 +58,7 @@ class ApiIntegrationTests(unittest.TestCase):
         self.http.shutdown()
         self.http.server_close()
         self.thread.join(timeout=3)
-        server.get_service = self.old_get_service
-        server.HOST = self.old_host
+        api_v1.get_service = self.old_get_service
         config.ENV_PATH = self.old_env_path
         config.ENV_EXAMPLE = self.old_env_example
         if self.old_gemini_env is not None:

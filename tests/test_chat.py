@@ -119,6 +119,125 @@ class ChatTests(unittest.TestCase):
         self.assertTrue(result["fallback"])
         self.assertEqual(result["reply"], "Backup brain is here.")
 
+    def test_gemini_auto_model_discovery(self):
+        def fake_discovery_opener(request, timeout):
+            if "models" in request.full_url:
+                return FakeResponse({
+                    "models": [
+                        {"name": "models/gemini-pro", "supportedGenerationMethods": ["generateContent"]},
+                        {"name": "models/gemini-1.5-pro", "supportedGenerationMethods": ["generateContent"]},
+                        {"name": "models/gemini-1.5-flash", "supportedGenerationMethods": ["generateContent"]},
+                        {"name": "models/embedding-001", "supportedGenerationMethods": ["embedContent"]},
+                    ]
+                })
+            return FakeResponse({})
+
+        models = chat.discover_gemini_models("test-key-123", opener=fake_discovery_opener)
+        self.assertIn("gemini-1.5-flash", models)
+        self.assertIn("gemini-1.5-pro", models)
+        self.assertNotIn("embedding-001", models)
+        # Verify 1.5-flash is prioritized first
+        self.assertEqual(models[0], "gemini-1.5-flash")
+
+    def test_gemini_fallback_on_model_unavailable(self):
+        attempts = []
+
+        def fallback_opener(request, timeout):
+            attempts.append(request.full_url)
+            if "gemini-1.5-flash" in request.full_url:
+                # Simulate 404 model not found
+                import urllib.error
+                raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, None)
+            if "gemini-1.5-pro" in request.full_url:
+                return FakeResponse({
+                    "candidates": [{"content": {"parts": [{"text": "Hello from Gemini 1.5 Pro!"}]}}]
+                })
+            raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, None)
+
+        with patch.object(chat, "_models_for", return_value=("gemini-1.5-flash", "gemini-1.5-pro")), patch.object(
+            chat.config, "gemini_key", return_value="fake-gemini-key"
+        ), patch.object(chat.config, "groq_key", return_value=""):
+            result = chat.get_reply(self.payload(), opener=fallback_opener)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["model"], "gemini-1.5-pro")
+        self.assertEqual(result["reply"], "Hello from Gemini 1.5 Pro!")
+        self.assertEqual(len(attempts), 2)
+
+    def test_groq_auto_model_discovery(self):
+        def fake_groq_opener(request, timeout):
+            if "openai/v1/models" in request.full_url:
+                return FakeResponse({
+                    "data": [
+                        {"id": "whisper-large-v3"},
+                        {"id": "gemma2-9b-it"},
+                        {"id": "llama-3.1-8b-instant"},
+                        {"id": "llama-3.3-70b-versatile"},
+                        {"id": "distil-whisper"},
+                    ]
+                })
+            return FakeResponse({})
+
+        models = chat.discover_groq_models("fake-groq-key-discovery", opener=fake_groq_opener)
+        self.assertIn("llama-3.3-70b-versatile", models)
+        self.assertIn("llama-3.1-8b-instant", models)
+        self.assertIn("gemma2-9b-it", models)
+        self.assertNotIn("whisper-large-v3", models)
+        self.assertNotIn("distil-whisper", models)
+        # Verify llama-3.3-70b-versatile is prioritized first
+        self.assertEqual(models[0], "llama-3.3-70b-versatile")
+
+    def test_gemini_fallback_on_provider_busy(self):
+        attempts = []
+
+        def fallback_opener(request, timeout):
+            attempts.append(request.full_url)
+            import urllib.error
+            if "gemini-1.5-flash" in request.full_url:
+                # 503 Provider Busy / overloaded
+                raise urllib.error.HTTPError(request.full_url, 503, "Service Unavailable", {}, None)
+            if "gemini-1.5-pro" in request.full_url:
+                return FakeResponse({
+                    "candidates": [{"content": {"parts": [{"text": "Hello from Gemini 1.5 Pro!"}]}}]
+                })
+            raise urllib.error.HTTPError(request.full_url, 503, "Service Unavailable", {}, None)
+
+        with patch.object(chat, "_models_for", return_value=("gemini-1.5-flash", "gemini-1.5-pro")), patch.object(
+            chat.config, "gemini_key", return_value="fake-gemini-key"
+        ), patch.object(chat.config, "groq_key", return_value=""):
+            result = chat.get_reply(self.payload(), opener=fallback_opener)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["model"], "gemini-1.5-pro")
+        self.assertEqual(result["reply"], "Hello from Gemini 1.5 Pro!")
+        self.assertEqual(len(attempts), 2)
+
+    def test_seamless_failover_gemini_to_groq_on_503(self):
+        calls = []
+
+        def opener(request, timeout):
+            calls.append(request.full_url)
+            import urllib.error
+            if "generativelanguage.googleapis.com" in request.full_url:
+                # All Gemini models overloaded
+                raise urllib.error.HTTPError(request.full_url, 503, "Service Unavailable", {}, None)
+            if "api.groq.com" in request.full_url:
+                return FakeResponse({
+                    "choices": [{"message": {"content": "Groq took over seamlessly."}}]
+                })
+            raise urllib.error.HTTPError(request.full_url, 500, "Internal Server Error", {}, None)
+
+        with patch.object(chat, "_models_for", side_effect=lambda p, *args, **kw: ("gemini-1.5-flash",) if p == "gemini" else ("llama-3.3-70b-versatile",)), patch.object(
+            chat.config, "gemini_key", return_value="fake-gemini-key"
+        ), patch.object(chat.config, "groq_key", return_value="fake-groq-key"):
+            result = chat.get_reply(self.payload(), opener=opener)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["provider"], "groq")
+        self.assertTrue(result["fallback"])
+        self.assertEqual(result["reply"], "Groq took over seamlessly.")
+        self.assertIn("temporarily unavailable", result.get("notice", ""))
+
 
 if __name__ == "__main__":
     unittest.main()

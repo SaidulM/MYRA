@@ -1,14 +1,14 @@
-"""MYRA — local settings & API keys.
+"""MYRA — local settings & API keys (multi-provider).
 
 Secrets prefer the operating-system credential store when the optional
 ``keyring`` package is available (Windows Credential Manager on Windows).
-The existing private ``.env`` file remains a no-dependency fallback for
-the current lightweight install. Security rules:
+The private ``.env`` file remains the no-dependency fallback and also stores
+non-secret model choices. Security rules:
 
 * Real key values are used by the backend only.
-* The UI never receives a full key back — `key_status()` returns
-  only "is it set?" plus a masked tail like ``••••a1b2``.
-* `.env` stays out of Git (see .gitignore).
+* The UI never receives a full key back — ``key_status()`` returns only
+  "is it set?" plus a masked tail like ``••••a1b2``.
+* ``.env`` stays out of Git (see .gitignore).
 """
 import os
 from pathlib import Path
@@ -17,16 +17,34 @@ ROOT = Path(__file__).resolve().parent.parent
 ENV_PATH = ROOT / ".env"
 ENV_EXAMPLE = ROOT / ".env.example"
 
+# Provider key names
 GEMINI = "GEMINI_API_KEY"
 GROQ = "GROQ_API_KEY"
+OPENROUTER = "OPENROUTER_API_KEY"
+OPENAI = "OPENAI_API_KEY"
+ANTHROPIC = "ANTHROPIC_API_KEY"
+DEEPSEEK = "DEEPSEEK_API_KEY"
+MISTRAL = "MISTRAL_API_KEY"
+OLLAMA_URL = "OLLAMA_URL"
+
+_SECRET_ENV_NAMES = {
+    GEMINI,
+    GROQ,
+    OPENROUTER,
+    OPENAI,
+    ANTHROPIC,
+    DEEPSEEK,
+    MISTRAL,
+}
+SECRET_SERVICE = "MYRA"
 
 
 def load_env():
     """Parse the .env file into a dict (missing file -> empty dict)."""
     values = {}
     try:
-        with open(ENV_PATH, "r", encoding="utf-8") as f:
-            for line in f:
+        with open(ENV_PATH, "r", encoding="utf-8") as handle:
+            for line in handle:
                 line = line.strip()
                 if not line or line.startswith("#") or "=" not in line:
                     continue
@@ -42,10 +60,6 @@ def get(name, default=""):
     if os.environ.get(name):
         return os.environ[name]
     return load_env().get(name, default)
-
-
-SECRET_SERVICE = "MYRA"
-_SECRET_ENV_NAMES = {GEMINI, GROQ}
 
 
 def _keyring_module():
@@ -125,20 +139,34 @@ def _mask(value):
     return "••••" + value[-4:]
 
 
+def _secret_status(name, model):
+    value = effective_secret(name)
+    return {
+        "set": bool(value),
+        "masked": _mask(value),
+        "model": model,
+        "storage": secret_source(name),
+    }
+
+
 def key_status():
     """What the settings UI is allowed to know — never the full keys."""
-    gemini = effective_secret(GEMINI)
-    groq = effective_secret(GROQ)
     return {
-        "gemini": {
-            "set": bool(gemini),
-            "masked": _mask(gemini),
-            "storage": secret_source(GEMINI),
-        },
-        "groq": {
-            "set": bool(groq),
-            "masked": _mask(groq),
-            "storage": secret_source(GROQ),
+        "gemini": _secret_status(GEMINI, get("GEMINI_MODEL", "auto") or "auto"),
+        "groq": _secret_status(GROQ, get("GROQ_MODEL", "auto") or "auto"),
+        "openrouter": _secret_status(OPENROUTER, get("OPENROUTER_MODEL", "auto") or "auto"),
+        "openai": _secret_status(OPENAI, get("OPENAI_MODEL", "gpt-4o-mini") or "gpt-4o-mini"),
+        "anthropic": _secret_status(
+            ANTHROPIC, get("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022") or "claude-3-5-haiku-20241022"
+        ),
+        "deepseek": _secret_status(DEEPSEEK, get("DEEPSEEK_MODEL", "deepseek-chat") or "deepseek-chat"),
+        "mistral": _secret_status(
+            MISTRAL, get("MISTRAL_MODEL", "mistral-small-latest") or "mistral-small-latest"
+        ),
+        "ollama": {
+            "set": bool(get("OLLAMA_MODEL", "")),
+            "url": get(OLLAMA_URL, "http://127.0.0.1:11434"),
+            "model": get("OLLAMA_MODEL", ""),
         },
         "secret_backend": secret_backend(),
     }
@@ -170,23 +198,55 @@ def _save_env_values(updates):
     os.replace(tmp, ENV_PATH)
 
 
-def save_keys(gemini=None, groq=None):
-    """Save/remove API keys and return masked status.
-
-    ``None`` leaves a key untouched; ``""`` removes it everywhere.  When
-    an OS credential store is available, new non-empty keys are stored
-    there and any old plaintext copy is blanked from ``.env``.
-    """
+def save_keys(
+    gemini=None,
+    groq=None,
+    gemini_model=None,
+    groq_model=None,
+    openrouter=None,
+    openrouter_model=None,
+    openai=None,
+    openai_model=None,
+    anthropic=None,
+    anthropic_model=None,
+    deepseek=None,
+    deepseek_model=None,
+    mistral=None,
+    mistral_model=None,
+    ollama_url=None,
+    ollama_model=None,
+):
+    """Update provider secrets/settings and return masked status."""
     updates = {}
-    if gemini is not None:
-        updates[GEMINI] = gemini.strip()
-    if groq is not None:
-        updates[GROQ] = groq.strip()
+    if gemini is not None: updates[GEMINI] = gemini.strip()
+    if groq is not None: updates[GROQ] = groq.strip()
+    if gemini_model is not None: updates["GEMINI_MODEL"] = gemini_model.strip()
+    if groq_model is not None: updates["GROQ_MODEL"] = groq_model.strip()
+
+    if openrouter is not None: updates[OPENROUTER] = openrouter.strip()
+    if openrouter_model is not None: updates["OPENROUTER_MODEL"] = openrouter_model.strip()
+
+    if openai is not None: updates[OPENAI] = openai.strip()
+    if openai_model is not None: updates["OPENAI_MODEL"] = openai_model.strip()
+
+    if anthropic is not None: updates[ANTHROPIC] = anthropic.strip()
+    if anthropic_model is not None: updates["ANTHROPIC_MODEL"] = anthropic_model.strip()
+
+    if deepseek is not None: updates[DEEPSEEK] = deepseek.strip()
+    if deepseek_model is not None: updates["DEEPSEEK_MODEL"] = deepseek_model.strip()
+
+    if mistral is not None: updates[MISTRAL] = mistral.strip()
+    if mistral_model is not None: updates["MISTRAL_MODEL"] = mistral_model.strip()
+
+    if ollama_url is not None: updates[OLLAMA_URL] = ollama_url.strip()
+    if ollama_model is not None: updates["OLLAMA_MODEL"] = ollama_model.strip()
 
     env_updates = {}
     use_keyring = _keyring_module() is not None
     for name, value in updates.items():
-        if not value:
+        if name not in _SECRET_ENV_NAMES:
+            env_updates[name] = value
+        elif not value:
             if use_keyring:
                 _keyring_set(name, "")
             env_updates[name] = ""
@@ -201,10 +261,14 @@ def save_keys(gemini=None, groq=None):
     return key_status()
 
 
-# Used by the backend brain from Stage 3 onwards.
-def gemini_key():
-    return effective_secret(GEMINI)
-
-
-def groq_key():
-    return effective_secret(GROQ)
+# Accessors used across the backend. Secrets use environment ->
+# OS credential store -> private .env; model/URL settings use get().
+def gemini_key(): return effective_secret(GEMINI)
+def groq_key(): return effective_secret(GROQ)
+def openrouter_key(): return effective_secret(OPENROUTER)
+def openai_key(): return effective_secret(OPENAI)
+def anthropic_key(): return effective_secret(ANTHROPIC)
+def deepseek_key(): return effective_secret(DEEPSEEK)
+def mistral_key(): return effective_secret(MISTRAL)
+def ollama_url(): return get(OLLAMA_URL, "http://127.0.0.1:11434")
+def ollama_model(): return get("OLLAMA_MODEL", "")

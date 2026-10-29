@@ -2,6 +2,8 @@
 
 Checked: 29 October 2026.
 
+> Integration update: `main` advanced in parallel with a larger web feature set while Core 2.0 was being built. The merge preserves MAIN's web modules/UI and adds Core 2.0 beside them as `core_memory.py`, `core_agent.py`, `service.py`, `providers.py`, `skill_registry.py` and `/api/v1`. References below to “before Core 2.0” describe the base inspected before that integration; `docs/ARCHITECTURE.md` describes the merged boundaries.
+
 ## Owner-supplied GitHub Gists
 
 | Reference | Actual supplied content | What is proven | What is not proven |

@@ -83,6 +83,12 @@ class MyraService:
             "personality": payload.get("personality", "Balanced"),
             "memory_context": memory_context,
             "models": self.memory.get_preference("provider_models", {}) or {},
+            # Core Chat is conversation only. Legacy local-intent execution
+            # and silent memory extraction stay off here; computer work is
+            # routed through the confirmable Core Agent instead.
+            "allow_local_intent": False,
+            "auto_learn": False,
+            "include_legacy_memory": False,
         }
         result = chat.get_reply(chat_payload)
         assistant_message = self.memory.add_message(

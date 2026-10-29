@@ -8,7 +8,7 @@
                    └──────────┬────────────┘
                               │ local HTTP (loopback by default)
                     ┌─────────▼─────────┐
-                    │ backend/server.py │  legacy API + /api/v1
+                    │ server.py+api_v1.py│ legacy API + /api/v1
                     └─────────┬─────────┘
                     ┌─────────▼─────────┐
                     │ backend/service.py│  UI-independent service layer
@@ -31,9 +31,19 @@
                     └───────────────────┘
 ```
 
+## Main integration note (Oct 2026)
+
+Core 2.0 was merged beside the newer `main` web experience rather than replacing it:
+
+- The main web UI continues to use its legacy routes/modules (`backend/memory.py`, `backend/notes.py`, `backend/agent.py`, `backend/skills_manager.py`, etc.).
+- The native desktop and `/api/v1` use the Core modules (`backend/core_memory.py`, `backend/core_agent.py`, `backend/service.py`, `backend/skill_registry.py`).
+- The legacy web database (`data/myra.db`) and Core app-data database are currently separate. A lossless migration/unification is a later step; do not assume a note or memory created in one surface automatically appears in the other yet.
+- Core Chat calls the shared provider layer with legacy local-intent execution, silent auto-learning and legacy-memory injection disabled. The older web chat retains its existing behavior for compatibility, so its local actions are not the same confirmation boundary as Core Agent Mode.
+- The shared legacy chat supports MAIN's wider provider list for text chat. The Core tool planner/vision capability registry only advertises the implemented Gemini/Groq adapters.
+
 ## Boundaries
 
-- **Chat Mode** cannot execute tools. It uses persistent conversations and a small amount of relevant local memory supplied by MYRA.
+- **Core Chat Mode** cannot execute tools. It uses persistent conversations and a small amount of relevant local memory supplied by MYRA.
 - **Agent Mode** may request only registered, enabled skills. MYRA validates every argument, executes one skill at a time, records the observation and verifies built-in results where possible.
 - Write/launch/open skills require confirmation unless the user explicitly approved that skill for the current task or chose the task-wide approval mode.
 - Built-in file skills are restricted to `%LOCALAPPDATA%\MYRA\workspace` on Windows. They refuse traversal and absolute paths.
@@ -56,7 +66,7 @@ Default Windows data path:
 
 ## Secrets
 
-When the optional `keyring` package has a working backend, new Gemini/Groq keys are saved in the OS credential store and blanked from `.env`. Without it, MYRA keeps the previous private `.env` behavior. API/UI status only receives `set`, a masked tail and the storage type.
+When the optional `keyring` package has a working backend, provider keys from the integrated settings layer are saved in the OS credential store and any old plaintext copy is blanked from `.env`. Without it, MYRA keeps the private `.env` behavior. Effective secret lookup is environment → credential store → `.env`. API/UI status only receives `set`, a masked tail and the storage type; model names and other non-secret settings remain in `.env`.
 
 ## API v1 groups
 
@@ -76,8 +86,8 @@ If the server is not bound to loopback, state-changing/private API v1 calls requ
 
 | Capability | Status in Core 2.0 foundation |
 |---|---|
-| Persistent chat/memory/notes | Implemented with SQLite |
-| Gemini/Groq text chat | Existing real APIs retained |
+| Persistent Core chat/memory/notes | Implemented with the Core SQLite store; legacy web store remains separate for now |
+| Text chat | MAIN's multi-provider legacy chat retained; Core Chat uses the shared layer with legacy side effects disabled |
 | Provider tool calling | Gemini/Groq adapters implemented; real keys still owner-tested |
 | Agent Mode | Implemented for safe registered skills, bounded and confirmable |
 | One screenshot/image frame | Gemini service implemented; native desktop can send one explicit frame |

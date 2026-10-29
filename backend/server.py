@@ -1,509 +1,440 @@
-"""MYRA — local backend server.
+"""MYRA — Unified Backend Server.
 
-Uses only Python's standard library so it runs anywhere Python 3 runs.
-
-* Serves the existing web UI from ../ui.
-* Keeps the original Stage 2/3 endpoints for compatibility.
-* Adds the service-oriented `/api/v1` API used by the native desktop app:
-  persistent chat, memories, notes, skills, bounded Agent Mode, explicit
-  one-frame vision, providers, backup/export and voice-model status.
-
-Environment:
-    MYRA_HOST / MYRA_PORT  bind address (defaults: 127.0.0.1:8765)
-    MYRA_API_TOKEN          optional token; required for state-changing
-                            API v1 calls when MYRA_HOST is not loopback.
+Lightweight Python standard library server powering UI, API routes,
+local memory (SQLite), notes, skills, agent tasks, news feeds,
+and auto-update detection.
 """
+from __future__ import annotations
+
 import json
 import os
-import traceback
+import socket
+import sys
+import threading
+import time
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, urlparse
 
-import chat
-import config
-from service import APP_VERSION, get_service
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
-UI_DIR = Path(__file__).resolve().parent.parent / "ui"
-HOST = os.environ.get("MYRA_HOST", "127.0.0.1")
-PORT = int(os.environ.get("MYRA_PORT", "8765"))
-STAGE = 3
-STAGE_LABEL = "Stage 3 chat + Core 2.0 foundation"
+import agent  # noqa: E402
+from api_v1 import CoreApiMixin  # noqa: E402
+import chat  # noqa: E402
+import config  # noqa: E402
+import memory  # noqa: E402
+import news  # noqa: E402
+import notes  # noqa: E402
+import reminders  # noqa: E402
+import skills_manager  # noqa: E402
+
+try:
+    import voice_studio  # noqa: E402
+except Exception:
+    voice_studio = None
+
+try:
+    import launcher
+except Exception:
+    launcher = None
+
+UI_DIR = ROOT / "ui"
+
+# Loopback is the safe default. Set MYRA_HOST=0.0.0.0 explicitly only when
+# the owner intentionally wants LAN/mobile access on a trusted network.
+HOST = config.get("MYRA_HOST", config.get("STONIC_HOST", "127.0.0.1"))
+PORT = int(config.get("MYRA_PORT", config.get("STONIC_PORT", "8765")))
+
+MAX_BODY = 1024 * 1024
+MAX_CHAT_BODY = 10 * 1024 * 1024
 
 
-class MyraHandler(SimpleHTTPRequestHandler):
-    server_version = "MYRA/2.0-foundation"
+def get_local_ip() -> str:
+    """Detect LAN IPv4 address for mobile QR pairing."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
 
-    # ---------- helpers ----------
-    def _send_json(self, payload, status=200):
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(body)
 
-    def _read_json(self, max_bytes=64_000, optional=False):
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            self._send_json({"ok": False, "error": "Bad Content-Length."}, status=400)
-            return None
-        if length == 0 and optional:
-            return {}
-        if length <= 0 or length > max_bytes:
-            self._send_json(
-                {"ok": False, "error": f"Request body must be 1..{max_bytes} bytes."},
-                status=400,
-            )
-            return None
-        try:
-            payload = json.loads(self.rfile.read(length).decode("utf-8"))
-        except (ValueError, UnicodeDecodeError):
-            self._send_json({"ok": False, "error": "Request body is not valid JSON."}, status=400)
-            return None
-        if not isinstance(payload, dict):
-            self._send_json({"ok": False, "error": "JSON body must be an object."}, status=400)
-            return None
-        return payload
+class MyraHandler(CoreApiMixin, SimpleHTTPRequestHandler):
+    """Serves ui/ and answers legacy /api/* plus Core /api/v1/* routes."""
 
-    def _health(self):
-        return {
-            "ok": True,
-            "app": "MYRA",
-            "stage": STAGE,
-            "stage_label": STAGE_LABEL,
-            "api_v1": True,
-        }
+    server_version = "MYRA/Core2"
 
-    def _api_v1_authorized(self, method, clean_path):
-        token = config.get("MYRA_API_TOKEN").strip()
-        if token:
-            return self.headers.get("X-MYRA-Token", "") == token
-        if HOST in {"127.0.0.1", "localhost", "::1"}:
-            return True
-        # Public read-only status is safe; anything that can read private
-        # history or cause an action is refused on a non-loopback bind
-        # unless the owner configured a token.
-        return method == "GET" and clean_path in {
-            "/api/v1/health",
-            "/api/v1/providers",
-            "/api/v1/skills",
-        }
-
-    def _api_v1_full_access(self):
-        token = config.get("MYRA_API_TOKEN").strip()
-        if token:
-            return self.headers.get("X-MYRA-Token", "") == token
-        return HOST in {"127.0.0.1", "localhost", "::1"}
-
-    # ---------- API v1 ----------
-    def _handle_api_v1(self, method):
-        parsed = urlparse(self.path)
-        clean_path = parsed.path.rstrip("/") or "/"
-        query = {key: values[-1] for key, values in parse_qs(parsed.query).items()}
-        parts = [unquote(part) for part in clean_path.split("/") if part]
-
-        if not self._api_v1_authorized(method, clean_path):
-            self._send_json(
-                {
-                    "ok": False,
-                    "code": "api_token_required",
-                    "error": "API v1 action endpoints require loopback binding or MYRA_API_TOKEN.",
-                },
-                status=401,
-            )
-            return
-
-        try:
-            service = get_service()
-
-            # Health / providers
-            if method == "GET" and clean_path == "/api/v1/health":
-                if self._api_v1_full_access():
-                    self._send_json(service.health())
-                else:
-                    # Public health must not leak local filesystem paths.
-                    self._send_json(
-                        {"ok": True, "app": "MYRA", "version": APP_VERSION, "api_v1": True}
-                    )
-                return
-            if method == "GET" and clean_path == "/api/v1/providers":
-                self._send_json({"ok": True, "providers": service.providers()})
-                return
-
-            # Preferences (never secrets)
-            if clean_path == "/api/v1/preferences" and method == "GET":
-                self._send_json({"ok": True, "preferences": service.memory.all_preferences()})
-                return
-            if len(parts) == 4 and parts[:3] == ["api", "v1", "preferences"] and method in {"PUT", "PATCH"}:
-                key = parts[3]
-                lowered = key.lower()
-                if any(word in lowered for word in ("secret", "token", "password", "api_key", "apikey")):
-                    self._send_json(
-                        {"ok": False, "error": "Secrets cannot be stored as preferences."},
-                        status=400,
-                    )
-                    return
-                payload = self._read_json(32_000)
-                if payload is None:
-                    return
-                value = service.memory.set_preference(key, payload.get("value"))
-                self._send_json({"ok": True, "key": key, "value": value})
-                return
-
-            # Conversations / persistent chat
-            if clean_path == "/api/v1/conversations" and method == "GET":
-                conversations = service.memory.list_conversations(
-                    limit=int(query.get("limit", 50)),
-                    include_archived=query.get("archived") == "1",
-                )
-                self._send_json({"ok": True, "conversations": conversations})
-                return
-            if clean_path == "/api/v1/conversations" and method == "POST":
-                payload = self._read_json(8_000, optional=True)
-                if payload is None:
-                    return
-                conversation = service.create_conversation(
-                    title=payload.get("title", "New conversation"),
-                    character=payload.get("character", "core"),
-                )
-                self._send_json({"ok": True, "conversation": conversation}, status=201)
-                return
-            if len(parts) == 4 and parts[:3] == ["api", "v1", "conversations"]:
-                conversation_id = parts[3]
-                if method == "GET":
-                    conversation = service.memory.get_conversation(conversation_id)
-                    if not conversation:
-                        raise KeyError("conversation not found")
-                    conversation["messages"] = service.memory.list_messages(conversation_id)
-                    self._send_json({"ok": True, "conversation": conversation})
-                    return
-                if method in {"PUT", "PATCH"}:
-                    payload = self._read_json(8_000)
-                    if payload is None:
-                        return
-                    conversation = service.memory.rename_conversation(
-                        conversation_id, payload.get("title", "")
-                    )
-                    self._send_json({"ok": True, "conversation": conversation})
-                    return
-                if method == "DELETE":
-                    service.memory.delete_conversation(conversation_id)
-                    self._send_json({"ok": True, "deleted": conversation_id})
-                    return
-            if clean_path == "/api/v1/chat" and method == "POST":
-                payload = self._read_json(128_000)
-                if payload is None:
-                    return
-                result = service.chat(payload)
-                self._send_json(result)
-                return
-
-            # Memories
-            if clean_path == "/api/v1/memories" and method == "GET":
-                if query.get("query"):
-                    memories = service.memory.search_memories(query["query"], limit=int(query.get("limit", 50)))
-                else:
-                    memories = service.memory.list_memories(limit=int(query.get("limit", 200)))
-                self._send_json({"ok": True, "memories": memories})
-                return
-            if clean_path == "/api/v1/memories" and method == "POST":
-                payload = self._read_json(16_000)
-                if payload is None:
-                    return
-                memory = service.memory.add_memory(
-                    payload.get("text", ""),
-                    category=payload.get("category", "general"),
-                    source="user",
-                    pinned=bool(payload.get("pinned", False)),
-                )
-                self._send_json({"ok": True, "memory": memory}, status=201)
-                return
-            if len(parts) == 4 and parts[:3] == ["api", "v1", "memories"]:
-                memory_id = int(parts[3])
-                if method in {"PUT", "PATCH"}:
-                    payload = self._read_json(16_000)
-                    if payload is None:
-                        return
-                    memory = service.memory.update_memory(
-                        memory_id,
-                        text=payload.get("text"),
-                        category=payload.get("category"),
-                        pinned=payload.get("pinned"),
-                    )
-                    self._send_json({"ok": True, "memory": memory})
-                    return
-                if method == "DELETE":
-                    service.memory.delete_memory(memory_id)
-                    self._send_json({"ok": True, "deleted": memory_id})
-                    return
-
-            # Notes
-            if clean_path == "/api/v1/notes" and method == "GET":
-                notes = service.memory.list_notes(
-                    query=query.get("query", ""), limit=int(query.get("limit", 200))
-                )
-                self._send_json({"ok": True, "notes": notes})
-                return
-            if clean_path == "/api/v1/notes" and method == "POST":
-                payload = self._read_json(64_000)
-                if payload is None:
-                    return
-                note = service.memory.create_note(payload.get("title", ""), payload.get("body", ""))
-                self._send_json({"ok": True, "note": note}, status=201)
-                return
-            if len(parts) == 4 and parts[:3] == ["api", "v1", "notes"]:
-                note_id = int(parts[3])
-                if method in {"PUT", "PATCH"}:
-                    payload = self._read_json(64_000)
-                    if payload is None:
-                        return
-                    note = service.memory.update_note(
-                        note_id, title=payload.get("title"), body=payload.get("body")
-                    )
-                    self._send_json({"ok": True, "note": note})
-                    return
-                if method == "DELETE":
-                    service.memory.delete_note(note_id)
-                    self._send_json({"ok": True, "deleted": note_id})
-                    return
-
-            # Skills
-            if clean_path == "/api/v1/skills" and method == "GET":
-                self._send_json({"ok": True, "skills": service.registry.list()})
-                return
-            if len(parts) == 5 and parts[:3] == ["api", "v1", "skills"] and method == "POST":
-                skill_id, action = parts[3], parts[4]
-                if action == "enabled":
-                    payload = self._read_json(4_000)
-                    if payload is None:
-                        return
-                    enabled = service.registry.set_enabled(skill_id, bool(payload.get("enabled")))
-                    self._send_json({"ok": True, "skill_id": skill_id, "enabled": enabled})
-                    return
-                if action == "run":
-                    payload = self._read_json(64_000)
-                    if payload is None:
-                        return
-                    result = service.execute_skill(
-                        skill_id,
-                        arguments=payload.get("arguments") or {},
-                        confirmed=bool(payload.get("confirmed", False)),
-                    )
-                    self._send_json(result)
-                    return
-
-            # Agent tasks
-            if clean_path == "/api/v1/agent/tasks" and method == "GET":
-                self._send_json(
-                    {"ok": True, "tasks": service.agent.list_tasks(limit=int(query.get("limit", 50)))}
-                )
-                return
-            if clean_path == "/api/v1/agent/tasks" and method == "POST":
-                payload = self._read_json(32_000)
-                if payload is None:
-                    return
-                approved = payload.get("approved_skill_ids")
-                if approved is not None and not isinstance(approved, list):
-                    raise ValueError("approved_skill_ids must be an array")
-                task = service.agent.create_task(
-                    payload.get("goal", ""),
-                    max_steps=payload.get("max_steps", 6),
-                    approval_mode=payload.get("approval_mode", "ask"),
-                    approved_skill_ids=approved or [],
-                )
-                if payload.get("start"):
-                    task = service.agent.start_task(task["id"])
-                self._send_json({"ok": True, "task": task}, status=201)
-                return
-            if len(parts) == 5 and parts[:3] == ["api", "v1", "agent"] and parts[3] == "tasks" and method == "GET":
-                self._send_json({"ok": True, "task": service.agent.get_task(parts[4])})
-                return
-            if len(parts) == 6 and parts[:3] == ["api", "v1", "agent"] and parts[3] == "tasks" and method == "POST":
-                task_id, action = parts[4], parts[5]
-                if self._read_json(4_000, optional=True) is None:
-                    return
-                actions = {
-                    "start": service.agent.start_task,
-                    "pause": service.agent.pause_task,
-                    "resume": service.agent.resume_task,
-                    "cancel": service.agent.cancel_task,
-                    "approve": service.agent.approve_pending,
-                    "deny": service.agent.deny_pending,
-                }
-                handler = actions.get(action)
-                if not handler:
-                    self._send_json({"ok": False, "error": "Unknown agent action."}, status=404)
-                    return
-                self._send_json({"ok": True, "task": handler(task_id)})
-                return
-
-            # Explicit vision, export/backup, voice status
-            if clean_path == "/api/v1/vision/analyze" and method == "POST":
-                payload = self._read_json(9_000_000)
-                if payload is None:
-                    return
-                result = service.analyze_image(payload)
-                self._send_json({"ok": True, **result})
-                return
-            if clean_path == "/api/v1/export" and method == "GET":
-                self._send_json({"ok": True, "export": service.memory.export_data()})
-                return
-            if clean_path == "/api/v1/backup" and method == "POST":
-                if self._read_json(4_000, optional=True) is None:
-                    return
-                self._send_json({"ok": True, "backup_path": service.memory.backup()})
-                return
-            if clean_path == "/api/v1/voice/status" and method == "GET":
-                self._send_json({"ok": True, "voice": service.voice.status()})
-                return
-
-            self._send_json({"ok": False, "error": "Unknown API v1 route."}, status=404)
-        except chat.ChatError as exc:
-            self._send_json(
-                {
-                    "ok": False,
-                    "code": exc.code,
-                    "error_code": exc.code,
-                    "error": exc.message,
-                    "message": exc.message,
-                },
-                status=exc.status,
-            )
-        except KeyError as exc:
-            self._send_json({"ok": False, "error": str(exc).strip("'\"")}, status=404)
-        except PermissionError as exc:
-            self._send_json({"ok": False, "error": str(exc)}, status=403)
-        except ValueError as exc:
-            self._send_json({"ok": False, "error": str(exc)}, status=400)
-        except Exception as exc:  # keep details server-side / in local logs
-            traceback.print_exc()
-            self._send_json(
-                {"ok": False, "error": f"Internal MYRA service error: {exc.__class__.__name__}"},
-                status=500,
-            )
-
-    # ---------- HTTP verbs ----------
+    # ---------- GET ----------
     def do_GET(self):
-        clean_path = urlparse(self.path).path
-        if clean_path.startswith("/api/v1/"):
+        parsed = urlparse(self.path)
+        path = parsed.path
+        query = parse_qs(parsed.query)
+
+        if path.startswith("/api/v1/"):
             self._handle_api_v1("GET")
             return
-        if clean_path == "/api/health":
-            self._send_json(self._health())
+
+        if path == "/api/health":
+            self._send_json({
+                "status": "ok",
+                "app": "MYRA",
+                "stage": 11,
+                "version": "1.0.0",
+                "ready": True,
+                "api_v1": True,
+            })
             return
-        if clean_path in {"/api/settings/keys", "/api/settings"}:
+
+        if path in {"/api/settings", "/api/settings/keys"}:
             status = config.key_status()
-            # Flat fields keep older UI code working; "keys" is the
-            # canonical wrapper used by the native desktop client.
+            # Flat fields keep the web UI working; "keys" is used by the
+            # native desktop client and older Core clients.
             self._send_json({"ok": True, **status, "keys": status})
             return
-        if clean_path.startswith("/api/"):
-            self._send_json(
-                {"ok": False, "error": "This endpoint arrives in a later MYRA stage."},
-                status=501,
-            )
+
+        if path == "/api/memory":
+            self._send_json({
+                "ok": True,
+                "memories": memory.list_memories(),
+            })
             return
+
+        if path == "/api/notes":
+            self._send_json({
+                "ok": True,
+                "notes": notes.get_notes(),
+            })
+            return
+
+        if path == "/api/skills":
+            self._send_json({
+                "ok": True,
+                "skills": skills_manager.list_skills(),
+            })
+            return
+
+        if path == "/api/news":
+            region = query.get("region", ["all"])[0]
+            force = query.get("refresh", ["0"])[0] in {"1", "true"}
+            self._send_json(news.get_news(region=region, force_refresh=force))
+            return
+
+        if path == "/api/system/update-check":
+            current_ver = ""
+            latest_ver = None
+            update_available = False
+            error_msg = None
+
+            if launcher:
+                try:
+                    current_ver = launcher.local_version()
+                    latest_ver = launcher.fetch_latest_sha()
+                    if latest_ver and current_ver and latest_ver != current_ver:
+                        update_available = True
+                except Exception as exc:
+                    error_msg = str(exc)
+            else:
+                error_msg = "Launcher module not available"
+
+            self._send_json({
+                "ok": True,
+                "update_available": update_available,
+                "current_version": current_ver[:8] if current_ver else "local",
+                "latest_version": latest_ver[:8] if latest_ver else "unknown",
+                "error": error_msg,
+            })
+            return
+
+        if path == "/api/system/network-info":
+            local_ip = get_local_ip()
+            self._send_json({
+                "ok": True,
+                "local_ip": local_ip,
+                "port": PORT,
+                "mobile_url": f"http://{local_ip}:{PORT}",
+            })
+            return
+
+        if path == "/api/voice/status":
+            if voice_studio:
+                self._send_json(voice_studio.get_voice_status())
+            else:
+                self._send_json({"ok": True, "engine": "Browser Speech Engine", "neural": False})
+            return
+
+        if path == "/api/reminders":
+            self._send_json({"ok": True, "reminders": reminders.list_reminders()})
+            return
+
+        if path == "/api/reminders/due":
+            self._send_json({"ok": True, "due": reminders.check_due_reminders()})
+            return
+
+        if path.startswith("/api/"):
+            self._send_json({"error": "Unknown API endpoint."}, status=404)
+            return
+
         super().do_GET()
 
+    # ---------- POST ----------
     def do_POST(self):
-        clean_path = urlparse(self.path).path
-        if clean_path.startswith("/api/v1/"):
+        path = urlparse(self.path).path
+
+        if path.startswith("/api/v1/"):
             self._handle_api_v1("POST")
             return
-        if clean_path == "/api/chat":
-            payload = self._read_json(128_000)
-            if payload is None:
+
+        # 1. Chat
+        if path == "/api/chat":
+            data = self._read_json(max_bytes=MAX_CHAT_BODY)
+            if data is None:
                 return
             try:
-                result = chat.get_reply(payload)
+                result = chat.get_reply(data)
             except chat.ChatError as exc:
                 self._send_json(
                     {
                         "ok": False,
-                        "code": exc.code,
                         "error_code": exc.code,
-                        "error": exc.message,
                         "message": exc.message,
+                        "provider": exc.provider,
                     },
                     status=exc.status,
                 )
                 return
+            except Exception as exc:
+                self._send_json(
+                    {
+                        "ok": False,
+                        "error_code": "internal_error",
+                        "message": f"MYRA encountered an unexpected problem: {exc}",
+                    },
+                    status=500,
+                )
+                return
             self._send_json(result)
             return
-        if clean_path in {"/api/settings/keys", "/api/settings/remove"}:
-            payload = self._read_json()
-            if payload is None:
+
+        # 2. Key settings save
+        if path == "/api/settings/keys":
+            data = self._read_json()
+            if data is None:
                 return
-            if clean_path == "/api/settings/remove":
-                which = payload.get("which")
-                if which == "gemini":
-                    payload = {"gemini": ""}
-                elif which == "groq":
-                    payload = {"groq": ""}
-                else:
-                    self._send_json(
-                        {"ok": False, "error": "which must be 'gemini' or 'groq'."},
-                        status=400,
-                    )
-                    return
-            # Compatibility: an earlier web UI sent gemini_key/groq_key
-            # while the backend expected gemini/groq.  Accept both so a
-            # key is never silently dropped by a field-name mismatch.
-            gemini = payload.get("gemini", payload.get("gemini_key"))
-            groq = payload.get("groq", payload.get("groq_key"))
-            if gemini is not None and not isinstance(gemini, str):
-                self._send_json({"ok": False, "error": "gemini must be a string."}, status=400)
-                return
-            if groq is not None and not isinstance(groq, str):
-                self._send_json({"ok": False, "error": "groq must be a string."}, status=400)
-                return
-            status = config.save_keys(gemini=gemini, groq=groq)
+            status = config.save_keys(
+                gemini=data.get("gemini_key", data.get("gemini")),
+                groq=data.get("groq_key", data.get("groq")),
+                gemini_model=data.get("gemini_model"),
+                groq_model=data.get("groq_model"),
+                openrouter=data.get("openrouter_key", data.get("openrouter")),
+                openrouter_model=data.get("openrouter_model"),
+                openai=data.get("openai_key", data.get("openai")),
+                openai_model=data.get("openai_model"),
+                anthropic=data.get("anthropic_key", data.get("anthropic")),
+                anthropic_model=data.get("anthropic_model"),
+                deepseek=data.get("deepseek_key", data.get("deepseek")),
+                deepseek_model=data.get("deepseek_model"),
+                mistral=data.get("mistral_key", data.get("mistral")),
+                mistral_model=data.get("mistral_model"),
+                ollama_url=data.get("ollama_url"),
+                ollama_model=data.get("ollama_model"),
+            )
             self._send_json({"ok": True, **status, "keys": status})
             return
-        self._send_json(
-            {"ok": False, "error": "This endpoint arrives in a later MYRA stage."},
-            status=501,
-        )
 
-    def do_PUT(self):
-        if urlparse(self.path).path.startswith("/api/v1/"):
-            self._handle_api_v1("PUT")
+        # 2b. Ultra-Realistic Neural Voice TTS Speak endpoint
+        if path == "/api/voice/speak":
+            data = self._read_json() or {}
+            text = str(data.get("text", "")).strip()
+            character = str(data.get("character", "core"))
+            voice = data.get("voice")
+            rate = str(data.get("rate", "+0%"))
+            pitch = str(data.get("pitch", "+0Hz"))
+            style = str(data.get("style", "gentle"))
+
+            if not text or not voice_studio:
+                self._send_json({"ok": False, "error": "TTS engine not ready"}, status=400)
+                return
+
+            audio_bytes = voice_studio.synthesize_speech(
+                text, character=character, voice=voice, rate=rate, pitch=pitch, style=style
+            )
+            if audio_bytes:
+                self.send_response(200)
+                self.send_header("Content-Type", "audio/mpeg")
+                self.send_header("Content-Length", str(len(audio_bytes)))
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.end_headers()
+                self.wfile.write(audio_bytes)
+                return
+            else:
+                self._send_json({"ok": False, "fallback_to_browser": True}, status=503)
+                return
+
+        # 2b2. Safe shutdown endpoint
+        if path == "/api/system/shutdown":
+            self._send_json({"ok": True, "message": "MYRA is shutting down cleanly."})
+            threading.Thread(target=lambda: (time.sleep(1.0), os._exit(0)), daemon=True).start()
             return
-        self._send_json({"ok": False, "error": "Unknown endpoint."}, status=404)
 
-    def do_PATCH(self):
-        if urlparse(self.path).path.startswith("/api/v1/"):
-            self._handle_api_v1("PATCH")
+        # 2c. Reminders endpoints
+        if path == "/api/reminders":
+            data = self._read_json() or {}
+            text = data.get("text", "")
+            minutes = int(data.get("minutes", 10))
+            res = reminders.add_reminder(text, minutes=minutes)
+            self._send_json(res)
             return
-        self._send_json({"ok": False, "error": "Unknown endpoint."}, status=404)
 
-    def do_DELETE(self):
-        if urlparse(self.path).path.startswith("/api/v1/"):
-            self._handle_api_v1("DELETE")
+        if path == "/api/reminders/delete":
+            data = self._read_json() or {}
+            rem_id = data.get("id")
+            deleted = reminders.delete_reminder(rem_id)
+            self._send_json({"ok": deleted})
             return
-        self._send_json({"ok": False, "error": "Unknown endpoint."}, status=404)
 
-    def log_message(self, format, *args):  # keep the console quiet
+        # 3. Key verification
+        if path == "/api/settings/verify":
+            data = self._read_json()
+            if data is None:
+                return
+            gemini = data.get("gemini_key", data.get("gemini")) or config.gemini_key()
+            groq = data.get("groq_key", data.get("groq")) or config.groq_key()
+            res = chat.verify_key_connection(gemini=gemini, groq=groq)
+            self._send_json(res)
+            return
+
+        # 4. Remove saved key
+        if path == "/api/settings/remove":
+            data = self._read_json()
+            if data is None:
+                return
+            which = data.get("which")
+            if which in ("gemini", "groq", "openrouter", "openai", "anthropic", "deepseek", "mistral"):
+                status = config.save_keys(**{which: ""})
+            elif which == "ollama":
+                status = config.save_keys(ollama_model="")
+            else:
+                self._send_json({"error": "Unknown key name."}, status=400)
+                return
+            self._send_json({"ok": True, **status, "keys": status})
+            return
+
+        # 5. Memory routes
+        if path == "/api/memory":
+            data = self._read_json()
+            if data is None:
+                return
+            text = data.get("text", "")
+            cat = data.get("category", "general")
+            mem_id = memory.add_memory(text, cat)
+            self._send_json({"ok": bool(mem_id), "id": mem_id})
+            return
+
+        if path == "/api/memory/delete":
+            data = self._read_json()
+            if data is None:
+                return
+            mem_id = data.get("id")
+            deleted = memory.delete_memory(mem_id)
+            self._send_json({"ok": deleted})
+            return
+
+        if path == "/api/memory/clear":
+            self._send_json({"ok": memory.clear_memories()})
+            return
+
+        # 6. Notes routes
+        if path == "/api/notes":
+            data = self._read_json()
+            if data is None:
+                return
+            content = data.get("content", "")
+            title = data.get("title", "")
+            res = notes.add_note(content, title)
+            self._send_json({"ok": bool(res), "note": res})
+            return
+
+        if path == "/api/notes/delete":
+            data = self._read_json()
+            if data is None:
+                return
+            note_id = data.get("id")
+            deleted = notes.delete_note(note_id)
+            self._send_json({"ok": deleted})
+            return
+
+        # 7. Agent Mode route
+        if path == "/api/agent/run":
+            data = self._read_json(max_bytes=MAX_CHAT_BODY)
+            if data is None:
+                return
+            task = data.get("task", "")
+            res = agent.run_agent_task(task)
+            self._send_json(res)
+            return
+
+        # 8. Auto-update apply route
+        if path == "/api/system/update-apply":
+            if launcher:
+                status = launcher.try_update()
+                self._send_json({"ok": True, "status": status})
+            else:
+                self._send_json({"ok": False, "error": "Launcher not found"}, status=500)
+            return
+
+        self._send_json({"error": "Not found."}, status=404)
+
+    # ---------- helpers ----------
+    def _read_json(self, max_bytes=MAX_BODY):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = 0
+        if length <= 0 or length > max_bytes:
+            self._send_json({"error": "Bad request body."}, status=400)
+            return None
+        try:
+            return json.loads(self.rfile.read(length).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            self._send_json({"error": "Body must be JSON."}, status=400)
+            return None
+
+    def _send_json(self, data, status=200):
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
         pass
 
 
 def create_server(host=HOST, port=PORT):
-    return ThreadingHTTPServer((host, port), partial(MyraHandler, directory=str(UI_DIR)))
+    handler = partial(MyraHandler, directory=str(UI_DIR))
+    return ThreadingHTTPServer((host, port), handler)
 
 
 def main():
+    # Initialize the legacy SQLite tables used by the main web UI. The
+    # Core service initializes its separate app-data database lazily.
+    memory.init_db()
+    notes.init_db()
+    reminders.init_db()
+
     server = create_server()
-    print(f"MYRA backend (stage {STAGE}) running at http://{HOST}:{PORT}")
+    print(f"🤖 MYRA is running at http://{HOST}:{PORT}")
+    print("Press Ctrl+C to quit.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nMYRA stopped.")
-    finally:
-        server.server_close()
+        print("\n👋 MYRA shut down.")
 
 
 if __name__ == "__main__":
