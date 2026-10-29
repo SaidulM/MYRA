@@ -781,11 +781,15 @@ class MemoryStore:
     # ------------------------------------------------------------------
     # Agent tasks
     # ------------------------------------------------------------------
-    def create_task(self, goal, max_steps=6, approval_mode="ask", approved_skill_ids=None):
+    def create_task(self, goal, max_steps=6, approval_mode="ask", approved_skill_ids=None, provider="auto"):
         goal = _clean_text(goal, 4000, "agent goal")
         now = _now()
         task_id = uuid.uuid4().hex
-        transcript = [{"type": "user", "text": goal}]
+        provider = str(provider or "auto").lower().strip()[:40] or "auto"
+        # Store the task-scoped brain inside the first transcript event so
+        # existing schema-v2 databases need no migration.  Provider
+        # transcript converters only read ``text`` for user events.
+        transcript = [{"type": "user", "text": goal, "provider": provider}]
         with self._connect() as conn:
             conn.execute(
                 """INSERT INTO agent_tasks
@@ -822,6 +826,12 @@ class MemoryStore:
                 task[target] = json.loads(raw) if raw else ([] if target != "pending" else None)
             except ValueError:
                 task[target] = [] if target != "pending" else None
+        transcript = task.get("transcript") or []
+        task["provider"] = (
+            str(transcript[0].get("provider") or "auto")
+            if transcript and isinstance(transcript[0], dict)
+            else "auto"
+        )
         return task
 
     def get_task(self, task_id):

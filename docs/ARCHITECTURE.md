@@ -38,6 +38,10 @@
 - **One unified SQLite store.** `backend/core_memory.py` (schema v2, app-data `myra.db`) owns conversations, memories, notes, reminders, preferences and tasks. Legacy `backend/memory.py`, `notes.py` and `reminders.py` keep their old APIs but delegate to this store, and legacy `data/myra.db` rows are imported once (idempotent, legacy IDs tracked in `legacy_id_map`). A note or memory created in either surface now appears in both.
 - Core Chat calls the shared provider layer with legacy local-intent execution, silent auto-learning and legacy-memory injection disabled. The older web chat retains its existing behavior for compatibility, so its local actions are not the same confirmation boundary as Core Agent Mode.
 - Provider layer (`backend/providers.py`) implements streaming, validated structured JSON, tool calling and vision across Gemini/Groq/OpenAI-compatible providers, advertising only capabilities each adapter actually implements.
+- **Explicit brain selection is authoritative** in legacy chat, Core streaming fallback and Agent planning. If the owner selects Ollama (or any listed provider), MYRA uses only that provider or returns a provider-specific not-configured/unreachable error; it never silently labels a Gemini answer as the selected brain. `Auto` is the only mode that waterfalls across configured providers.
+- The original interface's **AGENT** tab is wired to Core `/api/v1/agent/tasks` with polling, visible steps/results, approve/deny, pause/resume/cancel and Windows emergency-stop/reset. Its Skills window maps owner-friendly groups to the real registry; Windows PC-control skills remain opt-in.
+- The original interface's live voice has a WebView2-safe chain: `getUserMedia` + `MediaRecorder` + browser-side pause detection/WAV conversion → `/api/v1/voice/transcribe` (faster-whisper) → existing chat → concise character-gendered TTS → listen again. Browser SpeechRecognition is still preferred only in a normal browser, not inside `/?shell=desktop`.
+- **LangChain note:** MYRA does not add LangChain as a runtime dependency merely to name-check it. LangChain/LangGraph-style orchestration does not make a microphone, STT model, LLM or TTS service intrinsically faster, and the extra dependency surface would work against the 8GB-RAM goal. MYRA keeps the equivalent bounded chain natively in `providers.py`/`core_agent.py`/`voice_engine.py`, and addresses latency where it actually occurs: capture segmentation, local STT, provider choice, concise speech text and TTS timeout/fallback.
 
 ## Boundaries
 
@@ -87,7 +91,7 @@ If the server is not bound to loopback, state-changing/private API v1 calls requ
 
 ## Honest capability status
 
-Validated by the automated suite (48 tests) plus an offscreen Qt GUI smoke test. Items marked "owner acceptance" are code-complete but need the owner's physical Windows hardware to prove.
+Validated by the automated suite (56 tests) plus prior offscreen GUI smoke tests. Items marked "owner acceptance" are code-complete but need the owner's physical Windows hardware to prove.
 
 | Capability | Status |
 |---|---|
@@ -96,10 +100,10 @@ Validated by the automated suite (48 tests) plus an offscreen Qt GUI smoke test.
 | Streaming replies | Implemented (`/api/v1/chat/stream`); desktop Chat consumes it |
 | Structured JSON output | Implemented with schema validation |
 | Provider tool calling | Gemini + OpenAI-compatible adapters; live keys owner-tested |
-| Agent Mode | Implemented for 40 registered skills, bounded and confirmable |
+| Agent Mode | Implemented for 40 registered skills, bounded and confirmable; original UI shows live steps/approval/pause/stop |
 | One screenshot/image frame | Implemented (Gemini, OpenAI/OpenRouter vision fallback) |
 | Continuous live screen/camera | Implemented as consent-based sampled frames (not provider-native video); owner acceptance pending |
-| Realtime voice | Modular mic → faster-whisper → cloud AI → Edge TTS/SAPI pipeline with VAD + barge-in; owner acceptance pending |
+| Realtime voice | Default-window MediaRecorder/pause-detection → faster-whisper → selected AI → concise Edge/browser TTS → listen again; Qt pipeline also remains. Owner microphone acceptance pending |
 | Web research | Implemented (SSRF-guarded search/fetch/extract with citations) |
 | Browser automation | Implemented with optional Playwright (visible, gated); owner acceptance pending |
 | Semantic Windows app control | Implemented with optional pywinauto + PyAutoGUI fallback; owner acceptance pending |

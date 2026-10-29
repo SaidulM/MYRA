@@ -1102,7 +1102,47 @@ function setWaveSpeaking(speaking) {
   if (waveBox) waveBox.classList.toggle('speaking-wave', Boolean(speaking));
 }
 
-async function speakDemo(text) {
+let speechRunId = 0;
+function characterVoiceGender() {
+  return (HOLO.char === 'female' || HOLO.char === 'custom') ? 'female' : 'male';
+}
+function browserVoiceGender(voice) {
+  const name = String((voice && voice.name) || '').toLowerCase();
+  if (/female|zira|jenny|aria|ava|samantha|victoria|fiona|moira|veena|kalpana|swara|tanishaa|nabanita/.test(name)) return 'female';
+  if (/male|david|guy|daniel|george|ravi|hemant|madhur|pradeep|bashkar/.test(name)) return 'male';
+  return '';
+}
+function spokenMainText(raw, maxChars = 620) {
+  let text = String(raw || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`]+`/g, ' ')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/^[#*>•\s-]+/gm, '')
+    .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1')
+    .replace(/[\u{10000}-\u{10FFFF}]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return '';
+  text = text.replace(/^(MYRA|Assistant|Answer|Reply)\s*:\s*/i, '');
+  text = text.split(/\b(?:Sources?|References?|Background|Technical details?|Details?)\s*:\s*/i)[0].trim();
+  const sentences = text.split(/(?<=[.!?।])\s+/).map((s) => s.trim()).filter(Boolean);
+  const parts = sentences.length ? sentences : [text];
+  if (parts.length > 1 && /^(sure|of course|certainly|okay|here(?:'s| is)(?: the answer)?)[.!।]?$/i.test(parts[0])) parts.shift();
+  let out = '';
+  for (const sentence of parts.slice(0, 4)) {
+    const candidate = out ? `${out} ${sentence}` : sentence;
+    if (candidate.length > maxChars && out) break;
+    out = candidate;
+    if (out.length >= maxChars) break;
+  }
+  if (out.length > maxChars) out = out.slice(0, maxChars).replace(/\s+\S*$/, '').trim() + '.';
+  return out;
+}
+
+async function speakDemo(rawText) {
+  const text = spokenMainText(rawText);
+  if (!text) return;
   if (!HOLO.power) return;
   if (VOICE_MUTED) {
     setHoloStatus('🔇 Voice muted — tap 🔊 under the hologram to unmute');
@@ -1110,6 +1150,8 @@ async function speakDemo(text) {
   }
 
   stopSpeaking();
+  const runId = ++speechRunId;
+  pauseLiveListeningForSpeech();
   HOLO.speaking = true;
   setWaveSpeaking(true);
   updateMicWave(0);
@@ -1117,42 +1159,43 @@ async function speakDemo(text) {
   const lang = speechLangFor(text);
   setHoloStatus('🗣️ ' + (lang.startsWith('bn') ? 'মায়রা কথা বলছে…' : 'MYRA is speaking…'));
 
+  let finished = false;
   const finish = () => {
+    if (finished || runId !== speechRunId) return;
+    finished = true;
     HOLO.speaking = false;
     setWaveSpeaking(false);
     setHoloStatus(idleStatus());
     currentPlayingAudio = null;
     updateMicWave(0);
     triggerOfficeAgent('voice', false);
-
-    // Continuous Live Conversational Flow (like ChatGPT Voice / Gemini Live)
-    if (MIC_ARMED && speechRecognizer) {
-      setTimeout(() => {
-        if (MIC_ARMED && !HOLO.speaking) {
-          try { speechRecognizer.start(); } catch (e) {}
-          setHoloState('LISTENING…');
-          setHoloStatus('🎤 Listening… I am right here.');
-          updateMicWave(1);
-        }
-      }, 400);
-    }
+    // Continuous live conversation: listen again after MYRA finishes.
+    setTimeout(() => resumeLiveListening(), 350);
   };
 
-  // 1. Try Backend Ultra-Realistic Neural Human Voice Studio (GitHub Open-Source)
+  // 1. Backend neural voice. Send only the clean main answer, and let the
+  // backend choose the Edge voice from the MYRA form (CORE/MALE male,
+  // FEMALE female). A browser voice URI is not an Edge voice ID.
   try {
+    const controller = 'AbortController' in window ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 12000) : null;
     const res = await fetch('/api/voice/speak', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         text: text,
         character: HOLO.char,
-        voice: localStorage.getItem('myra_voice_uri') || 'auto',
+        voice: 'auto',
         style: localStorage.getItem('myra_voice_style') || 'gentle',
       }),
+      signal: controller ? controller.signal : undefined,
     });
+    if (timeoutId) clearTimeout(timeoutId);
+    if (runId !== speechRunId) return;
 
     if (res.ok && (res.headers.get('Content-Type') || '').includes('audio')) {
       const blob = await res.blob();
+      if (runId !== speechRunId) return;
       const audioUrl = URL.createObjectURL(blob);
       const audio = new Audio(audioUrl);
       currentPlayingAudio = audio;
@@ -1181,34 +1224,28 @@ async function speakDemo(text) {
 
       const savedPitch = parseFloat(localStorage.getItem('myra_voice_pitch'));
       const savedRate = parseFloat(localStorage.getItem('myra_voice_rate'));
-      const defaultPitch = HOLO.char === 'female' ? 1.2 : (HOLO.char === 'male' ? 0.85 : 1.0);
-      u.pitch = !isNaN(savedPitch) ? savedPitch : defaultPitch;
-      u.rate = !isNaN(savedRate) ? savedRate : (HOLO.char === 'core' ? 1.02 : 1.0);
+      const gender = characterVoiceGender();
+      const defaultPitch = gender === 'female' ? 1.16 : 0.84;
+      u.pitch = !isNaN(savedPitch)
+        ? (gender === 'male' ? Math.min(savedPitch, 0.98) : Math.max(savedPitch, 1.02))
+        : defaultPitch;
+      u.rate = !isNaN(savedRate) ? savedRate : 1.0;
 
       const voices = speechSynthesis.getVoices();
       const userVoiceUri = localStorage.getItem('myra_voice_uri') || 'auto';
+      const sameGender = (v) => browserVoiceGender(v) === gender;
+      const langPrefix = lang.slice(0, 2).toLowerCase();
 
       let match = null;
       if (userVoiceUri && userVoiceUri !== 'auto') {
-        match = voices.find((v) => v.voiceURI === userVoiceUri || v.name === userVoiceUri);
+        const chosen = voices.find((v) => v.voiceURI === userVoiceUri || v.name === userVoiceUri);
+        if (chosen && sameGender(chosen)) match = chosen;
       }
 
       if (!match) {
-        if (lang.startsWith('bn')) {
-          match = voices.find((v) => v.lang.toLowerCase().startsWith('bn') || /bangla|bengali|tanishaa|bashkar/i.test(v.name));
-        } else if (lang.startsWith('hi')) {
-          match = voices.find((v) => v.lang.toLowerCase().startsWith('hi') || /hindi|kalpana|hemant/i.test(v.name));
-        } else {
-          if (HOLO.char === 'female') {
-            match = voices.find((v) => /natural.*female|jenny|aria|samantha|zira|female/i.test(v.name) && v.lang.toLowerCase().startsWith('en'))
-                 || voices.find((v) => /female/i.test(v.name));
-          } else if (HOLO.char === 'male') {
-            match = voices.find((v) => /natural.*male|guy|david|daniel|ravi|male/i.test(v.name) && v.lang.toLowerCase().startsWith('en'))
-                 || voices.find((v) => /male/i.test(v.name));
-          } else {
-            match = voices.find((v) => /natural|neural|google|samantha/i.test(v.name) && v.lang.toLowerCase().startsWith('en'));
-          }
-        }
+        match = voices.find((v) => sameGender(v) && v.lang.toLowerCase().startsWith(langPrefix))
+          || voices.find((v) => sameGender(v) && v.lang.toLowerCase().startsWith('en'))
+          || voices.find((v) => sameGender(v));
       }
 
       if (match) u.voice = match;
@@ -1222,6 +1259,7 @@ async function speakDemo(text) {
 }
 
 function stopSpeaking() {
+  speechRunId += 1;
   if (currentPlayingAudio) {
     try {
       currentPlayingAudio.pause();
@@ -1239,9 +1277,9 @@ function stopSpeaking() {
    Chat — real AI brain (Stage 3: Gemini → Groq fallback)
    ========================================================= */
 const GREETINGS = {
-  core: '⬢ Core online. My real AI chat is live: Gemini answers first and Groq is my backup. Ask me anything.',
-  male: 'Good day, sir. 🎩 I am MYRA, at your service. My real AI brain is now connected — Gemini first, Groq as backup. How may I help?',
-  female: "Hello, I'm MYRA — your personal desktop companion. 💗 My real AI chat is now live (Stage 3): Gemini answers first and Groq is my backup. Save your free keys in SETTING on your own laptop, then type below and talk to me!",
+  core: '⬢ Core online. I will use exactly the brain selected in the top BRAIN switcher — Auto picks the best configured brain. Ask me anything, or tap the mic and talk.',
+  male: 'Good day, sir. 🎩 I am MYRA, at your service. I will use exactly the brain you select above, with a male voice in this form. How may I help?',
+  female: "Hello, I'm MYRA — your personal desktop companion. 💗 I will use exactly the brain you select above, with a female voice in this form. Type below or tap the mic and talk to me!",
 };
 let chatContext = [];
 let chatBusy = false;
@@ -1290,7 +1328,7 @@ function friendlyChatError(error, data) {
     return '⏳ The AI service took too long to answer. Please check the internet and try again.';
   }
   if (!navigator.onLine) {
-    return '📡 You appear to be offline, so I cannot reach Gemini or Groq right now. Your local interface still works — reconnect and try again.';
+    return '📡 You appear to be offline, so I cannot reach the selected cloud brain right now. Your local interface still works — reconnect and try again, or select Ollama Local if it is installed and running.';
   }
   return '⚠️ I could not reach MYRA\'s local backend. Please make sure start.bat (or run.py) is still running, then try again.';
 }
@@ -1316,10 +1354,14 @@ function addMsg(text, who, skipHistory) {
   if (text && !skipHistory) pushHistory(who, text);
   return bubble;
 }
-async function sendChat() {
+async function sendChat(voiceText) {
   if (chatBusy) return;
   const input = $('chatInput');
-  const text = input.value.trim();
+  // Live speech is delivered directly to MYRA. It is never placed in the
+  // typed-message box and it never needs a manual Send tap. A typed draft
+  // already sitting in that box is left untouched during a voice turn.
+  const directText = typeof voiceText === 'string' ? voiceText.trim() : '';
+  const text = directText || input.value.trim();
   if (!text) return;
   if (!HOLO.power) {
     toast('⏻ System is off — press ACTIVATE first!');
@@ -1329,7 +1371,7 @@ async function sendChat() {
   addMsg(text, 'user');
   chatContext.push({ role: 'user', text });
   chatContext = chatContext.slice(-MAX_CHAT_CONTEXT);
-  input.value = '';
+  if (!directText) input.value = '';
   setChatBusy(true);
   setHoloStatus('🤔 MYRA is thinking…');
   setHoloState('THINKING…');
@@ -1395,8 +1437,12 @@ async function sendChat() {
     const reply = String(data.reply).trim();
     chatContext.push({ role: 'assistant', text: reply });
     chatContext = chatContext.slice(-MAX_CHAT_CONTEXT);
+    const selectedBrain = payload.provider || 'auto';
     const meta = [
       data.provider_label ? 'via ' + data.provider_label : '',
+      (selectedBrain !== 'auto' && data.provider && data.provider !== selectedBrain)
+        ? 'selected brain: ' + selectedBrain
+        : '',
       data.notice || '',
     ].filter(Boolean).join(' · ');
     finishAiBubble(typing, reply, meta);
@@ -1429,6 +1475,7 @@ async function sendChat() {
     setChatBusy(false);
     const nextInput = $('chatInput');
     if (nextInput) nextInput.focus();
+    setTimeout(() => resumeLiveListening(), 450);
   }
 }
 function newChat() {
@@ -1479,6 +1526,328 @@ function setPower(on) {
 let MIC_ARMED = false;
 let speechRecognizer = null;
 let speechSilenceTimer = null;
+let liveVoiceTranscript = '';
+let liveVoiceMode = null; // 'browser' | 'backend'
+let liveVoiceStatusCache = null;
+let liveVoiceStatusAt = 0;
+const BACKEND_MIC = {
+  stream: null, recorder: null, chunks: [], ctx: null, analyser: null,
+  timer: null, startedAt: 0, lastLoudAt: 0, heard: false,
+  discard: false, restart: false, busy: false, starting: false,
+};
+
+function paintMicButton() {
+  const btn = $('stageMicBtn');
+  if (!btn) return;
+  btn.classList.toggle('on', MIC_ARMED);
+  btn.classList.toggle('mic-listening', MIC_ARMED);
+  btn.textContent = MIC_ARMED ? '🔴' : '🎤';
+  updateMicWave(MIC_ARMED ? 1 : 0);
+}
+
+function backendLiveVoiceReady(status) {
+  const engines = (status && status.engines) || {};
+  return Boolean(engines.faster_whisper_python_package && engines.faster_whisper_model_installed);
+}
+
+function paintLiveVoiceStatus(status) {
+  const el = $('liveVoiceStatus');
+  const btn = $('installVoiceModelBtn');
+  if (!el) return;
+  if (!status) {
+    el.textContent = '⚠️ Could not check the live-voice engine. Make sure MYRA backend is running, then reopen this page.';
+    if (btn) btn.classList.add('hidden');
+    return;
+  }
+  const engines = status.engines || {};
+  if (backendLiveVoiceReady(status)) {
+    el.textContent = '✅ Live voice is ready on this PC. Tap the mic under the hologram, speak, and pause — MYRA will write your words and answer.';
+    if (btn) btn.classList.add('hidden');
+  } else if (!engines.faster_whisper_python_package) {
+    el.textContent = '⚠️ The faster-whisper voice package is missing. Close and reopen MYRA once so its one-time setup can finish installing voice packages, then return here.';
+    if (btn) btn.classList.add('hidden');
+  } else {
+    el.textContent = '⬇ One-time setup needed: download the Base speech model (~145 MB). MYRA never downloads it silently.';
+    if (btn) btn.classList.remove('hidden');
+  }
+}
+
+async function fetchLiveVoiceStatus(force = false) {
+  if (!force && liveVoiceStatusCache && (Date.now() - liveVoiceStatusAt) < 15000) return liveVoiceStatusCache;
+  if (location.protocol === 'file:') return null;
+  try {
+    const res = await fetch('/api/v1/voice/status');
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || 'voice status failed');
+    liveVoiceStatusCache = data.voice || null;
+    liveVoiceStatusAt = Date.now();
+    paintLiveVoiceStatus(liveVoiceStatusCache);
+    return liveVoiceStatusCache;
+  } catch (e) {
+    paintLiveVoiceStatus(null);
+    return null;
+  }
+}
+
+function promptLiveVoiceSetup(status) {
+  MIC_ARMED = false;
+  liveVoiceMode = null;
+  paintMicButton();
+  paintLiveVoiceStatus(status);
+  setHoloState('VOICE SETUP');
+  setHoloStatus('🎤 Live voice needs its one-time speech model setup first.');
+  toast('🎤 Live voice setup: open CHARACTER → VOICE STUDIO and tap “INSTALL LIVE-VOICE MODEL” once (~145 MB). After that, the mic will hear you here in the desktop window.', 7000);
+  try { openView('character'); } catch (e) {}
+}
+
+function cleanupBackendMicStream() {
+  if (BACKEND_MIC.timer) { clearInterval(BACKEND_MIC.timer); BACKEND_MIC.timer = null; }
+  if (BACKEND_MIC.stream) {
+    BACKEND_MIC.stream.getTracks().forEach((t) => { try { t.stop(); } catch (e) {} });
+    BACKEND_MIC.stream = null;
+  }
+  if (BACKEND_MIC.ctx) {
+    try { BACKEND_MIC.ctx.close(); } catch (e) {}
+    BACKEND_MIC.ctx = null;
+  }
+  BACKEND_MIC.analyser = null;
+  BACKEND_MIC.recorder = null;
+  BACKEND_MIC.heard = false;
+}
+
+function stopBackendMic(discard = false, restart = false) {
+  BACKEND_MIC.discard = Boolean(discard);
+  BACKEND_MIC.restart = Boolean(restart);
+  const rec = BACKEND_MIC.recorder;
+  if (rec && rec.state !== 'inactive') {
+    try { rec.stop(); return; } catch (e) {}
+  }
+  cleanupBackendMicStream();
+}
+
+function pauseLiveListeningForSpeech() {
+  liveVoiceTranscript = '';
+  if (BACKEND_MIC.recorder) stopBackendMic(true, false);
+  if (speechRecognizer && liveVoiceMode === 'browser') {
+    try { speechRecognizer.stop(); } catch (e) {}
+  }
+}
+
+function resumeLiveListening() {
+  if (!MIC_ARMED || !HOLO.power || HOLO.speaking || chatBusy || BACKEND_MIC.busy) return;
+  if (liveVoiceMode === 'backend') {
+    startBackendLiveVoice();
+  } else if (speechRecognizer) {
+    try { speechRecognizer.start(); } catch (e) {}
+    setHoloState('LISTENING…');
+    setHoloStatus('🎤 Listening… I am right here.');
+    updateMicWave(1);
+  }
+}
+
+function audioBufferToWavBase64(buffer) {
+  const targetRate = 16000;
+  const channels = Math.max(1, buffer.numberOfChannels);
+  const mono = new Float32Array(buffer.length);
+  for (let ch = 0; ch < channels; ch += 1) {
+    const data = buffer.getChannelData(ch);
+    for (let i = 0; i < data.length; i += 1) mono[i] += data[i] / channels;
+  }
+  const ratio = buffer.sampleRate / targetRate;
+  const outLen = Math.max(1, Math.floor(mono.length / ratio));
+  const wav = new ArrayBuffer(44 + outLen * 2);
+  const view = new DataView(wav);
+  const writeText = (offset, value) => { for (let i = 0; i < value.length; i += 1) view.setUint8(offset + i, value.charCodeAt(i)); };
+  writeText(0, 'RIFF'); view.setUint32(4, 36 + outLen * 2, true); writeText(8, 'WAVEfmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, targetRate, true); view.setUint32(28, targetRate * 2, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true); writeText(36, 'data');
+  view.setUint32(40, outLen * 2, true);
+  for (let i = 0; i < outLen; i += 1) {
+    const sample = Math.max(-1, Math.min(1, mono[Math.floor(i * ratio)] || 0));
+    view.setInt16(44 + i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+  }
+  const bytes = new Uint8Array(wav);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
+}
+
+async function blobToWavBase64(blob) {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) throw new Error('Audio conversion is not available in this window.');
+  const ctx = new AudioCtx();
+  try {
+    const decoded = await ctx.decodeAudioData((await blob.arrayBuffer()).slice(0));
+    return audioBufferToWavBase64(decoded);
+  } finally {
+    try { await ctx.close(); } catch (e) {}
+  }
+}
+
+async function transcribeBackendBlob(blob) {
+  BACKEND_MIC.busy = true;
+  setHoloState('HEARING…');
+  setHoloStatus('✍️ Writing what you said…');
+  try {
+    const audioBase64 = await blobToWavBase64(blob);
+    const savedSpeechLang = localStorage.getItem('myra_speech_lang') || '';
+    const res = await fetch('/api/v1/voice/transcribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        audio_base64: audioBase64,
+        language: savedSpeechLang ? savedSpeechLang.slice(0, 2).toLowerCase() : 'auto',
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) throw new Error(data.error || 'MYRA could not transcribe that audio.');
+    const text = String((data.transcript && data.transcript.text) || '').trim();
+    BACKEND_MIC.busy = false;
+    if (!MIC_ARMED) return;
+    if (!text) {
+      setHoloStatus('🎤 I did not catch words that time — listening again…');
+      setTimeout(() => resumeLiveListening(), 300);
+      return;
+    }
+    setHoloState('THINKING…');
+    setHoloStatus('👂 ' + (isBengaliText(text) ? 'শুনেছি: “' : 'Heard: “') + text + '”');
+    logEvent('live voice heard: ' + text.slice(0, 120));
+    // Bypass the typed-message box completely: the finished utterance is
+    // already a submitted voice turn, not a draft waiting for Send.
+    sendChat(text);
+  } catch (err) {
+    BACKEND_MIC.busy = false;
+    const message = String(err.message || err);
+    logEvent('live voice transcription failed: ' + message);
+    if (/faster-whisper model|not installed/i.test(message)) {
+      promptLiveVoiceSetup(await fetchLiveVoiceStatus(true));
+      return;
+    }
+    MIC_ARMED = false;
+    liveVoiceMode = null;
+    paintMicButton();
+    setHoloState('VOICE ERROR');
+    setHoloStatus('⚠️ Live voice stopped — check the message and tap the mic again.');
+    toast('🎤 Live voice error: ' + message, 6500);
+  }
+}
+
+async function startBackendLiveVoice() {
+  if (BACKEND_MIC.starting) return true;
+  BACKEND_MIC.starting = true;
+  try {
+    return await startBackendLiveVoiceOnce();
+  } finally {
+    BACKEND_MIC.starting = false;
+  }
+}
+
+async function startBackendLiveVoiceOnce() {
+  if (BACKEND_MIC.busy || (BACKEND_MIC.recorder && BACKEND_MIC.recorder.state !== 'inactive')) return true;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+    MIC_ARMED = false; liveVoiceMode = null; paintMicButton();
+    toast('🎤 This window cannot access microphone recording. You can still type below.', 6000);
+    return false;
+  }
+  const status = await fetchLiveVoiceStatus();
+  if (!backendLiveVoiceReady(status)) {
+    promptLiveVoiceSetup(status);
+    return false;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+  } catch (err) {
+    MIC_ARMED = false; liveVoiceMode = null; paintMicButton();
+    setHoloState('MIC BLOCKED');
+    setHoloStatus('⚠️ Microphone permission was blocked.');
+    toast('🎤 MYRA could not open the microphone. Allow microphone access for MYRA in Windows Settings → Privacy & security → Microphone, then tap the mic again.', 8000);
+    return false;
+  }
+  if (!MIC_ARMED || HOLO.speaking || chatBusy) {
+    stream.getTracks().forEach((t) => t.stop());
+    return false;
+  }
+
+  const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', '']
+    .find((item) => !item || (window.MediaRecorder && MediaRecorder.isTypeSupported(item))) || '';
+  const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+  BACKEND_MIC.stream = stream;
+  BACKEND_MIC.recorder = recorder;
+  BACKEND_MIC.chunks = [];
+  BACKEND_MIC.discard = false;
+  BACKEND_MIC.restart = false;
+  BACKEND_MIC.heard = false;
+  BACKEND_MIC.startedAt = Date.now();
+  BACKEND_MIC.lastLoudAt = Date.now();
+  recorder.ondataavailable = (event) => { if (event.data && event.data.size) BACKEND_MIC.chunks.push(event.data); };
+  recorder.onstop = async () => {
+    const chunks = BACKEND_MIC.chunks.slice();
+    const discard = BACKEND_MIC.discard;
+    const restart = BACKEND_MIC.restart;
+    BACKEND_MIC.chunks = [];
+    cleanupBackendMicStream();
+    paintMicButton();
+    if (!MIC_ARMED) return;
+    if (discard) {
+      if (restart) setTimeout(() => resumeLiveListening(), 250);
+      return;
+    }
+    const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+    if (blob.size < 1200) {
+      setTimeout(() => resumeLiveListening(), 250);
+      return;
+    }
+    await transcribeBackendBlob(blob);
+  };
+
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (AudioCtx) {
+      const ctx = new AudioCtx();
+      if (ctx.state === 'suspended') { try { ctx.resume(); } catch (e) {} }
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      source.connect(analyser);
+      BACKEND_MIC.ctx = ctx;
+      BACKEND_MIC.analyser = analyser;
+      const samples = new Uint8Array(analyser.fftSize);
+      BACKEND_MIC.timer = setInterval(() => {
+        if (!BACKEND_MIC.analyser || !BACKEND_MIC.recorder) return;
+        const now = Date.now();
+        if (BACKEND_MIC.ctx && BACKEND_MIC.ctx.state !== 'running') {
+          // If Chromium keeps the analyser suspended, do not lose the
+          // utterance: transcribe a bounded segment anyway.
+          if (now - BACKEND_MIC.startedAt > 7000) stopBackendMic(false, false);
+          return;
+        }
+        BACKEND_MIC.analyser.getByteTimeDomainData(samples);
+        let sum = 0;
+        for (let i = 0; i < samples.length; i += 1) { const v = (samples[i] - 128) / 128; sum += v * v; }
+        const rms = Math.sqrt(sum / samples.length);
+        updateMicWave(1 + Math.min(3, rms * 10));
+        if (rms > 0.025) { BACKEND_MIC.heard = true; BACKEND_MIC.lastLoudAt = now; }
+        if (BACKEND_MIC.heard && now - BACKEND_MIC.lastLoudAt > 900) stopBackendMic(false, false);
+        else if (now - BACKEND_MIC.startedAt > 15000) stopBackendMic(!BACKEND_MIC.heard, !BACKEND_MIC.heard);
+      }, 120);
+    }
+  } catch (e) {
+    BACKEND_MIC.timer = setTimeout(() => stopBackendMic(false, false), 7000);
+  }
+
+  recorder.start(250);
+  liveVoiceMode = 'backend';
+  setHoloState('LISTENING…');
+  setHoloStatus('🎤 Listening live… speak, then pause for a moment.');
+  paintMicButton();
+  return true;
+}
 
 function updateMicWave(level) {
   const meter = $('micWaveMeter');
@@ -1521,18 +1890,21 @@ function setupSpeechRecognition() {
     }
     const txt = (final || interim).trim();
     if (txt) {
-      $('chatInput').value = txt;
+      // Keep the live transcript in memory and on the hologram status only;
+      // never copy it into the typed-message send box.
+      liveVoiceTranscript = txt;
       setHoloStatus('👂 ' + (isBengaliText(txt) ? 'শুনছি: "' : 'Listening: "') + txt + '"');
       setHoloState('LISTENING…');
       updateMicWave(2.5);
 
-      // Fast auto-send on silence (650ms if final sentence, 1300ms if interim)
+      // Fast automatic delivery on silence (650ms if final, 1300ms interim).
       const silenceDelay = hasFinal ? 650 : 1300;
       speechSilenceTimer = setTimeout(() => {
-        const val = $('chatInput').value.trim();
+        const val = liveVoiceTranscript.trim();
         if (val && !chatBusy) {
+          liveVoiceTranscript = '';
           setHoloStatus(isBengaliText(val) ? 'মাইরা শুনেছে, উত্তর দিচ্ছে এক্ষুনি…' : 'MYRA has heard you, replying now…');
-          sendChat();
+          sendChat(val);
           try { rec.stop(); } catch (err) {}
           updateMicWave(0);
         }
@@ -1541,13 +1913,15 @@ function setupSpeechRecognition() {
   };
 
   rec.onspeechend = () => {
-    const val = $('chatInput').value.trim();
+    const val = liveVoiceTranscript.trim();
     if (val && !chatBusy) {
       clearTimeout(speechSilenceTimer);
       speechSilenceTimer = setTimeout(() => {
-        if ($('chatInput').value.trim() && !chatBusy) {
-          setHoloStatus(isBengaliText(val) ? 'মাইরা শুনেছে, উত্তর দিচ্ছে এক্ষুনি…' : 'MYRA has heard you, replying now…');
-          sendChat();
+        const spoken = liveVoiceTranscript.trim();
+        if (spoken && !chatBusy) {
+          liveVoiceTranscript = '';
+          setHoloStatus(isBengaliText(spoken) ? 'মাইরা শুনেছে, উত্তর দিচ্ছে এক্ষুনি…' : 'MYRA has heard you, replying now…');
+          sendChat(spoken);
           try { rec.stop(); } catch (err) {}
           updateMicWave(0);
         }
@@ -1557,19 +1931,27 @@ function setupSpeechRecognition() {
 
   rec.onerror = (e) => {
     logEvent('speech error: ' + e.error);
-    if (e.error !== 'no-speech' && e.error !== 'network') {
-      updateMicWave(0);
+    if (MIC_ARMED && ['not-allowed', 'service-not-allowed', 'audio-capture', 'network'].includes(e.error)) {
+      // WebView2/Chromium shells often expose the recognizer object but no
+      // working speech service. Switch to MYRA's own mic→backend hearing.
+      liveVoiceTranscript = '';
+      liveVoiceMode = 'backend';
+      setHoloStatus('🎤 Switching to MYRA live-voice engine…');
+      setTimeout(() => startBackendLiveVoice(), 300);
+      return;
     }
+    if (e.error !== 'no-speech') updateMicWave(0);
   };
 
   rec.onend = () => {
-    const val = $('chatInput').value.trim();
+    const val = liveVoiceTranscript.trim();
     if (val && !chatBusy && !HOLO.speaking) {
       clearTimeout(speechSilenceTimer);
+      liveVoiceTranscript = '';
       setHoloStatus(isBengaliText(val) ? 'মাইরা শুনেছে, উত্তর দিচ্ছে এক্ষুনি…' : 'MYRA has heard you, replying now…');
-      sendChat();
+      sendChat(val);
       updateMicWave(0);
-    } else if (MIC_ARMED && !HOLO.speaking) {
+    } else if (MIC_ARMED && !HOLO.speaking && liveVoiceMode !== 'backend') {
       try { rec.start(); } catch (err) {}
       updateMicWave(1);
     } else {
@@ -1580,40 +1962,58 @@ function setupSpeechRecognition() {
   return rec;
 }
 
-function setMic(on, silent) {
-  MIC_ARMED = on;
-  const btn = $('stageMicBtn');
-  btn.classList.toggle('on', on);
-  btn.classList.toggle('mic-listening', on);
-  btn.textContent = on ? '🔴' : '🎤';
-  updateMicWave(on ? 1 : 0);
+async function setMic(on, silent) {
+  MIC_ARMED = Boolean(on);
+  paintMicButton();
 
-  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRec) {
-    if (on) toast('🎤 Speech recognition is not supported in this browser. You can still type below!');
-    MIC_ARMED = false;
-    btn.classList.remove('on', 'mic-listening');
-    updateMicWave(0);
-    return;
-  }
-
-  if (!speechRecognizer) speechRecognizer = setupSpeechRecognition();
-
-  if (on) {
-    setHoloState('LISTENING…');
-    setHoloStatus('🎤 Listening live… speak naturally, I will answer smoothly.');
-    try { speechRecognizer.start(); } catch (err) {}
-    updateMicWave(1);
-    if (!silent) toast('🎤 Live continuous voice active — talk freely like ChatGPT/Gemini Live.');
-    logEvent('mic armed (continuous live conversation)');
-  } else {
+  if (!on) {
     clearTimeout(speechSilenceTimer);
-    try { speechRecognizer.stop(); } catch (err) {}
+    liveVoiceTranscript = '';
+    if (speechRecognizer) { try { speechRecognizer.stop(); } catch (err) {} }
+    stopBackendMic(true, false);
+    liveVoiceMode = null;
     updateMicWave(0);
     setHoloState(HOLO.power ? 'IDLE // ONLINE' : 'OFFLINE');
     setHoloStatus(idleStatus());
     if (!silent) toast('🎤 Mic off.');
     logEvent('mic stopped');
+    return;
+  }
+
+  if (!HOLO.power) {
+    MIC_ARMED = false;
+    paintMicButton();
+    toast('⏻ System is off — press ACTIVATE first!');
+    return;
+  }
+
+  // Prefer instant browser recognition in a normal browser. Inside MYRA's
+  // own desktop window (/?shell=desktop, WebView2), Web Speech recognition
+  // is commonly absent/dead, so go straight to MYRA's local pipeline:
+  // microphone → backend transcription → chat → character-matched TTS.
+  const inDesktopShell = new URLSearchParams(location.search).get('shell') === 'desktop';
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SpeechRec && !inDesktopShell) {
+    if (!speechRecognizer) speechRecognizer = setupSpeechRecognition();
+    if (speechRecognizer) {
+      liveVoiceMode = 'browser';
+      setHoloState('LISTENING…');
+      setHoloStatus('🎤 Listening live… speak naturally, I will show your words and answer.');
+      try { speechRecognizer.start(); } catch (err) { liveVoiceMode = 'backend'; }
+      updateMicWave(1);
+      if (liveVoiceMode === 'browser') {
+        if (!silent) toast('🎤 Live voice active — speak, pause, and I will answer.');
+        logEvent('mic armed (browser speech recognition)');
+        return;
+      }
+    }
+  }
+
+  liveVoiceMode = 'backend';
+  const ok = await startBackendLiveVoice();
+  if (ok) {
+    if (!silent) toast('🎤 Live voice active — speak, pause for a moment, and I will answer.');
+    logEvent('mic armed (MYRA backend live voice)');
   }
 }
 
@@ -2311,46 +2711,233 @@ document.addEventListener('DOMContentLoaded', () => {
   $('sendBtn').addEventListener('click', sendChat);
   $('chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChat(); });
 
-  /* Agent Mode (Stage 8) */
-  const runAgentTask = async () => {
-    const task = $('agentInput').value.trim();
-    if (!task) return;
-    const log = $('agentLog');
-    const btn = $('agentBtn');
-    log.textContent = `🚀 Dispatched Agent task: "${task}"\nConnecting to agent engine…\n`;
-    btn.disabled = true;
-    triggerOfficeAgent('coder', true);
+  /* Agent Mode — MYRA Core bounded multi-step engine.
+     The old /api/agent/run path only matched a few phrases and often just
+     opened a browser. This panel now uses /api/v1/agent/tasks: MYRA plans
+     one registered skill at a time, observes the result, shows each step,
+     and pauses for APPROVE/DENY before change/control actions. */
+  let currentAgentTask = null;
+  let currentAgentTaskId = localStorage.getItem('myra_agent_task_id') || '';
+  let agentPollTimer = null;
+  let agentCreateBusy = false;
+  let lastAgentTerminalKey = '';
+  let windowsEmergencyStopped = false;
+
+  const agentFetch = async (path, options = {}) => {
+    const res = await fetch(path, {
+      headers: { 'Content-Type': 'application/json' },
+      ...options,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) throw new Error(data.error || data.message || ('Agent request failed (' + res.status + ')'));
+    return data;
+  };
+  const paintAgentEmergencyBtn = () => {
+    const btn = $('agentEmergencyBtn');
+    if (!btn) return;
+    btn.textContent = windowsEmergencyStopped ? '↩ RESET STOP' : '🛑 EMERGENCY';
+    btn.title = windowsEmergencyStopped
+      ? 'Allow MYRA Windows PC control again'
+      : 'Immediately stop the agent task and block Windows PC control';
+  };
+  const refreshWindowsEmergency = async () => {
+    if (location.protocol === 'file:') return;
     try {
-      const res = await fetch('/api/agent/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ task }),
-      });
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || 'Agent execution failed');
-      log.textContent = data.logs.join('\n') + '\n\n' + data.report;
-      if (data.client_trigger) {
-        if (data.action === 'open_camera') setVisual('cam', true);
-        else if (data.action === 'open_screen') setVisual('scr', true);
-        else if (data.action === 'shutdown_app') {
-          toast('⏻ Closing MYRA Desktop... Good bye!', 4000);
-          try { fetch('/api/system/shutdown', { method: 'POST' }); } catch (e) {}
-          setTimeout(() => window.close(), 2200);
-        }
+      const data = await agentFetch('/api/v1/windows/status');
+      windowsEmergencyStopped = Boolean(data.windows && data.windows.emergency_stopped);
+      paintAgentEmergencyBtn();
+    } catch (e) {}
+  };
+  const agentIsActive = (task) => Boolean(task && ['queued', 'running', 'paused', 'awaiting_confirmation'].includes(task.status));
+  const agentShort = (value, limit = 320) => {
+    const text = typeof value === 'string' ? value : JSON.stringify(value || '');
+    return text.length > limit ? text.slice(0, limit - 1) + '…' : text;
+  };
+  const agentResultSummary = (result) => {
+    if (!result || typeof result !== 'object') return agentShort(result, 240);
+    if (result.error) return String(result.error);
+    const bits = [];
+    ['message', 'summary', 'text', 'title', 'url', 'path', 'filename', 'name'].forEach((key) => {
+      if (result[key]) bits.push(String(result[key]));
+    });
+    if (Array.isArray(result.files)) bits.push(result.files.length + ' file(s) found');
+    if (Array.isArray(result.sources)) bits.push(result.sources.length + ' source(s) checked');
+    if (Array.isArray(result.windows)) bits.push(result.windows.length + ' window(s) observed');
+    if (typeof result.verified === 'boolean') bits.push(result.verified ? 'verified ✓' : 'not verified');
+    return agentShort(bits.join(' · ') || JSON.stringify(result), 340);
+  };
+  const renderAgentTask = (task) => {
+    if (!task) return;
+    currentAgentTask = task;
+    currentAgentTaskId = task.id || currentAgentTaskId;
+    if (currentAgentTaskId) localStorage.setItem('myra_agent_task_id', currentAgentTaskId);
+    const log = $('agentLog');
+    const icons = { queued: '⏳', running: '⚙️', paused: '⏸', awaiting_confirmation: '⚠️', completed: '✅', failed: '❌', cancelled: '■' };
+    const steps = Array.isArray(task.steps) ? task.steps : [];
+    const lines = [
+      `${icons[task.status] || '🤖'} AGENT ${String(task.status || 'unknown').replace(/_/g, ' ').toUpperCase()} · ${steps.length}/${task.max_steps || 10} steps · brain: ${task.provider || 'auto'}`,
+      `Goal: ${task.goal || ''}`,
+      '',
+    ];
+    if (!steps.length && agentIsActive(task) && task.status !== 'awaiting_confirmation') {
+      lines.push('🧠 Planning the first safe step…');
+    }
+    steps.forEach((step) => {
+      const mark = step.status === 'completed' ? '✅' : (step.status === 'denied' ? '🚫' : '⚠️');
+      lines.push(`${step.index || ''}. ${mark} ${step.skill_id || 'skill'} — ${step.status || ''}`);
+      const summary = agentResultSummary(step.result);
+      if (summary) lines.push('   ' + summary);
+    });
+    if (task.pending) {
+      lines.push('', '⚠️ Waiting for your approval before the next action. Nothing has been executed yet for this step.');
+    }
+    if (task.error) lines.push('', '❌ ' + task.error);
+    if (task.final_summary) lines.push('', '🏁 Result:', String(task.final_summary));
+    if (log) {
+      log.textContent = lines.join('\n');
+      log.scrollTop = log.scrollHeight;
+    }
+
+    const approval = $('agentApproval');
+    const approvalText = $('agentApprovalText');
+    if (approval && approvalText) {
+      if (task.status === 'awaiting_confirmation' && task.pending) {
+        approval.classList.remove('hidden');
+        approvalText.textContent = `${task.pending.skill_id || 'Next action'} (${task.pending.risk || 'risk'} risk). ${task.pending.description || ''} Details: ${agentShort(task.pending.arguments || {}, 260)}`;
+      } else {
+        approval.classList.add('hidden');
       }
-      if (data.voice_reply) speakDemo(data.voice_reply);
-      toast('✅ Agent completed task!');
-      logEvent('agent task finished');
-    } catch (err) {
-      log.textContent += `\n❌ Agent Error: ${err.message}`;
-      toast('❌ Agent task failed: ' + err.message);
-    } finally {
-      btn.disabled = false;
-      setTimeout(() => triggerOfficeAgent('coder', false), 2500);
+    }
+    const active = agentIsActive(task);
+    if ($('agentBtn')) $('agentBtn').disabled = active || agentCreateBusy;
+    if ($('agentPauseBtn')) $('agentPauseBtn').disabled = !(task.status === 'running' || task.status === 'queued');
+    if ($('agentResumeBtn')) $('agentResumeBtn').disabled = task.status !== 'paused';
+    if ($('agentCancelBtn')) $('agentCancelBtn').disabled = !active;
+
+    triggerOfficeAgent('coder', task.status === 'running' || task.status === 'queued');
+    if (['completed', 'failed', 'cancelled'].includes(task.status)) {
+      const terminalKey = task.id + ':' + task.status + ':' + (task.updated_at || '');
+      if (lastAgentTerminalKey !== terminalKey) {
+        lastAgentTerminalKey = terminalKey;
+        if (task.status === 'completed') {
+          toast('✅ Agent task completed — see the step log.');
+          if (task.final_summary) speakDemo(task.final_summary);
+        } else if (task.status === 'failed') {
+          toast('❌ Agent stopped safely: ' + (task.error || 'task failed'), 6500);
+        }
+        logEvent('agent task ' + task.status);
+      }
     }
   };
-  $('agentBtn').addEventListener('click', runAgentTask);
-  $('agentInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') runAgentTask(); });
+  const startAgentPolling = () => {
+    if (agentPollTimer || !currentAgentTaskId) return;
+    agentPollTimer = setInterval(async () => {
+      try {
+        const data = await agentFetch('/api/v1/agent/tasks/' + encodeURIComponent(currentAgentTaskId));
+        renderAgentTask(data.task);
+        if (!agentIsActive(data.task)) {
+          clearInterval(agentPollTimer);
+          agentPollTimer = null;
+        }
+      } catch (err) {
+        clearInterval(agentPollTimer);
+        agentPollTimer = null;
+        if ($('agentLog')) $('agentLog').textContent += '\n⚠️ Could not refresh agent status: ' + err.message;
+      }
+    }, 900);
+  };
+  const runAgentTask = async () => {
+    const input = $('agentInput');
+    const goal = input ? input.value.trim() : '';
+    if (!goal || agentCreateBusy) return;
+    if (agentIsActive(currentAgentTask)) {
+      toast('🤖 An agent task is already active. Pause or STOP it before starting another.');
+      return;
+    }
+    if (location.protocol === 'file:') {
+      $('agentLog').textContent = '👀 This one-file preview cannot run Agent Mode because MYRA’s local backend is not running here. Use Agent Mode inside the MYRA desktop app on your laptop.';
+      return;
+    }
+    agentCreateBusy = true;
+    if ($('agentBtn')) $('agentBtn').disabled = true;
+    $('agentLog').textContent = `🚀 Starting step-by-step Agent task:\n“${goal}”\n\nMYRA will observe → plan → act → verify, and ask before change/control actions.`;
+    triggerOfficeAgent('coder', true);
+    try {
+      const data = await agentFetch('/api/v1/agent/tasks', {
+        method: 'POST',
+        body: JSON.stringify({
+          goal,
+          max_steps: 10,
+          approval_mode: 'ask',
+          provider: localStorage.getItem('myra_brain_provider') || 'auto',
+          start: true,
+        }),
+      });
+      input.value = '';
+      renderAgentTask(data.task);
+      startAgentPolling();
+      logEvent('core agent task started');
+    } catch (err) {
+      $('agentLog').textContent += '\n\n❌ Agent could not start: ' + err.message;
+      toast('❌ Agent could not start: ' + err.message, 6500);
+      triggerOfficeAgent('coder', false);
+    } finally {
+      agentCreateBusy = false;
+      if ($('agentBtn')) $('agentBtn').disabled = agentIsActive(currentAgentTask);
+    }
+  };
+  const agentAction = async (action) => {
+    if (!currentAgentTaskId) { toast('🤖 No agent task yet. Start a task first.'); return; }
+    try {
+      const data = await agentFetch('/api/v1/agent/tasks/' + encodeURIComponent(currentAgentTaskId) + '/' + action, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      renderAgentTask(data.task);
+      if (agentIsActive(data.task)) startAgentPolling();
+    } catch (err) {
+      toast('❌ Agent ' + action + ' failed: ' + err.message, 6000);
+    }
+  };
+  $('agentBtn')?.addEventListener('click', runAgentTask);
+  $('agentInput')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') runAgentTask(); });
+  $('agentApproveBtn')?.addEventListener('click', () => agentAction('approve'));
+  $('agentDenyBtn')?.addEventListener('click', () => agentAction('deny'));
+  $('agentPauseBtn')?.addEventListener('click', () => agentAction('pause'));
+  $('agentResumeBtn')?.addEventListener('click', () => agentAction('resume'));
+  $('agentCancelBtn')?.addEventListener('click', () => agentAction('cancel'));
+  $('agentEmergencyBtn')?.addEventListener('click', async () => {
+    stopSpeaking();
+    if (windowsEmergencyStopped) {
+      try {
+        await agentFetch('/api/v1/windows/action', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'reset_emergency_stop', arguments: {}, confirmed: true }),
+        });
+        windowsEmergencyStopped = false;
+        paintAgentEmergencyBtn();
+        toast('↩ Emergency stop reset. Agent Mode may request Windows PC control again — it will still ask for approval.', 6500);
+        logEvent('windows emergency stop reset');
+      } catch (err) {
+        toast('❌ Could not reset emergency stop: ' + err.message, 6500);
+      }
+      return;
+    }
+    try {
+      await agentFetch('/api/v1/windows/emergency-stop', { method: 'POST', body: JSON.stringify({}) });
+      windowsEmergencyStopped = true;
+      paintAgentEmergencyBtn();
+    } catch (e) {}
+    if (currentAgentTaskId && agentIsActive(currentAgentTask)) await agentAction('cancel');
+    toast('🛑 Emergency stop active: Windows PC control is blocked and the current agent task was stopped. Tap RESET STOP when you want to allow it again.', 8000);
+    logEvent('agent emergency stop');
+  });
+  refreshWindowsEmergency();
+  if (currentAgentTaskId && location.protocol !== 'file:') {
+    agentFetch('/api/v1/agent/tasks/' + encodeURIComponent(currentAgentTaskId))
+      .then((data) => { renderAgentTask(data.task); if (agentIsActive(data.task)) startAgentPolling(); })
+      .catch(() => {});
+  }
 
   /* Agent Quick Action Chips */
   document.querySelectorAll('.action-chip[data-act]').forEach((chip) => {
@@ -2723,16 +3310,71 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  /* Skills toggles */
+  /* Skills toggles — wired to MYRA Core's real Agent skill registry. */
   const saved = JSON.parse(localStorage.getItem('myra_skills') || '{}');
+  const CORE_SKILL_GROUPS = {
+    browser_agent: ['browser.status', 'browser.snapshot', 'browser.screenshot', 'browser.click', 'browser.fill', 'web.open_url', 'web.research', 'web.fetch_text'],
+    pc_control: ['app.launch_allowlisted', 'windows.list_windows', 'windows.observe', 'windows.focus', 'windows.invoke_control', 'windows.set_text', 'windows.send_keys', 'windows.click_point', 'windows.type_text', 'windows.hotkey'],
+    news_reader: ['world.news'],
+    note_helper: ['notes.create', 'notes.list', 'reminders.create', 'reminders.list', 'reminders.complete', 'reminders.delete'],
+    camera_vision: ['multimodal.analyze_workspace_image'],
+  };
+  const setCoreSkillGroup = async (ids, enabled) => {
+    await Promise.all(ids.map(async (id) => {
+      const res = await fetch('/api/v1/skills/' + encodeURIComponent(id) + '/enabled', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) throw new Error(data.error || ('Could not update ' + id));
+    }));
+  };
   document.querySelectorAll('.skill-toggle').forEach((tg) => {
     if (tg.dataset.skill in saved) tg.checked = saved[tg.dataset.skill];
-    tg.addEventListener('change', () => {
-      saved[tg.dataset.skill] = tg.checked;
+    tg.addEventListener('change', async () => {
+      const enabled = tg.checked;
+      saved[tg.dataset.skill] = enabled;
       localStorage.setItem('myra_skills', JSON.stringify(saved));
-      toast(`🧩 Skill ${tg.checked ? 'enabled ✅' : 'disabled ⛔'} — saved in this browser (skill engine in Stage 7).`);
+      const ids = CORE_SKILL_GROUPS[tg.dataset.skill];
+      if (!ids || location.protocol === 'file:') {
+        toast(`🧩 Skill ${enabled ? 'enabled ✅' : 'disabled ⛔'} — saved in this preview.`);
+        return;
+      }
+      tg.disabled = true;
+      try {
+        await setCoreSkillGroup(ids, enabled);
+        toast(tg.dataset.skill === 'pc_control'
+          ? (enabled ? '🖥️ PC Control ON for Agent Mode. MYRA will still ask APPROVE before control skills run in a task.' : '🖥️ PC Control OFF. Agent Mode cannot control Windows apps.')
+          : `🧩 Skill ${enabled ? 'enabled ✅' : 'disabled ⛔'} in MYRA's Agent engine.`);
+        logEvent('core skill group ' + tg.dataset.skill + ' → ' + enabled);
+      } catch (err) {
+        tg.checked = !enabled;
+        saved[tg.dataset.skill] = tg.checked;
+        localStorage.setItem('myra_skills', JSON.stringify(saved));
+        toast('❌ Could not update skill: ' + err.message, 6000);
+      } finally {
+        tg.disabled = false;
+      }
     });
   });
+  if (location.protocol !== 'file:') {
+    fetch('/api/v1/skills')
+      .then((r) => r.json())
+      .then((data) => {
+        const byId = {};
+        (data.skills || []).forEach((skill) => { byId[skill.id] = Boolean(skill.enabled); });
+        document.querySelectorAll('.skill-toggle').forEach((tg) => {
+          const ids = CORE_SKILL_GROUPS[tg.dataset.skill];
+          if (ids && ids.length && ids.every((id) => id in byId)) {
+            tg.checked = ids.every((id) => byId[id]);
+            saved[tg.dataset.skill] = tg.checked;
+          }
+        });
+        localStorage.setItem('myra_skills', JSON.stringify(saved));
+      })
+      .catch(() => {});
+  }
 
   /* Personality */
   const persSel = $('personality');
@@ -2789,7 +3431,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!voices.length) return;
 
       const currentSaved = localStorage.getItem('myra_voice_uri') || 'auto';
-      select.innerHTML = '<option value="auto">✨ Auto-Detect (Smart Bengali &amp; English Neural)</option>';
+      select.innerHTML = '<option value="auto">✨ Auto — form decides: CORE/MALE = male · FEMALE = female</option>';
 
       const bnGroup = document.createElement('optgroup');
       bnGroup.label = '🇧🇩 Bengali (বাংলা bn-BD / bn-IN)';
@@ -2854,6 +3496,48 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       })
       .catch(() => {});
+
+    fetchLiveVoiceStatus(true);
+    const installBtn = $('installVoiceModelBtn');
+    if (installBtn) {
+      installBtn.addEventListener('click', async () => {
+        const statusEl = $('liveVoiceStatus');
+        const original = '⬇ INSTALL LIVE-VOICE MODEL · BASE (~145 MB)';
+        if (installBtn.dataset.armed !== '1') {
+          installBtn.dataset.armed = '1';
+          installBtn.textContent = '✓ TAP AGAIN TO CONFIRM DOWNLOAD';
+          if (statusEl) statusEl.textContent = 'One-time download: faster-whisper Base (~145 MB) from Hugging Face (Systran/faster-whisper-base), saved only on this PC. Tap the button again to confirm.';
+          setTimeout(() => {
+            if (installBtn.dataset.armed === '1') {
+              installBtn.dataset.armed = '0';
+              installBtn.textContent = original;
+            }
+          }, 9000);
+          return;
+        }
+        installBtn.dataset.armed = '0';
+        installBtn.disabled = true;
+        installBtn.textContent = '⬇ DOWNLOADING… PLEASE WAIT';
+        if (statusEl) statusEl.textContent = '⬇ Downloading the one-time live-voice model… keep MYRA open.';
+        try {
+          const res = await fetch('/api/v1/voice/models/install', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model_id: 'base', confirmed: true }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.ok === false) throw new Error(data.error || 'Voice model download failed.');
+          toast('✅ Live-voice model installed. Go Back and tap the mic under the hologram.', 6500);
+          await fetchLiveVoiceStatus(true);
+        } catch (err) {
+          toast('❌ Live-voice setup failed: ' + err.message, 8000);
+          if (statusEl) statusEl.textContent = '❌ Setup failed: ' + err.message;
+        } finally {
+          installBtn.disabled = false;
+          installBtn.textContent = original;
+        }
+      });
+    }
   }
   initVoiceStudio();
 

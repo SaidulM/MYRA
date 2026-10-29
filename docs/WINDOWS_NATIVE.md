@@ -30,34 +30,44 @@ this step.
 
 ## API keys
 
-1. Open MYRA → **SETTINGS**.
-2. Choose a provider (Gemini is the free primary; Groq is the free backup).
-3. Paste the key and save. Keys are stored in Windows Credential Manager
-   when available and are only ever shown masked (for example `••••a1b2`).
-   Never paste a real key into chat, GitHub or screenshots.
+1. Open MYRA → **SETTING**.
+2. Paste and save the key/model for the brain you want to use.
+3. Pick that brain in the top **BRAIN** switcher. An explicit choice is
+   final: if you select **Ollama Local**, MYRA uses Ollama or clearly says
+   it is not configured/running — it will not silently answer as Gemini.
+   Choose **Auto** only when you want MYRA to pick the best configured
+   brain. Keys are stored in Windows Credential Manager when available and
+   are only ever shown masked (for example `••••a1b2`). Never paste a real
+   key into chat, GitHub or screenshots.
 
 Free keys: Gemini — <https://aistudio.google.com> · Groq —
 <https://console.groq.com>.
 
 ## Voice, Live Vision and Computer control
 
-The default smooth window keeps MYRA's established voice, Visual Hub,
-Agent, Notes and World controls from the original interface. The newer
-advanced native pages remain in the Qt fallback window (`MYRA_UI=qt`):
+The default smooth window now contains the live-voice and Core Agent
+paths directly in MYRA's original interface:
 
-- **Realtime native voice** — microphone → local faster-whisper → cloud AI
-  → Edge TTS / Windows SAPI → speaker, with **Download STT model…**,
-  mute, barge-in and **End call**. The Whisper `base` model (~145 MB) is
-  recommended for 8GB RAM and is downloaded only after confirmation.
-- **Live Vision** — capture is OFF by default; choose screen/camera, see
-  the local preview, press **Start with consent**, and use **Stop &
-  release** to free the device immediately.
-- **Computer control** — every action needs confirmation, shows the red
-  **MYRA IS CONTROLLING** banner, can be halted with **EMERGENCY STOP**,
-  and always refuses password, OTP/MFA and CAPTCHA steps.
+- **Live voice (one-time setup)** — open **CHARACTER → VOICE STUDIO →
+  Live Voice Hearing** and tap **INSTALL LIVE-VOICE MODEL · BASE** twice
+  to confirm the ~145 MB faster-whisper download. It is saved on this PC
+  and never downloads silently. After setup, tap the mic under the
+  hologram, speak, and pause; MYRA shows the transcript, answers with
+  the brain selected at the top, speaks only the main reply, then listens
+  again. Tap the mic again to stop, or the speaker button to mute MYRA.
+  **CORE/MALE = male voice, FEMALE = female voice.**
+- **Agent Mode** — open the **AGENT** tab, describe a real task, and
+  watch each step in the log. MYRA uses one registered skill at a time
+  and stops for **APPROVE/DENY** before write/control skills. Use
+  **PAUSE**, **RESUME**, **STOP**, or **EMERGENCY** (Windows control) at
+  any time. To let it work inside Windows apps, first enable
+  **SKILLS → PC Control (Agent)**. Password, OTP/MFA and CAPTCHA steps
+  are always refused and left to you.
+- **Live Vision** — capture is OFF by default; use the Visual Hub only
+  after choosing camera/screen, and stop it to release the device.
 
-Offline note: speech-to-text can be local, but the AI "brain" is a cloud
-API, so answers still need internet.
+Offline note: speech-to-text and an installed Ollama model can be local;
+cloud brains and Edge neural voices still need internet.
 
 ## Your data
 
@@ -88,9 +98,15 @@ bundled into the build.
 - **Microphone/camera permission is denied** — allow the permission
   prompt inside MYRA and check Windows Settings → Privacy & security →
   Microphone/Camera for desktop apps.
-- **"faster-whisper not installed" on the Voice page** — run the first-run
-  setup again by deleting `.venv-desktop` and double-clicking `MYRA.pyw`,
-  or install into that environment from `requirements-voice.txt`.
+- **Mic turns on but MYRA does not hear you** — first finish the one-time
+  model setup in **CHARACTER → VOICE STUDIO → Live Voice Hearing**. If it
+  says the voice package is missing, close MYRA, delete `.venv-desktop`,
+  and double-click `MYRA.pyw` so first-run setup can reinstall packages.
+  Also confirm Windows microphone privacy allows desktop apps.
+- **Selected Ollama but MYRA reports it unavailable** — start the Ollama
+  app, make sure the exact model shown in **SETTING** is installed, then
+  try again. MYRA intentionally will not fall back to Gemini while
+  Ollama is explicitly selected.
 - **Update window reports no internet** — MYRA simply starts the installed
   version; nothing is broken. Updates require verified HTTPS to GitHub.
 - **`launcher-log.txt`** in the MYRA folder records update/start messages.

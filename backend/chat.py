@@ -638,16 +638,49 @@ def get_reply(payload, opener=default_opener):
 
     preferred_provider = str(payload.get("provider") or "auto").lower().strip()
 
-    # Determine order of provider execution
-    providers = []
+    # An explicitly selected brain is authoritative.  MYRA must never
+    # silently answer through (or label the answer as) a different provider
+    # just because the selected one is missing or temporarily unavailable.
+    configured = {
+        "gemini": bool(gemini_k),
+        "groq": bool(groq_k),
+        "openrouter": bool(openrouter_k),
+        "openai": bool(openai_k),
+        "deepseek": bool(deepseek_k),
+        "mistral": bool(mistral_k),
+        "ollama": bool(ollama_m),
+    }
     if preferred_provider != "auto":
-        providers.append(preferred_provider)
-    # Default priority waterfall
-    for p in ["gemini", "groq", "openrouter", "openai", "deepseek", "mistral", "ollama"]:
-        if p not in providers:
-            providers.append(p)
+        if preferred_provider not in configured:
+            raise ChatError(
+                "unsupported_provider",
+                f"The selected brain '{preferred_provider}' is not available in this chat path. Choose Auto or one of the listed brains in the BRAIN switcher.",
+                provider=preferred_provider,
+                status=400,
+            )
+        if not configured[preferred_provider]:
+            if preferred_provider == "ollama":
+                detail = (
+                    "You selected Ollama (Local PC), but no Ollama model name is saved yet. "
+                    "Open SETTING, enter an installed model such as llama3.2 or qwen2.5, save it, and make sure the Ollama app is running. "
+                    "MYRA will not silently switch to Gemini."
+                )
+            else:
+                detail = (
+                    f"You selected {_provider_label(preferred_provider)}, but its API key is not saved yet. "
+                    "Open SETTING and save that provider's key, or choose Auto. MYRA will not silently use another brain."
+                )
+            raise ChatError(
+                "provider_not_configured",
+                detail,
+                provider=preferred_provider,
+                status=503,
+            )
+        providers = [preferred_provider]
+    else:
+        providers = ["gemini", "groq", "openrouter", "openai", "deepseek", "mistral", "ollama"]
 
-    has_any_key = bool(gemini_k or groq_k or openrouter_k or openai_k or deepseek_k or mistral_k or ollama_m)
+    has_any_key = any(configured.values())
     if not has_any_key:
         raise ChatError(
             "missing_keys",
@@ -783,6 +816,17 @@ def get_reply(payload, opener=default_opener):
                 }
             except Exception as exc:
                 errors.append(exc if isinstance(exc, ChatError) else ChatError("provider_error", str(exc), provider="ollama"))
+
+    if preferred_provider != "auto" and errors:
+        error = errors[-1]
+        if preferred_provider == "ollama" and getattr(error, "code", "") in {"network", "timeout"}:
+            raise ChatError(
+                "provider_unreachable",
+                f"You selected Ollama (Local PC), but MYRA could not reach it at {config.ollama_url()}. Start the Ollama app and confirm the saved model is installed, or choose Auto/Gemini in the BRAIN switcher.",
+                provider="ollama",
+                status=503,
+            ) from None
+        raise error
 
     raise _combined_failure(errors)
 

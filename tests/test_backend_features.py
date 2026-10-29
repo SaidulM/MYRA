@@ -156,7 +156,32 @@ class BackendFeaturesTests(unittest.TestCase):
         en_v_male = voice_studio.pick_voice("Hello world", character="male")
         self.assertEqual(en_v_male, "en-US-GuyNeural")
 
+        # CORE is deliberately male-voiced in every language, and an old
+        # female browser-voice selection must not override the MYRA form.
+        self.assertEqual(
+            voice_studio.pick_voice("Hello world", character="core"),
+            "en-US-GuyNeural",
+        )
+        self.assertEqual(
+            voice_studio.pick_voice("হ্যালো! আমি মায়রা।", character="core"),
+            "bn-BD-PradeepNeural",
+        )
+        self.assertEqual(
+            voice_studio.pick_voice(
+                "Hello world", character="male", custom_voice="en-US-JennyNeural"
+            ),
+            "en-US-GuyNeural",
+        )
+        self.assertEqual(
+            voice_studio.pick_voice(
+                "Hello world", character="core", custom_voice="Microsoft Zira Desktop"
+            ),
+            "en-US-GuyNeural",
+        )
+
         status = voice_studio.get_voice_status()
+        self.assertEqual(status["voice_map"]["core"]["gender"], "male")
+        self.assertEqual(status["voice_map"]["female"]["gender"], "female")
         self.assertTrue(status["ok"])
         self.assertIn("bn-BD-NabanitaNeural", status["supported_voices"])
 
@@ -213,6 +238,15 @@ class BackendFeaturesTests(unittest.TestCase):
         self.assertNotIn("https://", cleaned)
         self.assertNotIn("```", cleaned)
         self.assertIn("Hello World", cleaned)
+
+        spoken = voice_studio.speech_text_for_reply(
+            "Sure. The main answer is ready. It works on your laptop. "
+            "Background: a very long explanation that should stay on screen. "
+            "Sources: https://example.com"
+        )
+        self.assertTrue(spoken.startswith("The main answer is ready."))
+        self.assertNotIn("Background", spoken)
+        self.assertNotIn("Sources", spoken)
 
     def test_agent_gold_rate_and_shopping_intents(self):
         gold = agent.parse_and_execute_local_intent("আজকের গোল্ড রেট কি")

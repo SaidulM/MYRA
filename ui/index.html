@@ -61,24 +61,24 @@
     <label class="theme-pick" title="Interface theme">
       <span class="aw-label">THEME</span>
       <select id="themeSelect" class="theme-select">
-        <option value="stonic">⚡ Stonic AI (Cyber Azure)</option>
-        <option value="normal">⬛ Cyber Cyan</option>
-        <option value="friendly">💚 Friendly Emerald</option>
-        <option value="hacker">🔴 Hacker Crimson</option>
+        <option value="stonic">⚡ Azure</option>
+        <option value="normal">⬛ Cyan</option>
+        <option value="friendly">💚 Emerald</option>
+        <option value="hacker">🔴 Crimson</option>
       </select>
     </label>
 
     <div class="brain-switch-wrap" title="Direct Brain Switcher (Gemini / Groq / OpenRouter / OpenAI / DeepSeek / Ollama)">
       <span class="aw-label">BRAIN</span>
       <select id="quickBrainSelect" class="brain-switch-select">
-        <option value="auto">✨ Auto (Best Available Model)</option>
-        <option value="gemini">⚡ Google Gemini (Free / Paid)</option>
-        <option value="groq">🚀 Groq (Fast Free)</option>
-        <option value="openrouter">🌐 OpenRouter (Free &amp; Paid)</option>
-        <option value="openai">🤖 OpenAI ChatGPT (Paid)</option>
+        <option value="auto">✨ Auto</option>
+        <option value="gemini">⚡ Gemini</option>
+        <option value="groq">🚀 Groq</option>
+        <option value="openrouter">🌐 OpenRouter</option>
+        <option value="openai">🤖 OpenAI</option>
         <option value="deepseek">💡 DeepSeek</option>
-        <option value="mistral">🌪️ Mistral AI</option>
-        <option value="ollama">🏠 Ollama (Local PC)</option>
+        <option value="mistral">🌪️ Mistral</option>
+        <option value="ollama">🏠 Ollama Local</option>
       </select>
     </div>
 
@@ -314,7 +314,7 @@
         <div class="chat-log" id="chatLog">
           <div class="sys-ready">✦ SYSTEM READY ✦</div>
           <div class="msg msg-ai">
-            <div class="msg-bubble" id="greetingBubble">Hello, I'm <b>MYRA</b> — your personal desktop companion. 💗 My real AI chat is now live (Stage 3): Gemini answers first and Groq is my backup. Save your free keys in SETTING on your own laptop, then type below and talk to me!</div>
+            <div class="msg-bubble" id="greetingBubble">Hello, I'm <b>MYRA</b> — your personal desktop companion. Choose your brain in the top <b>BRAIN</b> switcher and I will use exactly that brain (Auto picks the best available). Tap the mic under the hologram for live voice, or type below.</div>
           </div>
         </div>
         <div class="input-row">
@@ -325,17 +325,30 @@
 
       <div class="mode-panel" id="mode-agent">
         <div class="action-chips">
-          <button class="action-chip" data-act="play song Arijit Singh">🎵 Play Music</button>
-          <button class="action-chip" data-act="open google">🌐 Open Google</button>
-          <button class="action-chip" data-act="list files">📁 List Files</button>
-          <button class="action-chip" data-act="remind me to check work in 10 minutes">⏰ Set Reminder</button>
-          <button class="action-chip" data-act="open camera">📷 Open Camera</button>
-          <button class="action-chip" data-act="share screen">🖥️ Screen Share</button>
-          <button class="action-chip" data-act="system status">💻 System Telemetry</button>
+          <button class="action-chip" data-act="Research today's Bangladesh gold rate from public sources and give me a short verified summary">🔎 Research</button>
+          <button class="action-chip" data-act="List the files in MYRA's workspace and summarize what is there">📁 Files</button>
+          <button class="action-chip" data-act="Open https://example.com in the controlled browser, inspect the page, and summarize what it says">🌐 Inspect Page</button>
+          <button class="action-chip" data-act="Check this PC's system status and report CPU, RAM and disk clearly">💻 PC Status</button>
+          <button class="action-chip" data-act="Remind me to check my work in 10 minutes">⏰ Reminder</button>
+          <button class="action-chip" data-act="Save a note titled Agent Test saying MYRA Agent Mode is working">📝 Note</button>
         </div>
-        <div class="agent-log" id="agentLog">AGENT standing by — awaiting orders…</div>
+        <div class="agent-log" id="agentLog">AGENT ready — give me a real task. I will work step by step with MYRA's safe skills, show every step here, and ask before any action that changes or controls something.</div>
+        <div class="agent-approval hidden" id="agentApproval">
+          <div class="agent-approval-title">⚠️ APPROVAL NEEDED</div>
+          <div id="agentApprovalText">MYRA is waiting for your permission.</div>
+          <div class="agent-controls">
+            <button class="btn btn-send" id="agentApproveBtn">✓ APPROVE</button>
+            <button class="btn btn-danger" id="agentDenyBtn">✕ DENY</button>
+          </div>
+        </div>
+        <div class="agent-controls" id="agentControls">
+          <button class="action-chip" id="agentPauseBtn">⏸ PAUSE</button>
+          <button class="action-chip" id="agentResumeBtn">▶ RESUME</button>
+          <button class="action-chip" id="agentCancelBtn">■ STOP</button>
+          <button class="action-chip agent-emergency" id="agentEmergencyBtn">🛑 EMERGENCY</button>
+        </div>
         <div class="input-row">
-          <input type="text" id="agentInput" class="input chat-input" placeholder="Type desktop task or query (e.g. play song, list files, open google)…">
+          <input type="text" id="agentInput" class="input chat-input" placeholder="Tell MYRA a task to do step by step…">
           <button class="btn btn-send" id="agentBtn">▶</button>
         </div>
       </div>
@@ -454,14 +467,19 @@
   <header class="fv-head">
     <button class="back-btn" data-back>← BACK</button>
     <h2>🧩 SKILLS</h2>
-    <span class="fv-note">Skill engine activates in Stage 7</span>
+    <span class="fv-note">These switches control MYRA Agent's real skill engine</span>
   </header>
   <div class="fv-body">
     <div class="skill-cards">
       <div class="skill-card">
         <div class="sk-ico">🌐</div>
-        <div class="sk-info"><b>Browser Agent</b><small>Opens the browser, searches and reports for you</small></div>
+        <div class="sk-info"><b>Browser Agent</b><small>Agent Mode can inspect pages, click and fill non-secret fields — every control action asks you first</small></div>
         <label class="switch"><input type="checkbox" class="skill-toggle" data-skill="browser_agent" checked><span class="slider"></span></label>
+      </div>
+      <div class="skill-card">
+        <div class="sk-ico">🖥️</div>
+        <div class="sk-info"><b>PC Control (Agent)</b><small>Let Agent Mode observe Windows apps and, only after your APPROVE tap, click/type step by step like a careful human. Off by default.</small></div>
+        <label class="switch"><input type="checkbox" class="skill-toggle" data-skill="pc_control"><span class="slider"></span></label>
       </div>
       <div class="skill-card">
         <div class="sk-ico">📰</div>
@@ -499,7 +517,7 @@
       <div class="char-card" id="card-core">
         <div class="cc-ico">⬢</div>
         <b>CORE</b>
-        <small>Pure AI core — a living sphere of light. Neutral, calm, system-like voice.</small>
+        <small>Pure AI core — a living sphere of light. Calm, system-like male voice.</small>
         <span class="cc-badge hidden">ACTIVE</span>
       </div>
       <div class="char-card" id="card-male">
@@ -568,9 +586,9 @@
           Smart bilingual speech engine: speaks Bengali (বাংলা bn-BD/bn-IN) and English naturally according to text language.
         </p>
 
-        <label class="field-label">Voice / Speaker Selection</label>
+        <label class="field-label">Fallback Browser Voice <span style="font-weight:400">(MYRA form still controls male/female)</span></label>
         <select id="voiceStudioSelect" class="input" style="width:100%; margin-bottom:12px;">
-          <option value="auto">✨ Auto-Detect (Bengali &amp; English Natural Voices)</option>
+          <option value="auto">✨ Auto — form decides: CORE/MALE = male · FEMALE = female</option>
         </select>
 
         <label class="field-label">Speech Style (কণ্ঠের ধরণ)</label>
@@ -602,6 +620,12 @@
           </button>
           <span class="hint" id="voiceTestNotice" style="margin:0; font-size:11px;">Tap to test natural pronunciation</span>
         </div>
+
+        <hr class="divider" style="margin:14px 0 10px;">
+        <label class="field-label" style="margin-top:0">🎤 Live Voice Hearing — microphone → text</label>
+        <p class="hint" id="liveVoiceStatus" style="margin-top:0; font-size:12px;">Checking live-voice engine…</p>
+        <button class="btn hidden" id="installVoiceModelBtn" style="margin-top:2px;">⬇ INSTALL LIVE-VOICE MODEL · BASE (~145 MB)</button>
+        <p class="hint" style="font-size:11px;">One-time download, saved on this PC. After setup, tap the mic under the hologram and speak — MYRA will show your words, reply, and listen again. CORE &amp; MALE use a male voice; FEMALE uses a female voice.</p>
       </div>
     </div>
   </div>
@@ -685,7 +709,7 @@
       <hr class="divider">
       <h3>ℹ️ About</h3>
       <p class="hint"><b>MYRA</b> — Personal Desktop AI Assistant · <span id="aboutVersion">v0.8 · Stage 3 (AI Chat)</span><br>
-      Brain: Gemini (primary) + Groq (backup) — free cloud APIs · Memory: local SQLite · Runs light on 8GB RAM.<br>
+      Brain: the provider you select in the top BRAIN switcher is used exactly as chosen (Auto picks the best configured one) · Memory: local SQLite · Runs light on 8GB RAM.<br>
       World Monitor attaches the open-source live dashboard at worldmonitor.app.</p>
     </div>
   </div>
@@ -716,22 +740,6 @@
     <pre class="console-log" id="consoleLog">booting…</pre>
   </div>
 </section>
-
-<!-- ===== Footer: Build Progress ===== -->
-<footer class="footer">
-  <span class="ft-label">MYRA STATUS:</span>
-  <span class="ft-stage current">1 · UI</span><span class="ft-arrow">›</span>
-  <span class="ft-stage current">2 · Keys</span><span class="ft-arrow">›</span>
-  <span class="ft-stage current">3 · Chat</span><span class="ft-arrow">›</span>
-  <span class="ft-stage current">4 · Memory</span><span class="ft-arrow">›</span>
-  <span class="ft-stage current">5 · Voice</span><span class="ft-arrow">›</span>
-  <span class="ft-stage current">6 · Sync</span><span class="ft-arrow">›</span>
-  <span class="ft-stage current">7 · Notes/Skills</span><span class="ft-arrow">›</span>
-  <span class="ft-stage current">8 · Agent</span><span class="ft-arrow">›</span>
-  <span class="ft-stage current">9 · Vision</span><span class="ft-arrow">›</span>
-  <span class="ft-stage current">10 · World</span><span class="ft-arrow">›</span>
-  <span class="ft-stage current">11 · Auto-Update</span>
-</footer>
 
 <!-- INITIAL CONNECT / API KEY MODAL -->
 <div class="modal-backdrop hidden" id="connectModal">

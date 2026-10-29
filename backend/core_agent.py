@@ -55,12 +55,13 @@ class AgentEngine:
     # --------------------------------------------------------------
     # Task control
     # --------------------------------------------------------------
-    def create_task(self, goal, max_steps=6, approval_mode="ask", approved_skill_ids=None):
+    def create_task(self, goal, max_steps=6, approval_mode="ask", approved_skill_ids=None, provider="auto"):
         return self.memory.create_task(
             goal,
             max_steps=max_steps,
             approval_mode=approval_mode,
             approved_skill_ids=approved_skill_ids,
+            provider=provider,
         )
 
     def get_task(self, task_id):
@@ -206,6 +207,9 @@ class AgentEngine:
                 "Do not ask for passwords, API keys, OTPs, CAPTCHA or MFA bypass.",
                 "When the goal is complete, answer with a concise final summary and no tool call.",
                 "If information is missing or a tool fails in a way you cannot safely recover from, stop with a clear explanation.",
+                "Work like a careful human operator in small steps: observe first (browser snapshot or Windows window observation when relevant), act once, observe the result, then continue.",
+                "Do not treat merely opening a browser as task completion when the goal requires searching, reading, filling, clicking, downloading or verifying something inside it.",
+                "For local work, prefer the narrowest file/note/reminder/research skill that can verifiably finish the goal; use Windows coordinate control only after semantic observation and only when necessary.",
             ]
         )
         return providers.next_action(
@@ -213,6 +217,7 @@ class AgentEngine:
             system_prompt,
             definitions,
             model_overrides=model_overrides,
+            provider=task.get("provider", "auto"),
         )
 
     def _needs_confirmation(self, task, definition):

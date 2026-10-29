@@ -345,6 +345,11 @@ _OPENAI_COMPATIBLE = {
 
 
 def _compatible_models(provider, api_key, opener, override=None):
+    if provider == "ollama":
+        if isinstance(override, str) and override.strip() and override.strip().lower() != "auto":
+            return (override.strip(),)
+        model = config.ollama_model().strip()
+        return (model,) if model else ()
     if provider == "groq":
         return _provider_models(provider, api_key, opener, override)
     if isinstance(override, str) and override.strip() and override.strip().lower() != "auto":
@@ -357,7 +362,10 @@ def _compatible_models(provider, api_key, opener, override=None):
 
 
 def _openai_compatible_next(provider, events, system_prompt, definitions, api_key, opener, model_override=None):
-    endpoint = _OPENAI_COMPATIBLE[provider][0]
+    if provider == "ollama":
+        endpoint = f"{config.ollama_url().rstrip('/')}/v1/chat/completions"
+    else:
+        endpoint = _OPENAI_COMPATIBLE[provider][0]
     last_error = None
     for model in _compatible_models(provider, api_key, opener, model_override):
         payload = {
@@ -370,7 +378,8 @@ def _openai_compatible_next(provider, events, system_prompt, definitions, api_ke
             "max_tokens": 1200,
         }
         try:
-            response = chat._post_json(endpoint, payload, {"Authorization": f"Bearer {api_key}"}, provider, opener)
+            headers = {} if provider == "ollama" else {"Authorization": f"Bearer {api_key}"}
+            response = chat._post_json(endpoint, payload, headers, provider, opener)
             choices = response.get("choices") or []
             message = (choices[0].get("message") or {}) if choices else {}
             tool_calls = message.get("tool_calls") or []
@@ -403,16 +412,44 @@ def _groq_next(events, system_prompt, definitions, api_key, opener, model_overri
     return _openai_compatible_next("groq", events, system_prompt, definitions, api_key, opener, model_override)
 
 
-def next_action(events, system_prompt, definitions, opener=None, model_overrides=None):
-    """Ask configured tool-capable providers for one planner decision."""
+def next_action(events, system_prompt, definitions, opener=None, model_overrides=None, provider="auto"):
+    """Ask the selected tool-capable provider for one planner decision."""
     opener = opener or _default_opener()
     model_overrides = model_overrides or {}
+    requested = str(provider or "auto").lower().strip()
     gemini_key = config.gemini_key().strip()
     compatible_keys = {
-        provider: key_getter().strip()
-        for provider, (_endpoint, key_getter, _defaults) in _OPENAI_COMPATIBLE.items()
+        item: key_getter().strip()
+        for item, (_endpoint, key_getter, _defaults) in _OPENAI_COMPATIBLE.items()
     }
-    if not gemini_key and not any(compatible_keys.values()):
+    ollama_model = config.ollama_model().strip()
+
+    if requested != "auto":
+        if requested == "gemini":
+            if not gemini_key:
+                raise _chat_error("provider_not_configured", "You selected Google Gemini for Agent Mode, but no Gemini key is saved. MYRA will not silently plan with another brain.", provider=requested, status=503)
+            return _gemini_next(events, system_prompt, definitions, gemini_key, opener, model_overrides.get("gemini"))
+        if requested == "ollama":
+            if not ollama_model:
+                raise _chat_error("provider_not_configured", "You selected Ollama (Local PC) for Agent Mode, but no Ollama model is saved. Save an installed tool-capable model in SETTING and start Ollama, or choose Auto. MYRA will not silently plan with Gemini.", provider=requested, status=503)
+            try:
+                return _openai_compatible_next("ollama", events, system_prompt, definitions, "", opener, model_overrides.get("ollama"))
+            except chat.ChatError as exc:
+                if exc.code in {"network", "timeout"}:
+                    raise _chat_error("provider_unreachable", f"Ollama is selected, but MYRA could not reach it at {config.ollama_url()}. Start Ollama and confirm model '{ollama_model}' is installed and supports tool calling, or choose Auto.", provider=requested, status=503) from None
+                raise
+        if requested in compatible_keys:
+            if not compatible_keys[requested]:
+                raise _chat_error("provider_not_configured", f"You selected {requested} for Agent Mode, but its API key is not saved. MYRA will not silently plan with another brain.", provider=requested, status=503)
+            return _openai_compatible_next(requested, events, system_prompt, definitions, compatible_keys[requested], opener, model_overrides.get(requested))
+        raise _chat_error(
+            "unsupported_provider",
+            f"The selected brain '{requested}' cannot plan Agent tool calls in this build. Choose Auto, Gemini, Groq, OpenRouter, OpenAI, Mistral, DeepSeek or a tool-capable Ollama model.",
+            provider=requested,
+            status=400,
+        )
+
+    if not gemini_key and not any(compatible_keys.values()) and not ollama_model:
         raise _chat_error(
             "missing_keys",
             "No tool-capable API key is saved. Open Settings and add a Gemini, Groq, OpenRouter, OpenAI, Mistral or DeepSeek key first.",
@@ -425,12 +462,17 @@ def next_action(events, system_prompt, definitions, opener=None, model_overrides
             return _gemini_next(events, system_prompt, definitions, gemini_key, opener, model_overrides.get("gemini"))
         except chat.ChatError as exc:
             errors.append(exc)
-    for provider in ("groq", "openrouter", "openai", "mistral", "deepseek"):
-        api_key = compatible_keys.get(provider, "")
+    for item in ("groq", "openrouter", "openai", "mistral", "deepseek"):
+        api_key = compatible_keys.get(item, "")
         if not api_key:
             continue
         try:
-            return _openai_compatible_next(provider, events, system_prompt, definitions, api_key, opener, model_overrides.get(provider))
+            return _openai_compatible_next(item, events, system_prompt, definitions, api_key, opener, model_overrides.get(item))
+        except chat.ChatError as exc:
+            errors.append(exc)
+    if ollama_model:
+        try:
+            return _openai_compatible_next("ollama", events, system_prompt, definitions, "", opener, model_overrides.get("ollama"))
         except chat.ChatError as exc:
             errors.append(exc)
     if errors:
