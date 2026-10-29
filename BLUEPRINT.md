@@ -141,14 +141,14 @@ MYRA/ (repo root)
 | Stage | Work | How the owner verifies | Status |
 |---|---|---|---|
 | **1** | Folder structure + **complete UI** (3 particle characters with wave-formation, TERMINATE power, module chips + full-screen windows, SAT-LINK map + 3D Earth shell, Visual Hub, 3 conversation tabs) | `run.py` opens the window; characters form and can be rotated/switched; every window opens and goes Back (backend features are placeholders) | ✅ Approved (owner, Oct 2026) |
-| **2** | Settings: save API keys (Gemini/Groq) via `.env` + UI (`backend/config.py`, `/api/settings`; UI only ever sees masked key status) | Keys persist across app restarts | ✅ Implemented (owner verification pending) |
+| **2** | Settings: save API keys (Gemini/Groq) via OS credential store when available, otherwise `.env` + UI (`backend/config.py`, `/api/settings/keys`; UI only ever sees masked key status) | Keys persist across app restarts and the UI confirms the backend actually saved them | 🔄 Implemented; a Settings field-name bug was fixed in Core 2.0 and needs owner re-verification |
 | **3** | Text chat: Gemini first, Groq fallback (`backend/chat.py`, `/api/chat`), recent-conversation context, character/personality-aware replies, safe missing-key/offline/rate-limit notices | With keys saved on the laptop, chat answers like a real AI and shows which provider answered | 🔄 In review |
-| **4** | Local memory (SQLite) — saves facts, uses them in replies | "My name is X" is remembered next session | ⏳ |
+| **4** | Local memory (SQLite) — saves conversations and user-approved facts; relevant facts are supplied to replies | Add a memory in MEMORY, restart, and ask about it next session | 🔄 Core 2.0 implementation ready for owner test |
 | **5** | Voice: listening (silence detection) + speaking (male/female voice) | Speak and hear a spoken reply | ⏳ |
 | **6** | Hologram speech sync (movement while speaking) | Moves while talking, calm while silent | ⏳ |
-| **7** | Notes Mode (CRUD) + Skills engine (ON/OFF) | Notes persist; skill toggles work | ⏳ |
-| **8** | Agent Mode — Playwright: search → summary report | "Search this" makes the browser work alone | ⏳ |
-| **9** | Camera & screen share (both default OFF, LIVE indicator when on) | Sees nothing until toggled; red indicator on | ⏳ |
+| **7** | Notes Mode + typed Skills engine (ON/OFF) | Notes persist after restart; SKILLS shows only real backend-registered skills and toggles persist | 🔄 Core 2.0 implementation ready for owner test |
+| **8** | Agent Mode — first safe registered local skills; Playwright browser research is a later sub-stage | Ask Agent to create a note/workspace file; it pauses for approval and reports a verified result | 🔄 Safe local foundation ready; browser automation still ⏳ |
+| **9** | Camera & screen — first one explicitly approved frame; continuous live sharing later | Visual Hub asks twice, captures one frame, immediately turns capture off, and only then asks Gemini about that frame | 🔄 One-frame web/native service ready; continuous live mode still ⏳ |
 | **10** | World Monitor — live headlines + read-aloud | Real news in the panel; reads on request | ⏳ |
 | **11** | `auto_setup.py` + Windows desktop shortcut + auto-updating launcher | One run sets up everything; double-click starts | 🔄 Built early at owner's request (Oct 2026) — setup + GitHub auto-update done; final polish/approval with Stage 11 |
 
@@ -206,3 +206,25 @@ which the owner can show the agent when reporting a problem.
 - Talk to the owner in **Bengali**, step by step, with clear test instructions.
   The app UI itself is in **English**.
 - End of every stage: stop → give test steps → wait for approval.
+
+---
+
+## 11. Core 2.0 foundation (owner master prompt, 29 Oct 2026)
+
+The owner's master implementation prompt expands MYRA into a native,
+API-first Chat/Agent platform without discarding the approved UI. The
+first testable Core 2.0 tranche contains:
+
+- Gist/reference verification in `docs/REFERENCE_ANALYSIS.md` (patterns only; no copied code).
+- UI-independent `backend/service.py` and `/api/v1` while preserving legacy `/api/chat` and key settings.
+- SQLite conversations/messages/user-approved memories/notes/preferences/skill settings/agent tasks in platform app data.
+- Gemini/Groq capability registry and tool-schema conversion; Chat Mode receives no tools.
+- A bounded Agent engine: one validated skill at a time, confirmations, action budget, pause/resume/cancel, persisted observations and no fake success.
+- Twelve real safe skills, with file work confined to MYRA's workspace.
+- Explicit one-frame Gemini vision from the web Visual Hub and native screenshot action; capture stops before analysis.
+- A PySide6 native operational shell, MYRA icon and PyInstaller/Inno packaging scaffold.
+- Voice Model Manager state/checksum foundation, but **not** a finished realtime voice pipeline.
+
+This does not approve or complete Stages 5/6, browser-research Stage 8,
+continuous-live Stage 9, or native hologram parity. The owner must test
+this foundation on Windows before the next tranche.

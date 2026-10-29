@@ -1,9 +1,11 @@
-"""MYRA — local settings & API keys (Stage 2).
+"""MYRA — local settings & API keys.
 
-Reads and writes the `.env` file at the repo root using only the
-Python standard library. Security rules:
+Secrets prefer the operating-system credential store when the optional
+``keyring`` package is available (Windows Credential Manager on Windows).
+The existing private ``.env`` file remains a no-dependency fallback for
+the current lightweight install. Security rules:
 
-* Real key values are used by the backend only (Stages 3+).
+* Real key values are used by the backend only.
 * The UI never receives a full key back — `key_status()` returns
   only "is it set?" plus a masked tail like ``••••a1b2``.
 * `.env` stays out of Git (see .gitignore).
@@ -36,10 +38,83 @@ def load_env():
 
 
 def get(name, default=""):
-    """Real environment variables win (used by launchers), then .env."""
+    """Read a non-secret setting: real environment first, then .env."""
     if os.environ.get(name):
         return os.environ[name]
     return load_env().get(name, default)
+
+
+SECRET_SERVICE = "MYRA"
+_SECRET_ENV_NAMES = {GEMINI, GROQ}
+
+
+def _keyring_module():
+    """Return keyring only when it has a usable (non-fail) backend."""
+    if os.environ.get("MYRA_SECRET_STORE", "").strip().lower() == "env":
+        return None
+    try:
+        import keyring
+
+        backend = keyring.get_keyring()
+        backend_name = f"{backend.__class__.__module__}.{backend.__class__.__name__}".lower()
+        if "fail" in backend_name or "null" in backend_name:
+            return None
+        return keyring
+    except Exception:
+        return None
+
+
+def secret_backend():
+    return "os-credential-store" if _keyring_module() else "local-.env"
+
+
+def _keyring_get(name):
+    keyring = _keyring_module()
+    if not keyring:
+        return ""
+    try:
+        return keyring.get_password(SECRET_SERVICE, name) or ""
+    except Exception:
+        return ""
+
+
+def _keyring_set(name, value):
+    keyring = _keyring_module()
+    if not keyring:
+        return False
+    try:
+        if value:
+            keyring.set_password(SECRET_SERVICE, name, value)
+        else:
+            try:
+                keyring.delete_password(SECRET_SERVICE, name)
+            except Exception:
+                pass
+        return True
+    except Exception:
+        return False
+
+
+def secret_source(name):
+    if name not in _SECRET_ENV_NAMES:
+        return "setting"
+    if os.environ.get(name):
+        return "environment"
+    if _keyring_get(name):
+        return "os-credential-store"
+    if load_env().get(name):
+        return "local-.env"
+    return "not-set"
+
+
+def effective_secret(name):
+    """Read an API secret without ever exposing it to the UI layer."""
+    if os.environ.get(name):
+        return os.environ[name]
+    value = _keyring_get(name)
+    if value:
+        return value
+    return load_env().get(name, "")
 
 
 def _mask(value):
@@ -52,28 +127,24 @@ def _mask(value):
 
 def key_status():
     """What the settings UI is allowed to know — never the full keys."""
-    env = load_env()
-    gemini = env.get(GEMINI, "")
-    groq = env.get(GROQ, "")
+    gemini = effective_secret(GEMINI)
+    groq = effective_secret(GROQ)
     return {
-        "gemini": {"set": bool(gemini), "masked": _mask(gemini)},
-        "groq": {"set": bool(groq), "masked": _mask(groq)},
+        "gemini": {
+            "set": bool(gemini),
+            "masked": _mask(gemini),
+            "storage": secret_source(GEMINI),
+        },
+        "groq": {
+            "set": bool(groq),
+            "masked": _mask(groq),
+            "storage": secret_source(GROQ),
+        },
+        "secret_backend": secret_backend(),
     }
 
 
-def save_keys(gemini=None, groq=None):
-    """Update .env in place.
-
-    ``None`` = leave that key untouched, ``""`` = remove it,
-    any other string = store it. Existing comments/other lines are
-    preserved. Returns the new masked status.
-    """
-    updates = {}
-    if gemini is not None:
-        updates[GEMINI] = gemini.strip()
-    if groq is not None:
-        updates[GROQ] = groq.strip()
-
+def _save_env_values(updates):
     lines = []
     if ENV_PATH.exists():
         lines = ENV_PATH.read_text(encoding="utf-8").splitlines()
@@ -97,13 +168,43 @@ def save_keys(gemini=None, groq=None):
     tmp = ENV_PATH.with_suffix(".tmp")
     tmp.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
     os.replace(tmp, ENV_PATH)
+
+
+def save_keys(gemini=None, groq=None):
+    """Save/remove API keys and return masked status.
+
+    ``None`` leaves a key untouched; ``""`` removes it everywhere.  When
+    an OS credential store is available, new non-empty keys are stored
+    there and any old plaintext copy is blanked from ``.env``.
+    """
+    updates = {}
+    if gemini is not None:
+        updates[GEMINI] = gemini.strip()
+    if groq is not None:
+        updates[GROQ] = groq.strip()
+
+    env_updates = {}
+    use_keyring = _keyring_module() is not None
+    for name, value in updates.items():
+        if not value:
+            if use_keyring:
+                _keyring_set(name, "")
+            env_updates[name] = ""
+        elif use_keyring and _keyring_set(name, value):
+            # Remove a previous plaintext copy after the secure save works.
+            env_updates[name] = ""
+        else:
+            env_updates[name] = value
+
+    if env_updates:
+        _save_env_values(env_updates)
     return key_status()
 
 
 # Used by the backend brain from Stage 3 onwards.
 def gemini_key():
-    return get(GEMINI)
+    return effective_secret(GEMINI)
 
 
 def groq_key():
-    return get(GROQ)
+    return effective_secret(GROQ)

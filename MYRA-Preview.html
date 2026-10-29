@@ -1,4 +1,4 @@
-<!-- MYRA — one-file preview (v0.8 · Stage 3). Open in a browser to view the UI. Real AI chat and key-saving require the Python backend: run start.bat or run.py on your own laptop. -->
+<!-- MYRA — one-file UI preview (Core 2.0 foundation). Real persistent chat, Agent skills, vision and key-saving require the local Python backend; run MYRA.bat/start.bat or run_desktop.py on your own laptop. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -417,7 +417,6 @@ body.view-open{overflow:hidden}
 
 </style>
 <script>
-/* Three.js r128 (MIT licensed, inlined for one-file preview) */
 /**
  * @license
  * Copyright 2010-2021 Three.js Authors
@@ -465,7 +464,7 @@ body.view-open{overflow:hidden}
   </div>
 
   <div class="topbar-right">
-    <span class="version-chip" id="versionChip">v0.8 · Stage 3</span>
+    <span class="version-chip" id="versionChip">v0.9 · Core 2.0 foundation</span>
 
     <div class="awareness" title="Ambient awareness — MYRA proactively pays attention (real senses arrive in Stages 5 & 9)">
       <span class="aw-label">AWARENESS</span>
@@ -630,7 +629,7 @@ body.view-open{overflow:hidden}
         <div class="chat-log" id="chatLog">
           <div class="sys-ready">✦ SYSTEM READY ✦</div>
           <div class="msg msg-ai">
-            <div class="msg-bubble" id="greetingBubble">Hello, I'm <b>MYRA</b> — your personal desktop companion. 💗 My real AI chat is now live (Stage 3): Gemini answers first and Groq is my backup. Save your free keys in SETTING on your own laptop, then type below and talk to me!</div>
+            <div class="msg-bubble" id="greetingBubble">Hello, I'm <b>MYRA</b> — your personal desktop companion. 💗 My real AI chat is live: Gemini answers first and Groq is my backup. Conversations and approved memories now save locally in SQLite. Save your free keys in SETTING on your own laptop, then type below and talk to me!</div>
           </div>
         </div>
         <div class="input-row">
@@ -640,17 +639,24 @@ body.view-open{overflow:hidden}
       </div>
 
       <div class="mode-panel" id="mode-agent">
-        <p class="hint">Example: "Search this topic and give me a summary" — MYRA will open the browser herself and report back. <b>(Live in Stage 8)</b></p>
+        <p class="hint">Safe Agent Mode is live for registered local skills (workspace files, notes, memory, system info, allowlisted apps). Browser research and full desktop control are not enabled yet. Write actions pause for your approval.</p>
         <div class="agent-log" id="agentLog">AGENT standing by — awaiting orders…</div>
         <div class="input-row">
           <input type="text" id="agentInput" class="input chat-input" placeholder="Describe the task…">
           <button class="btn btn-send" id="agentBtn">▶</button>
         </div>
+        <div class="input-row">
+          <button class="btn hidden" id="agentApproveBtn">✅ APPROVE</button>
+          <button class="btn hidden" id="agentDenyBtn">🚫 DENY</button>
+          <button class="btn hidden" id="agentPauseBtn">⏸ PAUSE</button>
+          <button class="btn hidden" id="agentResumeBtn">▶ RESUME</button>
+          <button class="btn btn-danger hidden" id="agentCancelBtn">⛔ STOP</button>
+        </div>
       </div>
 
       <div class="mode-panel" id="mode-notes">
         <div class="input-row" style="margin-top:2px">
-          <input type="text" id="noteInput" class="input chat-input" placeholder="Write a note… (real saving in Stage 7)">
+          <input type="text" id="noteInput" class="input chat-input" placeholder="Write a note… (saved locally in SQLite)">
           <button class="btn btn-send" id="noteAdd">＋</button>
         </div>
         <ul class="notes-list" id="notesList"></ul>
@@ -733,7 +739,7 @@ body.view-open{overflow:hidden}
     <span class="fv-note">Stored only on your laptop — never in the cloud</span>
   </header>
   <div class="fv-body">
-    <p class="hint" style="margin-top:0">From Stage 4, MYRA will remember your name, your likes, your days — everything you share. You can already add memories below; they will plug into the real SQLite brain in Stage 4.</p>
+    <p class="hint" style="margin-top:0">These are user-approved memories stored in MYRA's local SQLite database. Relevant memories can be supplied to Chat Mode; MYRA does not silently turn private conversation details into long-term memories.</p>
     <div class="input-row" style="max-width:640px">
       <input type="text" id="memoryInput" class="input chat-input" placeholder="e.g. My favorite food is biryani">
       <button class="btn btn-send" id="memoryAdd">＋ ADD</button>
@@ -749,35 +755,12 @@ body.view-open{overflow:hidden}
   <header class="fv-head">
     <button class="back-btn" data-back>← BACK</button>
     <h2>🧩 SKILLS</h2>
-    <span class="fv-note">Skill engine activates in Stage 7</span>
+    <span class="fv-note">Real registered skills · Agent Mode only</span>
   </header>
   <div class="fv-body">
-    <div class="skill-cards">
-      <div class="skill-card">
-        <div class="sk-ico">🌐</div>
-        <div class="sk-info"><b>Browser Agent</b><small>Opens the browser, searches and reports for you</small></div>
-        <label class="switch"><input type="checkbox" class="skill-toggle" data-skill="browser_agent" checked><span class="slider"></span></label>
-      </div>
-      <div class="skill-card">
-        <div class="sk-ico">📰</div>
-        <div class="sk-info"><b>News Reader</b><small>Reads today's headlines aloud on request</small></div>
-        <label class="switch"><input type="checkbox" class="skill-toggle" data-skill="news_reader" checked><span class="slider"></span></label>
-      </div>
-      <div class="skill-card">
-        <div class="sk-ico">📝</div>
-        <div class="sk-info"><b>Note Helper</b><small>Takes, finds and organizes your notes</small></div>
-        <label class="switch"><input type="checkbox" class="skill-toggle" data-skill="note_helper" checked><span class="slider"></span></label>
-      </div>
-      <div class="skill-card">
-        <div class="sk-ico">📷</div>
-        <div class="sk-info"><b>Camera Vision</b><small>Understands what the camera shows (only with permission)</small></div>
-        <label class="switch"><input type="checkbox" class="skill-toggle" data-skill="camera_vision"><span class="slider"></span></label>
-      </div>
-      <div class="skill-card skill-soon">
-        <div class="sk-ico">➕</div>
-        <div class="sk-info"><b>Add New Skill</b><small>Plug in new abilities here (Stage 7+)</small></div>
-        <span class="soon-tag">SOON</span>
-      </div>
+    <p class="hint" style="margin-top:0">Only skills actually implemented in MYRA's backend are listed here. Disabling a skill removes it from Agent Mode. External skill files are not executed for safety.</p>
+    <div class="skill-cards" id="skillCards">
+      <div class="empty-note">Loading registered skills from the local backend…</div>
     </div>
   </div>
 </section>
@@ -825,7 +808,7 @@ body.view-open{overflow:hidden}
         <option>Motivational coach</option>
         <option>Calm mentor</option>
       </select>
-      <p class="hint">🎙️ Voice choices (male/female tones) arrive in Stage 5. Personality will shape replies from Stage 3.</p>
+      <p class="hint">🎙️ Browser read-aloud is available now. Full realtime voice will be enabled only after the one-time speech-model setup passes Windows microphone/STT/TTS/interruption tests. Personality already shapes real AI replies.</p>
     </div>
   </div>
 </section>
@@ -852,7 +835,7 @@ body.view-open{overflow:hidden}
       </div>
       <button class="btn" id="saveKeys">💾 SAVE KEYS</button>
       <p class="hint hidden" id="keysPreviewNote">👀 <b>Preview mode:</b> keys can only be saved from the real app on your laptop (double-click <code>start.bat</code>) — not from this preview file.</p>
-      <p class="hint">Keys are stored only on your laptop in a private <code>.env</code> file, survive restarts, and afterwards only the last 4 characters are shown. Stage 3 chat uses Gemini first and Groq as backup.</p>
+      <p class="hint">Keys stay on your laptop, survive restarts, and afterwards only the last 4 characters are shown. MYRA uses the OS credential store when available; otherwise it uses the private local <code>.env</code>. Chat uses Gemini first and Groq as backup.</p>
       <p class="hint">🆓 <b>Get both keys free:</b><br>
       1. <a href="https://aistudio.google.com" target="_blank" rel="noopener">aistudio.google.com</a> → sign in → <b>Get API key</b> → <b>Create API key</b> → copy<br>
       2. <a href="https://console.groq.com" target="_blank" rel="noopener">console.groq.com</a> → sign in → <b>API Keys</b> → <b>Create API Key</b> → copy<br>
@@ -865,7 +848,7 @@ body.view-open{overflow:hidden}
 
       <hr class="divider">
       <h3>ℹ️ About</h3>
-      <p class="hint"><b>MYRA</b> — Personal Desktop AI Assistant · <span id="aboutVersion">v0.8 · Stage 3 (AI Chat)</span><br>
+      <p class="hint"><b>MYRA</b> — Personal Desktop AI Assistant · <span id="aboutVersion">v0.9 · Core 2.0 foundation</span><br>
       Brain: Gemini (primary) + Groq (backup) — free cloud APIs · Memory: local SQLite · Runs light on 8GB RAM.<br>
       World Monitor attaches the open-source live dashboard at worldmonitor.app.</p>
     </div>
@@ -964,6 +947,38 @@ function logEvent(msg) {
 }
 const HISTORY = [];
 function pushHistory(who, text) { HISTORY.push({ who, text, at: new Date() }); }
+
+/* ---------- Core 2.0 local service API ---------- */
+const CORE = {
+  conversationId: localStorage.getItem('myra_conversation_id') || null,
+  agentTaskId: null,
+  agentTimer: null,
+};
+const inPreviewFile = () => location.protocol === 'file:';
+async function coreApi(path, options = {}) {
+  const init = { method: options.method || 'GET', headers: {} };
+  if (options.body !== undefined) {
+    init.headers['Content-Type'] = 'application/json';
+    init.body = JSON.stringify(options.body);
+  }
+  if (options.signal) init.signal = options.signal;
+  const res = await fetch(path, init);
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* handled below */ }
+  if (!res.ok || !data || data.ok === false) {
+    const err = new Error((data && (data.message || data.error)) || ('HTTP ' + res.status));
+    err.data = data;
+    err.status = res.status;
+    err.code = data && (data.code || data.error_code);
+    throw err;
+  }
+  return data;
+}
+function setConversationId(id) {
+  CORE.conversationId = id || null;
+  if (id) localStorage.setItem('myra_conversation_id', id);
+  else localStorage.removeItem('myra_conversation_id');
+}
 
 /* =========================================================
    Themes
@@ -1888,7 +1903,9 @@ function openView(name, opt) {
     const tab = opt && opt.tab ? opt.tab : (navigator.onLine ? 'live' : 'globe');
     setWorldTab(tab);
   }
-  if (name === 'history') renderHistory();
+  if (name === 'history') { renderHistory(); loadSavedConversationList(); }
+  if (name === 'memory') refreshMemories();
+  if (name === 'skills') refreshSkills();
   if (name === 'console') logEvent('console opened');
   logEvent('window opened: ' + name);
 }
@@ -1917,6 +1934,62 @@ function renderHistory() {
     d.append(who, tm, document.createElement('br'), document.createTextNode(h.text));
     box.appendChild(d);
   });
+}
+async function loadSavedConversationList() {
+  if (inPreviewFile()) return;
+  const box = $('historyList');
+  if (!box) return;
+  try {
+    const data = await coreApi('/api/v1/conversations?limit=30');
+    document.querySelectorAll('.saved-conversation-row').forEach((el) => el.remove());
+    (data.conversations || []).slice().reverse().forEach((conv) => {
+      const row = document.createElement('div');
+      row.className = 'hist-item saved-conversation-row';
+      const label = document.createElement('span');
+      label.textContent = '💾 ' + (conv.title || 'Saved conversation');
+      const btn = document.createElement('button');
+      btn.textContent = 'OPEN';
+      btn.onclick = () => loadConversationById(conv.id, true);
+      row.append(label, document.createElement('br'), btn);
+      box.prepend(row);
+    });
+  } catch (e) {
+    logEvent('saved conversation list unavailable: ' + e.message);
+  }
+}
+async function loadConversationById(id, closeAfterLoad) {
+  if (!id || inPreviewFile()) return false;
+  try {
+    const data = await coreApi('/api/v1/conversations/' + encodeURIComponent(id));
+    const conv = data.conversation;
+    if (!conv) return false;
+    setConversationId(conv.id);
+    const log = $('chatLog');
+    log.innerHTML = '';
+    const ready = document.createElement('div');
+    ready.className = 'sys-ready';
+    ready.textContent = '✦ SAVED CONVERSATION RESTORED ✦';
+    log.appendChild(ready);
+    HISTORY.length = 0;
+    chatContext = [];
+    (conv.messages || []).forEach((m) => {
+      const who = m.role === 'user' ? 'user' : 'ai';
+      addMsg(m.content || '', who, true);
+      pushHistory(who, m.content || '');
+      chatContext.push({ role: m.role, text: m.content || '' });
+    });
+    chatContext = chatContext.slice(-MAX_CHAT_CONTEXT);
+    if (closeAfterLoad) closeViews();
+    logEvent('persistent conversation restored');
+    return true;
+  } catch (e) {
+    if (e.status === 404) setConversationId(null);
+    logEvent('could not restore conversation: ' + e.message);
+    return false;
+  }
+}
+async function restoreLastConversation() {
+  if (CORE.conversationId) await loadConversationById(CORE.conversationId, false);
 }
 
 /* =========================================================
@@ -1948,15 +2021,17 @@ function speakDemo(text) {
     try {
       speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'en-US';
+      u.lang = speechLangFor(text);
       u.pitch = HOLO.char === 'female' ? 1.25 : (HOLO.char === 'male' ? 0.82 : 1.0);
       u.rate = HOLO.char === 'core' ? 1.02 : 1.0;
       const voices = speechSynthesis.getVoices();
+      const sameLanguage = voices.filter((v) => (v.lang || '').toLowerCase().startsWith(u.lang.slice(0, 2).toLowerCase()));
+      const pool = sameLanguage.length ? sameLanguage : voices;
       const match = HOLO.char === 'female'
-        ? voices.find((v) => /female|zira|samantha|Jenny|veena/i.test(v.name))
+        ? pool.find((v) => /female|zira|samantha|Jenny|veena/i.test(v.name)) || pool[0]
         : HOLO.char === 'male'
-          ? voices.find((v) => /male|david|daniel|ravi/i.test(v.name))
-          : null;
+          ? pool.find((v) => /male|david|daniel|ravi/i.test(v.name)) || pool[0]
+          : pool[0];
       if (match) u.voice = match;
       u.onend = finish;
       u.onerror = finish;
@@ -1976,7 +2051,7 @@ function stopSpeaking() {
 const GREETINGS = {
   core: '⬢ Core online. My real AI chat is live: Gemini answers first and Groq is my backup. Ask me anything.',
   male: 'Good day, sir. 🎩 I am MYRA, at your service. My real AI brain is now connected — Gemini first, Groq as backup. How may I help?',
-  female: "Hello, I'm MYRA — your personal desktop companion. 💗 My real AI chat is now live (Stage 3): Gemini answers first and Groq is my backup. Save your free keys in SETTING on your own laptop, then type below and talk to me!",
+  female: "Hello, I'm MYRA — your personal desktop companion. 💗 My real AI chat is live: Gemini answers first and Groq is my backup, and our saved conversation is restored from local SQLite. Save your free keys in SETTING on your own laptop, then type below and talk to me!",
 };
 let chatContext = [];
 let chatBusy = false;
@@ -2020,7 +2095,7 @@ function friendlyChatError(error, data) {
   if (location.protocol === 'file:') {
     return '👀 This one-file preview cannot run my real brain, because the Python backend is not running here. On your laptop, double-click start.bat, save your free keys in SETTING, and then talk to me there. Please never paste real keys into an online preview or chat.';
   }
-  if (data && data.message) return data.message;
+  if (data && (data.message || data.error)) return data.message || data.error;
   if (error && error.name === 'AbortError') {
     return '⏳ The AI service took too long to answer. Please check the internet and try again.';
   }
@@ -2082,27 +2157,20 @@ async function sendChat() {
     }
 
     const payload = {
-      messages: chatContext.slice(-MAX_CHAT_CONTEXT),
+      message: text,
+      conversation_id: CORE.conversationId,
       character: HOLO.char,
       personality: currentPersonality(),
       assistant_name: localStorage.getItem('myra_name') || 'MYRA',
       owner_name: localStorage.getItem('myra_owner') || 'Saidul',
     };
-    const res = await fetch('/api/chat', {
+    const data = await coreApi('/api/v1/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: payload,
       signal: controller ? controller.signal : undefined,
     });
-    let data = null;
-    try { data = await res.json(); } catch (e) { /* handled below */ }
-
-    if (!res.ok || !data || data.ok === false || !data.reply) {
-      const err = new Error((data && data.message) || ('HTTP ' + res.status));
-      err.data = data;
-      err.status = res.status;
-      throw err;
-    }
+    if (!data.reply) throw new Error('MYRA backend returned an empty reply.');
+    if (data.conversation_id) setConversationId(data.conversation_id);
 
     const reply = String(data.reply).trim();
     chatContext.push({ role: 'assistant', text: reply });
@@ -2130,7 +2198,7 @@ async function sendChat() {
     if (nextInput) nextInput.focus();
   }
 }
-function newChat() {
+async function newChat() {
   if (chatBusy) {
     toast('⏳ Please wait for the current reply before starting a new conversation.');
     return;
@@ -2142,6 +2210,19 @@ function newChat() {
   ready.textContent = '✦ NEW CONVERSATION ✦';
   log.appendChild(ready);
   chatContext = [];
+  HISTORY.length = 0;
+  setConversationId(null);
+  if (!inPreviewFile()) {
+    try {
+      const data = await coreApi('/api/v1/conversations', {
+        method: 'POST',
+        body: { character: HOLO.char },
+      });
+      if (data.conversation) setConversationId(data.conversation.id);
+    } catch (e) {
+      logEvent('could not create persistent conversation yet: ' + e.message);
+    }
+  }
   addMsg(GREETINGS[HOLO.char] || GREETINGS.core, 'ai');
   logEvent('new conversation started');
 }
@@ -2181,7 +2262,7 @@ function setMic(on, silent) {
   $('stageMicBtn').textContent = on ? '🔴' : '🎤';
   if (!silent) {
     toast(on
-      ? '🎤 Mic ON (armed) — real listening arrives in Stage 5. When MYRA speaks, the badge above her shows SPEAKING.'
+      ? '🎤 Mic button armed, but MYRA is not recording yet: realtime voice needs the one-time speech-model setup and a Windows audio test. Text chat and browser read-aloud work now.'
       : '🎤 Mic OFF.');
     logEvent('mic ' + (on ? 'armed' : 'off'));
   }
@@ -2200,49 +2281,352 @@ function setMute(muted) {
    Visual Hub — the single home of camera/screen control
    ========================================================= */
 const VIS = { cam: false, scr: false };
-function setVisual(kind, on) {
-  VIS[kind] = on;
+let visualBusy = false;
+function paintVisualState() {
   $('camIndicator').classList.toggle('hidden', !(VIS.cam || VIS.scr));
-  $('camChip').textContent = 'CAM · ' + (VIS.cam ? 'ON' : 'OFF');
+  $('camChip').textContent = 'CAM · ' + (VIS.cam ? 'CAPTURING' : 'OFF');
   $('camChip').classList.toggle('on', VIS.cam);
-  $('scrChip').textContent = 'SCREEN · ' + (VIS.scr ? 'ON' : 'OFF');
+  $('scrChip').textContent = 'SCREEN · ' + (VIS.scr ? 'CAPTURING' : 'OFF');
   $('scrChip').classList.toggle('on', VIS.scr);
   $('vhCamBtn').classList.toggle('on', VIS.cam);
   $('vhScrBtn').classList.toggle('on', VIS.scr);
-  logEvent('visual hub: ' + kind + ' ' + (on ? 'ON (preview)' : 'OFF'));
-  toast(on
-    ? '🔴 Preview indicator only — no real camera/screen access yet. Permission-based vision arrives in Stage 9, and this red warning will glow whenever it is on.'
-    : '✅ Turned off — MYRA cannot see anything now.', 4600);
+}
+function setVisual(kind, on) {
+  if (!on) {
+    VIS[kind] = false;
+    paintVisualState();
+    toast('✅ Visual capture is off — MYRA is not capturing or uploading frames.');
+    return;
+  }
+  captureAndAnalyze(kind);
+}
+async function captureAndAnalyze(kind) {
+  if (visualBusy) return;
+  if (inPreviewFile()) {
+    toast('👀 One-frame vision needs the real MYRA backend on your laptop (start.bat), not this preview file.', 5200);
+    return;
+  }
+  const isScreen = kind === 'scr';
+  const label = isScreen ? 'screen' : 'camera';
+  const approved = window.confirm(
+    'Share ONE ' + label + ' frame with MYRA?\n\n' +
+    'The browser will ask permission. MYRA captures one frame, immediately stops the device/stream, and sends that single frame to the configured Gemini vision model. This is not continuous live sharing.'
+  );
+  if (!approved) return;
+  let stream = null;
+  visualBusy = true;
+  VIS[kind] = true;
+  paintVisualState();
+  try {
+    if (!navigator.mediaDevices) throw new Error('This browser does not expose camera/screen capture here.');
+    stream = isScreen
+      ? await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
+      : await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    const video = document.createElement('video');
+    video.srcObject = stream;
+    video.muted = true;
+    await video.play();
+    await new Promise((resolve) => {
+      if (video.readyState >= 2) resolve();
+      else video.onloadeddata = resolve;
+    });
+    const maxWidth = 1280;
+    const scale = Math.min(1, maxWidth / Math.max(1, video.videoWidth));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageBase64 = canvas.toDataURL('image/jpeg', 0.82).split(',', 2)[1];
+
+    // Stop capture before the model request. Nothing continues recording.
+    stream.getTracks().forEach((track) => track.stop());
+    stream = null;
+    VIS[kind] = false;
+    paintVisualState();
+    toast('📸 One frame captured and the ' + label + ' is already OFF. Asking Gemini to inspect only that frame…', 5200);
+
+    const prompt = $('chatInput').value.trim() || 'Describe what is visible and help me with it.';
+    const data = await coreApi('/api/v1/vision/analyze', {
+      method: 'POST',
+      body: {
+        image_base64: imageBase64,
+        mime_type: 'image/jpeg',
+        prompt,
+        consent: true,
+        source: isScreen ? 'screen' : 'camera',
+      },
+    });
+    document.querySelector('[data-mode="voice"]').click();
+    addMsg('👁️ ONE-FRAME ' + label.toUpperCase() + ' ANALYSIS\n' + (data.text || ''), 'ai');
+    logEvent('one explicit ' + label + ' frame analyzed; capture stopped');
+  } catch (e) {
+    const msg = e && e.name === 'NotAllowedError'
+      ? 'Permission was denied, so MYRA captured nothing.'
+      : 'Vision could not complete: ' + ((e.data && (e.data.message || e.data.error)) || e.message);
+    toast('👁️ ' + msg, 5600);
+    logEvent('vision stopped: ' + msg);
+  } finally {
+    if (stream) stream.getTracks().forEach((track) => track.stop());
+    VIS[kind] = false;
+    visualBusy = false;
+    paintVisualState();
+  }
 }
 
 /* =========================================================
    Memory window (plugs into SQLite in Stage 4)
    ========================================================= */
+let coreMemories = null;
 function loadMemories() {
-  try { return JSON.parse(localStorage.getItem('myra_memories_demo') || '[]'); }
-  catch (e) { return []; }
+  try {
+    const arr = JSON.parse(localStorage.getItem('myra_memories_demo') || '[]');
+    return arr.map((text, idx) => ({ id: 'local-' + idx, text, category: 'browser-fallback' }));
+  } catch (e) { return []; }
+}
+async function refreshMemories() {
+  if (inPreviewFile()) {
+    coreMemories = loadMemories();
+    renderMemories();
+    return;
+  }
+  try {
+    let data = await coreApi('/api/v1/memories');
+    if (!localStorage.getItem('myra_memory_migrated_v1')) {
+      const legacy = loadMemories();
+      if (legacy.length && !(data.memories || []).length) {
+        for (const item of legacy.slice().reverse()) {
+          await coreApi('/api/v1/memories', { method: 'POST', body: { text: item.text, category: 'general' } });
+        }
+        localStorage.removeItem('myra_memories_demo');
+        data = await coreApi('/api/v1/memories');
+        logEvent('browser demo memories migrated once into local SQLite');
+      }
+      localStorage.setItem('myra_memory_migrated_v1', '1');
+    }
+    coreMemories = data.memories || [];
+  } catch (e) {
+    if (!coreMemories) coreMemories = loadMemories();
+    logEvent('memory refresh unavailable: ' + e.message);
+  }
+  renderMemories();
 }
 function renderMemories() {
   const list = $('memoryList');
-  const mems = loadMemories();
+  if (!list) return;
+  const mems = coreMemories || loadMemories();
   list.innerHTML = '';
-  mems.forEach((m, idx) => {
+  mems.forEach((memory, idx) => {
+    const text = typeof memory === 'string' ? memory : memory.text;
     const li = document.createElement('li');
     const span = document.createElement('span');
-    span.textContent = '🧠 ' + m;
+    span.textContent = '🧠 ' + text;
     const del = document.createElement('button');
     del.textContent = '🗑️';
     del.title = 'Forget this';
-    del.onclick = () => {
-      const arr = loadMemories();
-      arr.splice(idx, 1);
-      localStorage.setItem('myra_memories_demo', JSON.stringify(arr));
-      renderMemories();
+    del.onclick = async () => {
+      if (!inPreviewFile() && Number.isInteger(memory.id)) {
+        try { await coreApi('/api/v1/memories/' + memory.id, { method: 'DELETE' }); }
+        catch (e) { toast('❌ Could not delete that memory: ' + e.message, 4600); return; }
+        refreshMemories();
+      } else {
+        const arr = loadMemories().map((m) => m.text);
+        arr.splice(idx, 1);
+        localStorage.setItem('myra_memories_demo', JSON.stringify(arr));
+        coreMemories = loadMemories();
+        renderMemories();
+      }
     };
     li.append(span, del);
     list.appendChild(li);
   });
   $('memoryEmpty').classList.toggle('hidden', mems.length > 0);
+}
+
+/* =========================================================
+   Persistent Notes, registered Skills and bounded Agent
+   ========================================================= */
+function renderNotes(notes) {
+  const list = $('notesList');
+  if (!list) return;
+  list.innerHTML = '';
+  (notes || []).forEach((note) => {
+    const li = document.createElement('li');
+    const span = document.createElement('span');
+    span.textContent = '📌 ' + (note.title || note.body || 'Note');
+    const del = document.createElement('button');
+    del.textContent = '🗑️';
+    del.title = 'Delete note';
+    del.onclick = async () => {
+      if (!inPreviewFile() && Number.isInteger(note.id)) {
+        try { await coreApi('/api/v1/notes/' + note.id, { method: 'DELETE' }); }
+        catch (e) { toast('❌ Could not delete note: ' + e.message, 4600); return; }
+        refreshNotes();
+      } else {
+        li.remove();
+      }
+    };
+    li.append(span, del);
+    list.appendChild(li);
+  });
+}
+async function refreshNotes() {
+  if (inPreviewFile()) return;
+  try {
+    const data = await coreApi('/api/v1/notes');
+    renderNotes(data.notes || []);
+  } catch (e) {
+    logEvent('notes unavailable: ' + e.message);
+  }
+}
+async function refreshSkills() {
+  const box = $('skillCards');
+  if (!box) return;
+  if (inPreviewFile()) {
+    box.innerHTML = '<div class="empty-note">Registered skills load from the real local MYRA backend on your laptop.</div>';
+    return;
+  }
+  try {
+    const data = await coreApi('/api/v1/skills');
+    const icons = { system: '💻', files: '📁', memory: '🧠', productivity: '📝', desktop: '🖥️', web: '🌐' };
+    box.innerHTML = '';
+    (data.skills || []).forEach((skill) => {
+      const card = document.createElement('div');
+      card.className = 'skill-card';
+      const icon = document.createElement('div');
+      icon.className = 'sk-ico';
+      icon.textContent = icons[skill.category] || '🧩';
+      const info = document.createElement('div');
+      info.className = 'sk-info';
+      const title = document.createElement('b');
+      title.textContent = skill.name;
+      const small = document.createElement('small');
+      small.textContent = skill.id + ' · ' + skill.description + (skill.requires_confirmation ? ' · confirmation required' : '');
+      info.append(title, small);
+      const label = document.createElement('label');
+      label.className = 'switch';
+      const toggle = document.createElement('input');
+      toggle.type = 'checkbox';
+      toggle.className = 'skill-toggle';
+      toggle.checked = !!skill.enabled;
+      toggle.addEventListener('change', async () => {
+        try {
+          await coreApi('/api/v1/skills/' + encodeURIComponent(skill.id) + '/enabled', {
+            method: 'POST',
+            body: { enabled: toggle.checked },
+          });
+          toast('🧩 ' + skill.id + (toggle.checked ? ' enabled for Agent Mode.' : ' disabled.'));
+          logEvent('skill ' + skill.id + ' ' + (toggle.checked ? 'enabled' : 'disabled'));
+        } catch (e) {
+          toggle.checked = !toggle.checked;
+          toast('❌ Could not update skill: ' + e.message, 4800);
+        }
+      });
+      const slider = document.createElement('span');
+      slider.className = 'slider';
+      label.append(toggle, slider);
+      card.append(icon, info, label);
+      box.appendChild(card);
+    });
+  } catch (e) {
+    box.innerHTML = '';
+    const note = document.createElement('div');
+    note.className = 'empty-note';
+    note.textContent = 'Could not load skills from the local backend: ' + e.message;
+    box.appendChild(note);
+  }
+}
+function paintAgentControls(task) {
+  const hasTask = !!(task && task.id);
+  const pending = hasTask && task.status === 'awaiting_confirmation';
+  const active = hasTask && ['queued', 'running', 'paused', 'awaiting_confirmation'].includes(task.status);
+  const map = {
+    agentApproveBtn: pending,
+    agentDenyBtn: pending,
+    agentPauseBtn: hasTask && task.status === 'running',
+    agentResumeBtn: hasTask && task.status === 'paused',
+    agentCancelBtn: active,
+  };
+  Object.entries(map).forEach(([id, show]) => {
+    const el = $(id);
+    if (el) el.classList.toggle('hidden', !show);
+  });
+}
+function renderAgentTask(task) {
+  const log = $('agentLog');
+  if (!log || !task) return;
+  const lines = [
+    'Status: ' + task.status,
+    'Goal: ' + task.goal,
+    'Budget: ' + ((task.steps || []).length) + '/' + task.max_steps + ' steps',
+    '',
+  ];
+  if (task.pending) {
+    lines.push('⚠ CONFIRMATION REQUIRED');
+    lines.push('Skill: ' + task.pending.skill_id);
+    lines.push('Arguments: ' + JSON.stringify(task.pending.arguments || {}));
+    lines.push('Review it, then APPROVE or DENY below.');
+    lines.push('');
+  }
+  (task.steps || []).forEach((step) => {
+    lines.push(step.index + '. ' + step.skill_id + ' — ' + step.status);
+    lines.push('   ' + JSON.stringify(step.result || {}).slice(0, 900));
+  });
+  if (task.error) lines.push('', 'Error: ' + task.error);
+  if (task.final_summary) lines.push('', 'Final summary:', task.final_summary);
+  log.textContent = lines.join('\n');
+  paintAgentControls(task);
+}
+async function pollAgentTask() {
+  if (!CORE.agentTaskId || inPreviewFile()) return;
+  try {
+    const data = await coreApi('/api/v1/agent/tasks/' + encodeURIComponent(CORE.agentTaskId));
+    renderAgentTask(data.task);
+    if (['completed', 'failed', 'cancelled'].includes(data.task.status)) {
+      clearInterval(CORE.agentTimer);
+      CORE.agentTimer = null;
+      toast(data.task.status === 'completed' ? '✅ Agent task completed.' : '⛔ Agent stopped: ' + (data.task.error || data.task.status), 5200);
+    }
+  } catch (e) {
+    logEvent('agent polling paused: ' + e.message);
+  }
+}
+async function runAgentTask() {
+  const goal = $('agentInput').value.trim();
+  if (!goal) { toast('Describe the Agent task first.'); return; }
+  if (inPreviewFile()) {
+    $('agentLog').textContent = 'Agent Mode needs the real MYRA backend on your laptop (start.bat), not this one-file preview.';
+    return;
+  }
+  try {
+    const data = await coreApi('/api/v1/agent/tasks', {
+      method: 'POST',
+      body: { goal, max_steps: 6, approval_mode: 'ask', start: true },
+    });
+    CORE.agentTaskId = data.task.id;
+    $('agentInput').value = '';
+    renderAgentTask(data.task);
+    clearInterval(CORE.agentTimer);
+    CORE.agentTimer = setInterval(pollAgentTask, 1500);
+    pollAgentTask();
+    logEvent('agent task started: ' + goal.slice(0, 80));
+  } catch (e) {
+    $('agentLog').textContent = 'Could not start Agent Mode: ' + e.message;
+  }
+}
+async function agentAction(action) {
+  if (!CORE.agentTaskId) return;
+  try {
+    const data = await coreApi('/api/v1/agent/tasks/' + encodeURIComponent(CORE.agentTaskId) + '/' + action, {
+      method: 'POST',
+      body: {},
+    });
+    renderAgentTask(data.task);
+    if (!CORE.agentTimer && !['completed', 'failed', 'cancelled'].includes(data.task.status)) {
+      CORE.agentTimer = setInterval(pollAgentTask, 1500);
+    }
+  } catch (e) {
+    toast('❌ Agent action failed: ' + e.message, 4800);
+  }
 }
 
 /* =========================================================
@@ -2275,6 +2659,10 @@ document.addEventListener('DOMContentLoaded', () => {
   initMap();
   syncCharUI();
   renderMemories();
+  refreshMemories();
+  restoreLastConversation();
+  refreshNotes();
+  refreshSkills();
   loadNewsCache();
   renderNews();
   setTimeout(() => { fetchNews(false); attachWorldMonitor(); }, 900);
@@ -2454,58 +2842,91 @@ document.addEventListener('DOMContentLoaded', () => {
   $('sendBtn').addEventListener('click', sendChat);
   $('chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChat(); });
 
-  /* Agent demo */
-  const runAgentDemo = () => {
-    const task = $('agentInput').value.trim() || '(empty task)';
-    const log = $('agentLog');
-    log.textContent = `📝 Task received: "${task}"\n`;
-    logEvent('agent task received: ' + task.slice(0, 60));
-    setTimeout(() => { log.textContent += '⏳ In Stage 8, I would now open the browser myself…\n'; }, 600);
-    setTimeout(() => { log.textContent += '🔍 …search, read the results, and hand you a summary report.\n✅ The browser engine arrives in Stage 8.'; }, 1400);
-  };
-  $('agentBtn').addEventListener('click', runAgentDemo);
-  $('agentInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') runAgentDemo(); });
+  /* Bounded Agent Mode (registered safe skills only) */
+  $('agentBtn').addEventListener('click', runAgentTask);
+  $('agentInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') runAgentTask(); });
+  $('agentApproveBtn').addEventListener('click', () => agentAction('approve'));
+  $('agentDenyBtn').addEventListener('click', () => agentAction('deny'));
+  $('agentPauseBtn').addEventListener('click', () => agentAction('pause'));
+  $('agentResumeBtn').addEventListener('click', () => agentAction('resume'));
+  $('agentCancelBtn').addEventListener('click', () => agentAction('cancel'));
 
-  /* Notes */
-  const addNote = () => {
+  /* Notes (persistent local SQLite in the real app) */
+  const addNote = async () => {
     const v = $('noteInput').value.trim();
     if (!v) return;
-    const li = document.createElement('li');
-    const span = document.createElement('span');
-    span.textContent = '📌 ' + v;
-    const del = document.createElement('button');
-    del.textContent = '🗑️';
-    del.onclick = () => li.remove();
-    li.append(span, del);
-    $('notesList').prepend(li);
-    $('noteInput').value = '';
+    if (inPreviewFile()) {
+      renderNotes([{ title: v, body: v }, ...Array.from($('notesList').children).map((li) => ({ title: li.textContent.replace('🗑️', '').trim() }))]);
+      $('noteInput').value = '';
+      toast('👀 Preview only — notes save permanently in the real app on your laptop.');
+      return;
+    }
+    try {
+      await coreApi('/api/v1/notes', {
+        method: 'POST',
+        body: { title: v.slice(0, 120), body: v },
+      });
+      $('noteInput').value = '';
+      refreshNotes();
+      toast('📌 Note saved locally.');
+    } catch (e) {
+      toast('❌ Could not save note: ' + e.message, 4800);
+    }
   };
   $('noteAdd').addEventListener('click', addNote);
   $('noteInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') addNote(); });
 
-  /* Memory window */
-  const addMemory = () => {
+  /* Memory window (user-approved SQLite memories) */
+  const addMemory = async () => {
     const v = $('memoryInput').value.trim();
     if (!v) return;
-    const arr = loadMemories();
-    arr.unshift(v);
-    localStorage.setItem('myra_memories_demo', JSON.stringify(arr));
-    $('memoryInput').value = '';
-    renderMemories();
-    toast('🧠 Noted! (The permanent SQLite memory arrives in Stage 4.)');
-    logEvent('memory added');
+    if (inPreviewFile()) {
+      const arr = loadMemories().map((m) => m.text);
+      arr.unshift(v);
+      localStorage.setItem('myra_memories_demo', JSON.stringify(arr));
+      coreMemories = loadMemories();
+      $('memoryInput').value = '';
+      renderMemories();
+      toast('👀 Preview only — permanent SQLite memory works in the real laptop app.');
+      return;
+    }
+    try {
+      await coreApi('/api/v1/memories', { method: 'POST', body: { text: v, category: 'general' } });
+      $('memoryInput').value = '';
+      refreshMemories();
+      toast('🧠 Saved as a user-approved local memory.');
+      logEvent('memory added to SQLite');
+    } catch (e) {
+      toast('❌ Could not save memory: ' + e.message, 4800);
+    }
   };
   $('memoryAdd').addEventListener('click', addMemory);
   $('memoryInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') addMemory(); });
-  $('clearMemory').addEventListener('click', () => {
-    localStorage.removeItem('myra_memories_demo');
-    renderMemories();
-    toast('🗑️ All memories erased.');
+  $('clearMemory').addEventListener('click', async () => {
+    if (!window.confirm('Erase ALL user-approved MYRA memories stored on this laptop?')) return;
+    if (inPreviewFile()) {
+      localStorage.removeItem('myra_memories_demo');
+      coreMemories = [];
+      renderMemories();
+      toast('🗑️ Preview memories erased.');
+      return;
+    }
+    try {
+      const data = await coreApi('/api/v1/memories');
+      for (const memory of data.memories || []) {
+        await coreApi('/api/v1/memories/' + memory.id, { method: 'DELETE' });
+      }
+      localStorage.removeItem('myra_memories_demo');
+      refreshMemories();
+      toast('🗑️ All local memories erased.');
+    } catch (e) {
+      toast('❌ Could not erase all memories: ' + e.message, 4800);
+    }
   });
 
   /* API keys (Stage 2) — the backend saves them into .env on this laptop.
      The browser only receives masked status, never a full saved key. */
-  const inPreviewFile = location.protocol === 'file:';
+  const previewFile = location.protocol === 'file:';
   const paintKeyStatus = (statusId, removeId, info) => {
     const badge = $(statusId);
     const btn = $(removeId);
@@ -2521,17 +2942,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
   const refreshKeyStatus = async () => {
-    if (inPreviewFile) {
+    if (previewFile) {
       $('keysPreviewNote').classList.remove('hidden');
       paintKeyStatus('geminiKeyStatus', 'removeGemini', null);
       paintKeyStatus('groqKeyStatus', 'removeGroq', null);
       return;
     }
     try {
-      const res = await fetch('/api/settings');
-      const data = await res.json();
-      paintKeyStatus('geminiKeyStatus', 'removeGemini', data.gemini);
-      paintKeyStatus('groqKeyStatus', 'removeGroq', data.groq);
+      const data = await coreApi('/api/settings/keys');
+      const keys = data.keys || data;
+      paintKeyStatus('geminiKeyStatus', 'removeGemini', keys.gemini);
+      paintKeyStatus('groqKeyStatus', 'removeGroq', keys.groq);
     } catch (e) {
       const g = $('geminiKeyStatus');
       const q = $('groqKeyStatus');
@@ -2547,7 +2968,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const gemini = $('geminiKey').value.trim();
     const groq = $('groqKey').value.trim();
 
-    if (inPreviewFile) {
+    if (previewFile) {
       $('geminiKey').value = '';
       $('groqKey').value = '';
       toast('👀 This is the one-file preview — keys can only be saved from the real app on your laptop (double-click start.bat). Nothing was stored anywhere.', 5600);
@@ -2563,22 +2984,22 @@ document.addEventListener('DOMContentLoaded', () => {
     if (groq && !groq.startsWith('gsk_')) warnings.push('Groq keys usually start with "gsk_"');
 
     const body = {};
-    if (gemini) body.gemini_key = gemini;
-    if (groq) body.groq_key = groq;
+    if (gemini) body.gemini = gemini;
+    if (groq) body.groq = groq;
 
     try {
-      const res = await fetch('/api/settings/keys', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+      const data = await coreApi('/api/settings/keys', { method: 'POST', body });
+      const keys = data.keys || data;
+      const askedButMissing = (gemini && !(keys.gemini && keys.gemini.set)) || (groq && !(keys.groq && keys.groq.set));
+      if (askedButMissing) throw new Error('Backend did not confirm the key was saved.');
       $('geminiKey').value = '';
       $('groqKey').value = '';
-      paintKeyStatus('geminiKeyStatus', 'removeGemini', data.gemini);
-      paintKeyStatus('groqKeyStatus', 'removeGroq', data.groq);
-      toast('🔑 Key saved safely on this laptop (.env) and will survive restarts.'
+      paintKeyStatus('geminiKeyStatus', 'removeGemini', keys.gemini);
+      paintKeyStatus('groqKeyStatus', 'removeGroq', keys.groq);
+      const storageLabel = keys.secret_backend === 'os-credential-store'
+        ? 'in the operating-system credential store'
+        : 'in the private local .env file';
+      toast('🔑 Key confirmed saved ' + storageLabel + ' and will survive restarts.'
         + (warnings.length ? ' ⚠️ Note: ' + warnings.join('; ') + ' — please double-check the pasted key.' : '')
         + ' Now try chatting with MYRA!', 6400);
       logEvent('API key saved (value hidden)');
@@ -2588,17 +3009,13 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   const removeKey = async (which) => {
-    if (inPreviewFile) return;
+    if (previewFile) return;
     try {
-      const res = await fetch('/api/settings/remove', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ which }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
-      paintKeyStatus('geminiKeyStatus', 'removeGemini', data.gemini);
-      paintKeyStatus('groqKeyStatus', 'removeGroq', data.groq);
+      const body = which === 'gemini' ? { gemini: '' } : { groq: '' };
+      const data = await coreApi('/api/settings/keys', { method: 'POST', body });
+      const keys = data.keys || data;
+      paintKeyStatus('geminiKeyStatus', 'removeGemini', keys.gemini);
+      paintKeyStatus('groqKeyStatus', 'removeGroq', keys.groq);
       toast('🗑️ ' + (which === 'gemini' ? 'Gemini' : 'Groq') + ' key removed from this laptop.');
       logEvent(which + ' key removed');
     } catch (e) {
@@ -2610,7 +3027,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   /* Reset preferences */
   $('resetPrefs').addEventListener('click', () => {
-    ['myra_char', 'myra_name', 'myra_skills', 'myra_personality', 'myra_theme', 'myra_awareness', 'myra_owner']
+    ['myra_char', 'myra_name', 'myra_skills', 'myra_personality', 'myra_theme', 'myra_awareness', 'myra_owner', 'myra_conversation_id']
       .forEach((k) => localStorage.removeItem(k));
     toast('🧹 Preferences reset — reload the page to start fresh.', 4200);
     logEvent('preferences reset');
@@ -2624,20 +3041,11 @@ document.addEventListener('DOMContentLoaded', () => {
       document.querySelector('[data-mode="voice"]').click();
       $('chatInput').value = btn.dataset.vh;
       $('chatInput').focus();
-      toast('👁️ Real vision arrives in Stage 9 — I placed your request in the chat box.');
+      toast('👁️ Request placed in the chat box. Now choose CAMERA or SCREEN in Visual Hub; MYRA will ask again and capture one frame only.');
     });
   });
 
-  /* Skills toggles */
-  const saved = JSON.parse(localStorage.getItem('myra_skills') || '{}');
-  document.querySelectorAll('.skill-toggle').forEach((tg) => {
-    if (tg.dataset.skill in saved) tg.checked = saved[tg.dataset.skill];
-    tg.addEventListener('change', () => {
-      saved[tg.dataset.skill] = tg.checked;
-      localStorage.setItem('myra_skills', JSON.stringify(saved));
-      toast(`🧩 Skill ${tg.checked ? 'enabled ✅' : 'disabled ⛔'} — saved in this browser (skill engine in Stage 7).`);
-    });
-  });
+  /* Skills are rendered from the real backend registry by refreshSkills(). */
 
   /* Personality */
   const persSel = $('personality');
@@ -2660,8 +3068,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   pushHistory('ai', GREETINGS[HOLO.char] || GREETINGS.core);
-  logEvent('shell ready · stage 3 (real AI chat) v0.8');
-  toast('🧠 MYRA v0.8 — Stage 3 is live: real AI chat with Gemini first and Groq as backup. Save your free keys in SETTING on your own laptop, then talk to her!', 7400);
+  logEvent('shell ready · Core 2.0 foundation (persistent chat/memory/notes, safe skills, one-frame vision)');
+  toast('🧠 MYRA Core 2.0 foundation — persistent local memory, real registered skills and safe Agent Mode are connected. Save your free keys in SETTING on your own laptop, then talk to her!', 7400);
 });
 
 </script>

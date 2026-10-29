@@ -40,7 +40,7 @@ TMP_ZIP = ROOT / ".myra-update.zip"
 TMP_DIR = ROOT / ".myra-update"
 
 # Names the updater must never touch (your private/local things).
-PROTECTED_DIRS = {"data", ".git", "__pycache__", ".myra-update"}
+PROTECTED_DIRS = {"data", ".git", "__pycache__", ".myra-update", ".venv", ".venv-desktop", ".venv-build", "build", "dist"}
 PROTECTED_FILES = {".env", ".myra-version", "launcher-log.txt", ".myra-update.zip"}
 
 HEADERS = {"User-Agent": "MYRA-Launcher/1.0"}

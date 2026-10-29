@@ -23,7 +23,7 @@ from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parent
 TARGET = Path(os.environ.get("MYRA_INSTALL_DIR") or Path.home() / "MYRA")
-PROTECTED_DIRS = {".git", "__pycache__", ".myra-update"}
+PROTECTED_DIRS = {".git", "__pycache__", ".myra-update", ".venv", ".venv-desktop", ".venv-build", "build", "dist"}
 PROTECTED_FILES = {".env", "launcher-log.txt", ".myra-update.zip"}
 
 

@@ -135,23 +135,52 @@ def build_system_prompt(payload):
     character_style = character_styles.get(character, character_styles["core"])
     today = datetime.now().astimezone().strftime("%A, %d %B %Y")
 
-    return "\n".join(
+    memory_lines = []
+    raw_memory = payload.get("memory_context") if isinstance(payload, dict) else None
+    if isinstance(raw_memory, list):
+        for item in raw_memory[:6]:
+            if isinstance(item, dict):
+                text = item.get("text", "")
+            else:
+                text = item
+            text = _clean_short(text, "", 700)
+            if text:
+                memory_lines.append(f"- {text}")
+    elif isinstance(raw_memory, str) and raw_memory.strip():
+        memory_lines.append("- " + _clean_short(raw_memory, "", 2000))
+
+    lines = [
+        f"You are {assistant_name}, a personal desktop AI assistant for {owner_name}.",
+        character_style,
+        f"Preferred communication style: {personality}.",
+        f"Today's local date is {today}.",
+        "Reply in the same language as the user's latest message unless they ask otherwise.",
+        "Be genuinely helpful. Keep normal replies reasonably concise, but give full detail when asked.",
+    ]
+    if memory_lines:
+        lines.append(
+            "Relevant user-approved local memory/context supplied by MYRA "
+            "(use only when it helps; do not invent beyond it):\n" + "\n".join(memory_lines)
+        )
+    else:
+        lines.append(
+            "Use the conversation supplied here. Do not claim to remember "
+            "anything that MYRA has not supplied as context."
+        )
+    lines.extend(
         [
-            f"You are {assistant_name}, a personal desktop AI assistant for {owner_name}.",
-            character_style,
-            f"Preferred communication style: {personality}.",
-            f"Today's local date is {today}.",
-            "Reply in the same language as the user's latest message unless they ask otherwise.",
-            "Be genuinely helpful. Keep normal replies reasonably concise, but give full detail when asked.",
-            "Use only the conversation supplied here. Do not claim to have permanent long-term memory yet.",
-            "You cannot browse the web inside this chat yet. If fresh web research is required, say so plainly.",
+            "In Chat Mode, do not execute computer tools. If a task needs computer actions, explain that it belongs in Agent Mode.",
+            "You cannot browse the web inside ordinary Chat Mode. If fresh web research is required, say so plainly.",
             "Never ask for, reveal, or repeat API keys, passwords, OTPs or other secrets.",
             "If you are uncertain, say what is uncertain instead of inventing facts.",
         ]
     )
+    return "\n".join(lines)
 
 
-def _models_for(provider):
+def _models_for(provider, override=None):
+    if isinstance(override, str) and override.strip():
+        return (override.strip(),)
     if provider == "gemini":
         configured = config.get("GEMINI_MODEL").strip()
         return (configured,) if configured else DEFAULT_GEMINI_MODELS
@@ -346,7 +375,7 @@ def _extract_groq_text(data):
     return text
 
 
-def _call_gemini(messages, system_prompt, api_key, opener):
+def _call_gemini(messages, system_prompt, api_key, opener, model_override=None):
     contents = [
         {
             "role": "model" if message["role"] == "assistant" else "user",
@@ -365,7 +394,7 @@ def _call_gemini(messages, system_prompt, api_key, opener):
     headers = {"x-goog-api-key": api_key}
 
     last_error = None
-    for model in _models_for("gemini"):
+    for model in _models_for("gemini", model_override):
         try:
             data = _post_json(
                 GEMINI_URL.format(model=quote(model, safe="-._~")),
@@ -382,7 +411,7 @@ def _call_gemini(messages, system_prompt, api_key, opener):
     raise last_error
 
 
-def _call_groq(messages, system_prompt, api_key, opener):
+def _call_groq(messages, system_prompt, api_key, opener, model_override=None):
     api_messages = [{"role": "system", "content": system_prompt}]
     api_messages.extend(
         {"role": message["role"], "content": message["text"]}
@@ -391,7 +420,7 @@ def _call_groq(messages, system_prompt, api_key, opener):
     headers = {"Authorization": f"Bearer {api_key}"}
 
     last_error = None
-    for model in _models_for("groq"):
+    for model in _models_for("groq", model_override):
         payload = {
             "model": model,
             "messages": api_messages,
@@ -458,6 +487,7 @@ def get_reply(payload, opener=urlopen):
 
     messages = normalize_messages(payload.get("messages"))
     system_prompt = build_system_prompt(payload)
+    model_overrides = payload.get("models") if isinstance(payload.get("models"), dict) else {}
     gemini_key = config.gemini_key().strip()
     groq_key = config.groq_key().strip()
 
@@ -472,7 +502,9 @@ def get_reply(payload, opener=urlopen):
 
     if gemini_key:
         try:
-            reply, model = _call_gemini(messages, system_prompt, gemini_key, opener)
+            reply, model = _call_gemini(
+                messages, system_prompt, gemini_key, opener, model_overrides.get("gemini")
+            )
             return {
                 "ok": True,
                 "reply": reply,
@@ -486,7 +518,9 @@ def get_reply(payload, opener=urlopen):
 
     if groq_key:
         try:
-            reply, model = _call_groq(messages, system_prompt, groq_key, opener)
+            reply, model = _call_groq(
+                messages, system_prompt, groq_key, opener, model_overrides.get("groq")
+            )
             notice = ""
             if gemini_key:
                 notice = "Gemini was unavailable, so the Groq backup answered."

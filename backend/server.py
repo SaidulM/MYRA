@@ -1,165 +1,509 @@
-"""MYRA — backend server.
+"""MYRA — local backend server.
 
-Pure Python standard library only, so it stays very light on an
-8GB RAM laptop.
+Uses only Python's standard library so it runs anywhere Python 3 runs.
 
-Live routes:
-  GET  /api/health          — liveness + current build stage
-  GET  /api/settings        — masked API-key status (Stage 2)
-  POST /api/settings/keys   — save Gemini/Groq keys into .env (Stage 2)
-  POST /api/settings/remove — remove one saved key (Stage 2)
-  POST /api/chat            — Gemini chat with Groq fallback (Stage 3)
+* Serves the existing web UI from ../ui.
+* Keeps the original Stage 2/3 endpoints for compatibility.
+* Adds the service-oriented `/api/v1` API used by the native desktop app:
+  persistent chat, memories, notes, skills, bounded Agent Mode, explicit
+  one-frame vision, providers, backup/export and voice-model status.
 
-Planned routes: /api/memory (Stage 4), /api/notes (Stage 7),
-/api/agent (Stage 8), /api/news (Stage 10).
+Environment:
+    MYRA_HOST / MYRA_PORT  bind address (defaults: 127.0.0.1:8765)
+    MYRA_API_TOKEN          optional token; required for state-changing
+                            API v1 calls when MYRA_HOST is not loopback.
 """
 import json
-import sys
+import os
+import traceback
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import chat  # noqa: E402  (local backend/chat.py)
-import config  # noqa: E402  (local backend/config.py)
+import chat
+import config
+from service import APP_VERSION, get_service
 
-ROOT = Path(__file__).resolve().parent.parent
-UI_DIR = ROOT / "ui"
-
-HOST = config.get("MYRA_HOST", config.get("STONIC_HOST", "127.0.0.1"))
-PORT = int(config.get("MYRA_PORT", config.get("STONIC_PORT", "8765")))
-
-MAX_BODY = 16 * 1024  # settings payloads are tiny
-MAX_CHAT_BODY = 128 * 1024  # recent conversation context for /api/chat
+UI_DIR = Path(__file__).resolve().parent.parent / "ui"
+HOST = os.environ.get("MYRA_HOST", "127.0.0.1")
+PORT = int(os.environ.get("MYRA_PORT", "8765"))
+STAGE = 3
+STAGE_LABEL = "Stage 3 chat + Core 2.0 foundation"
 
 
 class MyraHandler(SimpleHTTPRequestHandler):
-    """Serves the ui/ folder and answers /api/* routes with JSON."""
+    server_version = "MYRA/2.0-foundation"
 
-    # ---------- GET ----------
-    def do_GET(self):
-        if self.path.startswith("/api/health"):
-            self._send_json({"status": "ok", "app": "MYRA", "stage": 3})
-            return
-        if self.path.startswith("/api/settings"):
-            self._send_json(config.key_status())
-            return
-        if self.path.startswith("/api/"):
+    # ---------- helpers ----------
+    def _send_json(self, payload, status=200):
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _read_json(self, max_bytes=64_000, optional=False):
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self._send_json({"ok": False, "error": "Bad Content-Length."}, status=400)
+            return None
+        if length == 0 and optional:
+            return {}
+        if length <= 0 or length > max_bytes:
             self._send_json(
-                {"error": "This feature arrives in a later stage."}, status=501
+                {"ok": False, "error": f"Request body must be 1..{max_bytes} bytes."},
+                status=400,
+            )
+            return None
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            self._send_json({"ok": False, "error": "Request body is not valid JSON."}, status=400)
+            return None
+        if not isinstance(payload, dict):
+            self._send_json({"ok": False, "error": "JSON body must be an object."}, status=400)
+            return None
+        return payload
+
+    def _health(self):
+        return {
+            "ok": True,
+            "app": "MYRA",
+            "stage": STAGE,
+            "stage_label": STAGE_LABEL,
+            "api_v1": True,
+        }
+
+    def _api_v1_authorized(self, method, clean_path):
+        token = config.get("MYRA_API_TOKEN").strip()
+        if token:
+            return self.headers.get("X-MYRA-Token", "") == token
+        if HOST in {"127.0.0.1", "localhost", "::1"}:
+            return True
+        # Public read-only status is safe; anything that can read private
+        # history or cause an action is refused on a non-loopback bind
+        # unless the owner configured a token.
+        return method == "GET" and clean_path in {
+            "/api/v1/health",
+            "/api/v1/providers",
+            "/api/v1/skills",
+        }
+
+    def _api_v1_full_access(self):
+        token = config.get("MYRA_API_TOKEN").strip()
+        if token:
+            return self.headers.get("X-MYRA-Token", "") == token
+        return HOST in {"127.0.0.1", "localhost", "::1"}
+
+    # ---------- API v1 ----------
+    def _handle_api_v1(self, method):
+        parsed = urlparse(self.path)
+        clean_path = parsed.path.rstrip("/") or "/"
+        query = {key: values[-1] for key, values in parse_qs(parsed.query).items()}
+        parts = [unquote(part) for part in clean_path.split("/") if part]
+
+        if not self._api_v1_authorized(method, clean_path):
+            self._send_json(
+                {
+                    "ok": False,
+                    "code": "api_token_required",
+                    "error": "API v1 action endpoints require loopback binding or MYRA_API_TOKEN.",
+                },
+                status=401,
+            )
+            return
+
+        try:
+            service = get_service()
+
+            # Health / providers
+            if method == "GET" and clean_path == "/api/v1/health":
+                if self._api_v1_full_access():
+                    self._send_json(service.health())
+                else:
+                    # Public health must not leak local filesystem paths.
+                    self._send_json(
+                        {"ok": True, "app": "MYRA", "version": APP_VERSION, "api_v1": True}
+                    )
+                return
+            if method == "GET" and clean_path == "/api/v1/providers":
+                self._send_json({"ok": True, "providers": service.providers()})
+                return
+
+            # Preferences (never secrets)
+            if clean_path == "/api/v1/preferences" and method == "GET":
+                self._send_json({"ok": True, "preferences": service.memory.all_preferences()})
+                return
+            if len(parts) == 4 and parts[:3] == ["api", "v1", "preferences"] and method in {"PUT", "PATCH"}:
+                key = parts[3]
+                lowered = key.lower()
+                if any(word in lowered for word in ("secret", "token", "password", "api_key", "apikey")):
+                    self._send_json(
+                        {"ok": False, "error": "Secrets cannot be stored as preferences."},
+                        status=400,
+                    )
+                    return
+                payload = self._read_json(32_000)
+                if payload is None:
+                    return
+                value = service.memory.set_preference(key, payload.get("value"))
+                self._send_json({"ok": True, "key": key, "value": value})
+                return
+
+            # Conversations / persistent chat
+            if clean_path == "/api/v1/conversations" and method == "GET":
+                conversations = service.memory.list_conversations(
+                    limit=int(query.get("limit", 50)),
+                    include_archived=query.get("archived") == "1",
+                )
+                self._send_json({"ok": True, "conversations": conversations})
+                return
+            if clean_path == "/api/v1/conversations" and method == "POST":
+                payload = self._read_json(8_000, optional=True)
+                if payload is None:
+                    return
+                conversation = service.create_conversation(
+                    title=payload.get("title", "New conversation"),
+                    character=payload.get("character", "core"),
+                )
+                self._send_json({"ok": True, "conversation": conversation}, status=201)
+                return
+            if len(parts) == 4 and parts[:3] == ["api", "v1", "conversations"]:
+                conversation_id = parts[3]
+                if method == "GET":
+                    conversation = service.memory.get_conversation(conversation_id)
+                    if not conversation:
+                        raise KeyError("conversation not found")
+                    conversation["messages"] = service.memory.list_messages(conversation_id)
+                    self._send_json({"ok": True, "conversation": conversation})
+                    return
+                if method in {"PUT", "PATCH"}:
+                    payload = self._read_json(8_000)
+                    if payload is None:
+                        return
+                    conversation = service.memory.rename_conversation(
+                        conversation_id, payload.get("title", "")
+                    )
+                    self._send_json({"ok": True, "conversation": conversation})
+                    return
+                if method == "DELETE":
+                    service.memory.delete_conversation(conversation_id)
+                    self._send_json({"ok": True, "deleted": conversation_id})
+                    return
+            if clean_path == "/api/v1/chat" and method == "POST":
+                payload = self._read_json(128_000)
+                if payload is None:
+                    return
+                result = service.chat(payload)
+                self._send_json(result)
+                return
+
+            # Memories
+            if clean_path == "/api/v1/memories" and method == "GET":
+                if query.get("query"):
+                    memories = service.memory.search_memories(query["query"], limit=int(query.get("limit", 50)))
+                else:
+                    memories = service.memory.list_memories(limit=int(query.get("limit", 200)))
+                self._send_json({"ok": True, "memories": memories})
+                return
+            if clean_path == "/api/v1/memories" and method == "POST":
+                payload = self._read_json(16_000)
+                if payload is None:
+                    return
+                memory = service.memory.add_memory(
+                    payload.get("text", ""),
+                    category=payload.get("category", "general"),
+                    source="user",
+                    pinned=bool(payload.get("pinned", False)),
+                )
+                self._send_json({"ok": True, "memory": memory}, status=201)
+                return
+            if len(parts) == 4 and parts[:3] == ["api", "v1", "memories"]:
+                memory_id = int(parts[3])
+                if method in {"PUT", "PATCH"}:
+                    payload = self._read_json(16_000)
+                    if payload is None:
+                        return
+                    memory = service.memory.update_memory(
+                        memory_id,
+                        text=payload.get("text"),
+                        category=payload.get("category"),
+                        pinned=payload.get("pinned"),
+                    )
+                    self._send_json({"ok": True, "memory": memory})
+                    return
+                if method == "DELETE":
+                    service.memory.delete_memory(memory_id)
+                    self._send_json({"ok": True, "deleted": memory_id})
+                    return
+
+            # Notes
+            if clean_path == "/api/v1/notes" and method == "GET":
+                notes = service.memory.list_notes(
+                    query=query.get("query", ""), limit=int(query.get("limit", 200))
+                )
+                self._send_json({"ok": True, "notes": notes})
+                return
+            if clean_path == "/api/v1/notes" and method == "POST":
+                payload = self._read_json(64_000)
+                if payload is None:
+                    return
+                note = service.memory.create_note(payload.get("title", ""), payload.get("body", ""))
+                self._send_json({"ok": True, "note": note}, status=201)
+                return
+            if len(parts) == 4 and parts[:3] == ["api", "v1", "notes"]:
+                note_id = int(parts[3])
+                if method in {"PUT", "PATCH"}:
+                    payload = self._read_json(64_000)
+                    if payload is None:
+                        return
+                    note = service.memory.update_note(
+                        note_id, title=payload.get("title"), body=payload.get("body")
+                    )
+                    self._send_json({"ok": True, "note": note})
+                    return
+                if method == "DELETE":
+                    service.memory.delete_note(note_id)
+                    self._send_json({"ok": True, "deleted": note_id})
+                    return
+
+            # Skills
+            if clean_path == "/api/v1/skills" and method == "GET":
+                self._send_json({"ok": True, "skills": service.registry.list()})
+                return
+            if len(parts) == 5 and parts[:3] == ["api", "v1", "skills"] and method == "POST":
+                skill_id, action = parts[3], parts[4]
+                if action == "enabled":
+                    payload = self._read_json(4_000)
+                    if payload is None:
+                        return
+                    enabled = service.registry.set_enabled(skill_id, bool(payload.get("enabled")))
+                    self._send_json({"ok": True, "skill_id": skill_id, "enabled": enabled})
+                    return
+                if action == "run":
+                    payload = self._read_json(64_000)
+                    if payload is None:
+                        return
+                    result = service.execute_skill(
+                        skill_id,
+                        arguments=payload.get("arguments") or {},
+                        confirmed=bool(payload.get("confirmed", False)),
+                    )
+                    self._send_json(result)
+                    return
+
+            # Agent tasks
+            if clean_path == "/api/v1/agent/tasks" and method == "GET":
+                self._send_json(
+                    {"ok": True, "tasks": service.agent.list_tasks(limit=int(query.get("limit", 50)))}
+                )
+                return
+            if clean_path == "/api/v1/agent/tasks" and method == "POST":
+                payload = self._read_json(32_000)
+                if payload is None:
+                    return
+                approved = payload.get("approved_skill_ids")
+                if approved is not None and not isinstance(approved, list):
+                    raise ValueError("approved_skill_ids must be an array")
+                task = service.agent.create_task(
+                    payload.get("goal", ""),
+                    max_steps=payload.get("max_steps", 6),
+                    approval_mode=payload.get("approval_mode", "ask"),
+                    approved_skill_ids=approved or [],
+                )
+                if payload.get("start"):
+                    task = service.agent.start_task(task["id"])
+                self._send_json({"ok": True, "task": task}, status=201)
+                return
+            if len(parts) == 5 and parts[:3] == ["api", "v1", "agent"] and parts[3] == "tasks" and method == "GET":
+                self._send_json({"ok": True, "task": service.agent.get_task(parts[4])})
+                return
+            if len(parts) == 6 and parts[:3] == ["api", "v1", "agent"] and parts[3] == "tasks" and method == "POST":
+                task_id, action = parts[4], parts[5]
+                if self._read_json(4_000, optional=True) is None:
+                    return
+                actions = {
+                    "start": service.agent.start_task,
+                    "pause": service.agent.pause_task,
+                    "resume": service.agent.resume_task,
+                    "cancel": service.agent.cancel_task,
+                    "approve": service.agent.approve_pending,
+                    "deny": service.agent.deny_pending,
+                }
+                handler = actions.get(action)
+                if not handler:
+                    self._send_json({"ok": False, "error": "Unknown agent action."}, status=404)
+                    return
+                self._send_json({"ok": True, "task": handler(task_id)})
+                return
+
+            # Explicit vision, export/backup, voice status
+            if clean_path == "/api/v1/vision/analyze" and method == "POST":
+                payload = self._read_json(9_000_000)
+                if payload is None:
+                    return
+                result = service.analyze_image(payload)
+                self._send_json({"ok": True, **result})
+                return
+            if clean_path == "/api/v1/export" and method == "GET":
+                self._send_json({"ok": True, "export": service.memory.export_data()})
+                return
+            if clean_path == "/api/v1/backup" and method == "POST":
+                if self._read_json(4_000, optional=True) is None:
+                    return
+                self._send_json({"ok": True, "backup_path": service.memory.backup()})
+                return
+            if clean_path == "/api/v1/voice/status" and method == "GET":
+                self._send_json({"ok": True, "voice": service.voice.status()})
+                return
+
+            self._send_json({"ok": False, "error": "Unknown API v1 route."}, status=404)
+        except chat.ChatError as exc:
+            self._send_json(
+                {
+                    "ok": False,
+                    "code": exc.code,
+                    "error_code": exc.code,
+                    "error": exc.message,
+                    "message": exc.message,
+                },
+                status=exc.status,
+            )
+        except KeyError as exc:
+            self._send_json({"ok": False, "error": str(exc).strip("'\"")}, status=404)
+        except PermissionError as exc:
+            self._send_json({"ok": False, "error": str(exc)}, status=403)
+        except ValueError as exc:
+            self._send_json({"ok": False, "error": str(exc)}, status=400)
+        except Exception as exc:  # keep details server-side / in local logs
+            traceback.print_exc()
+            self._send_json(
+                {"ok": False, "error": f"Internal MYRA service error: {exc.__class__.__name__}"},
+                status=500,
+            )
+
+    # ---------- HTTP verbs ----------
+    def do_GET(self):
+        clean_path = urlparse(self.path).path
+        if clean_path.startswith("/api/v1/"):
+            self._handle_api_v1("GET")
+            return
+        if clean_path == "/api/health":
+            self._send_json(self._health())
+            return
+        if clean_path in {"/api/settings/keys", "/api/settings"}:
+            status = config.key_status()
+            # Flat fields keep older UI code working; "keys" is the
+            # canonical wrapper used by the native desktop client.
+            self._send_json({"ok": True, **status, "keys": status})
+            return
+        if clean_path.startswith("/api/"):
+            self._send_json(
+                {"ok": False, "error": "This endpoint arrives in a later MYRA stage."},
+                status=501,
             )
             return
         super().do_GET()
 
-    # ---------- POST ----------
     def do_POST(self):
-        if self.path.startswith("/api/chat"):
-            data = self._read_json(max_bytes=MAX_CHAT_BODY)
-            if data is None:
+        clean_path = urlparse(self.path).path
+        if clean_path.startswith("/api/v1/"):
+            self._handle_api_v1("POST")
+            return
+        if clean_path == "/api/chat":
+            payload = self._read_json(128_000)
+            if payload is None:
                 return
             try:
-                result = chat.get_reply(data)
+                result = chat.get_reply(payload)
             except chat.ChatError as exc:
-                print(f"💬 Chat unavailable: {exc.code}")
                 self._send_json(
                     {
                         "ok": False,
+                        "code": exc.code,
                         "error_code": exc.code,
+                        "error": exc.message,
                         "message": exc.message,
-                        "provider": exc.provider,
                     },
                     status=exc.status,
                 )
                 return
-            except Exception:
-                print("💬 Chat failed with an unexpected backend error.")
-                self._send_json(
-                    {
-                        "ok": False,
-                        "error_code": "internal_error",
-                        "message": "MYRA hit an unexpected problem while preparing the reply. Please try again.",
-                    },
-                    status=500,
-                )
-                return
-            print(f"💬 Chat answered by {result['provider_label']}.")
             self._send_json(result)
             return
-
-        if self.path.startswith("/api/settings/keys"):
-            data = self._read_json()
-            if data is None:
+        if clean_path in {"/api/settings/keys", "/api/settings/remove"}:
+            payload = self._read_json()
+            if payload is None:
                 return
-            gemini = data.get("gemini_key")
-            groq = data.get("groq_key")
-            for value in (gemini, groq):
-                if value is not None and (not isinstance(value, str) or len(value) > 300):
-                    self._send_json({"error": "Invalid key format."}, status=400)
+            if clean_path == "/api/settings/remove":
+                which = payload.get("which")
+                if which == "gemini":
+                    payload = {"gemini": ""}
+                elif which == "groq":
+                    payload = {"groq": ""}
+                else:
+                    self._send_json(
+                        {"ok": False, "error": "which must be 'gemini' or 'groq'."},
+                        status=400,
+                    )
                     return
+            # Compatibility: an earlier web UI sent gemini_key/groq_key
+            # while the backend expected gemini/groq.  Accept both so a
+            # key is never silently dropped by a field-name mismatch.
+            gemini = payload.get("gemini", payload.get("gemini_key"))
+            groq = payload.get("groq", payload.get("groq_key"))
+            if gemini is not None and not isinstance(gemini, str):
+                self._send_json({"ok": False, "error": "gemini must be a string."}, status=400)
+                return
+            if groq is not None and not isinstance(groq, str):
+                self._send_json({"ok": False, "error": "groq must be a string."}, status=400)
+                return
             status = config.save_keys(gemini=gemini, groq=groq)
-            print("🔑 API keys updated (values hidden for safety).")
-            self._send_json({"ok": True, **status})
+            self._send_json({"ok": True, **status, "keys": status})
             return
+        self._send_json(
+            {"ok": False, "error": "This endpoint arrives in a later MYRA stage."},
+            status=501,
+        )
 
-        if self.path.startswith("/api/settings/remove"):
-            data = self._read_json()
-            if data is None:
-                return
-            which = data.get("which")
-            if which == "gemini":
-                status = config.save_keys(gemini="")
-            elif which == "groq":
-                status = config.save_keys(groq="")
-            else:
-                self._send_json({"error": "Unknown key name."}, status=400)
-                return
-            print(f"🗑️ {which} API key removed.")
-            self._send_json({"ok": True, **status})
+    def do_PUT(self):
+        if urlparse(self.path).path.startswith("/api/v1/"):
+            self._handle_api_v1("PUT")
             return
+        self._send_json({"ok": False, "error": "Unknown endpoint."}, status=404)
 
-        if self.path.startswith("/api/"):
-            self._send_json(
-                {"error": "This feature arrives in a later stage."}, status=501
-            )
+    def do_PATCH(self):
+        if urlparse(self.path).path.startswith("/api/v1/"):
+            self._handle_api_v1("PATCH")
             return
-        self._send_json({"error": "Not found."}, status=404)
+        self._send_json({"ok": False, "error": "Unknown endpoint."}, status=404)
 
-    # ---------- helpers ----------
-    def _read_json(self, max_bytes=MAX_BODY):
-        try:
-            length = int(self.headers.get("Content-Length", "0"))
-        except ValueError:
-            length = 0
-        if length <= 0 or length > max_bytes:
-            self._send_json({"error": "Bad request body."}, status=400)
-            return None
-        try:
-            return json.loads(self.rfile.read(length).decode("utf-8"))
-        except (ValueError, UnicodeDecodeError):
-            self._send_json({"error": "Body must be JSON."}, status=400)
-            return None
+    def do_DELETE(self):
+        if urlparse(self.path).path.startswith("/api/v1/"):
+            self._handle_api_v1("DELETE")
+            return
+        self._send_json({"ok": False, "error": "Unknown endpoint."}, status=404)
 
-    def _send_json(self, data, status=200):
-        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, *args):  # keep the console quiet
+    def log_message(self, format, *args):  # keep the console quiet
         pass
 
 
+def create_server(host=HOST, port=PORT):
+    return ThreadingHTTPServer((host, port), partial(MyraHandler, directory=str(UI_DIR)))
+
+
 def main():
-    handler = partial(MyraHandler, directory=str(UI_DIR))
-    server = ThreadingHTTPServer((HOST, PORT), handler)
-    print(f"🤖 MYRA is running at http://{HOST}:{PORT}")
-    print("Press Ctrl+C to quit.")
+    server = create_server()
+    print(f"MYRA backend (stage {STAGE}) running at http://{HOST}:{PORT}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n👋 MYRA shut down.")
+        print("\nMYRA stopped.")
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":

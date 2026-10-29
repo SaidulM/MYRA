@@ -47,7 +47,7 @@
   </div>
 
   <div class="topbar-right">
-    <span class="version-chip" id="versionChip">v0.8 · Stage 3</span>
+    <span class="version-chip" id="versionChip">v0.9 · Core 2.0 foundation</span>
 
     <div class="awareness" title="Ambient awareness — MYRA proactively pays attention (real senses arrive in Stages 5 & 9)">
       <span class="aw-label">AWARENESS</span>
@@ -212,7 +212,7 @@
         <div class="chat-log" id="chatLog">
           <div class="sys-ready">✦ SYSTEM READY ✦</div>
           <div class="msg msg-ai">
-            <div class="msg-bubble" id="greetingBubble">Hello, I'm <b>MYRA</b> — your personal desktop companion. 💗 My real AI chat is now live (Stage 3): Gemini answers first and Groq is my backup. Save your free keys in SETTING on your own laptop, then type below and talk to me!</div>
+            <div class="msg-bubble" id="greetingBubble">Hello, I'm <b>MYRA</b> — your personal desktop companion. 💗 My real AI chat is live: Gemini answers first and Groq is my backup. Conversations and approved memories now save locally in SQLite. Save your free keys in SETTING on your own laptop, then type below and talk to me!</div>
           </div>
         </div>
         <div class="input-row">
@@ -222,17 +222,24 @@
       </div>
 
       <div class="mode-panel" id="mode-agent">
-        <p class="hint">Example: "Search this topic and give me a summary" — MYRA will open the browser herself and report back. <b>(Live in Stage 8)</b></p>
+        <p class="hint">Safe Agent Mode is live for registered local skills (workspace files, notes, memory, system info, allowlisted apps). Browser research and full desktop control are not enabled yet. Write actions pause for your approval.</p>
         <div class="agent-log" id="agentLog">AGENT standing by — awaiting orders…</div>
         <div class="input-row">
           <input type="text" id="agentInput" class="input chat-input" placeholder="Describe the task…">
           <button class="btn btn-send" id="agentBtn">▶</button>
         </div>
+        <div class="input-row">
+          <button class="btn hidden" id="agentApproveBtn">✅ APPROVE</button>
+          <button class="btn hidden" id="agentDenyBtn">🚫 DENY</button>
+          <button class="btn hidden" id="agentPauseBtn">⏸ PAUSE</button>
+          <button class="btn hidden" id="agentResumeBtn">▶ RESUME</button>
+          <button class="btn btn-danger hidden" id="agentCancelBtn">⛔ STOP</button>
+        </div>
       </div>
 
       <div class="mode-panel" id="mode-notes">
         <div class="input-row" style="margin-top:2px">
-          <input type="text" id="noteInput" class="input chat-input" placeholder="Write a note… (real saving in Stage 7)">
+          <input type="text" id="noteInput" class="input chat-input" placeholder="Write a note… (saved locally in SQLite)">
           <button class="btn btn-send" id="noteAdd">＋</button>
         </div>
         <ul class="notes-list" id="notesList"></ul>
@@ -315,7 +322,7 @@
     <span class="fv-note">Stored only on your laptop — never in the cloud</span>
   </header>
   <div class="fv-body">
-    <p class="hint" style="margin-top:0">From Stage 4, MYRA will remember your name, your likes, your days — everything you share. You can already add memories below; they will plug into the real SQLite brain in Stage 4.</p>
+    <p class="hint" style="margin-top:0">These are user-approved memories stored in MYRA's local SQLite database. Relevant memories can be supplied to Chat Mode; MYRA does not silently turn private conversation details into long-term memories.</p>
     <div class="input-row" style="max-width:640px">
       <input type="text" id="memoryInput" class="input chat-input" placeholder="e.g. My favorite food is biryani">
       <button class="btn btn-send" id="memoryAdd">＋ ADD</button>
@@ -331,35 +338,12 @@
   <header class="fv-head">
     <button class="back-btn" data-back>← BACK</button>
     <h2>🧩 SKILLS</h2>
-    <span class="fv-note">Skill engine activates in Stage 7</span>
+    <span class="fv-note">Real registered skills · Agent Mode only</span>
   </header>
   <div class="fv-body">
-    <div class="skill-cards">
-      <div class="skill-card">
-        <div class="sk-ico">🌐</div>
-        <div class="sk-info"><b>Browser Agent</b><small>Opens the browser, searches and reports for you</small></div>
-        <label class="switch"><input type="checkbox" class="skill-toggle" data-skill="browser_agent" checked><span class="slider"></span></label>
-      </div>
-      <div class="skill-card">
-        <div class="sk-ico">📰</div>
-        <div class="sk-info"><b>News Reader</b><small>Reads today's headlines aloud on request</small></div>
-        <label class="switch"><input type="checkbox" class="skill-toggle" data-skill="news_reader" checked><span class="slider"></span></label>
-      </div>
-      <div class="skill-card">
-        <div class="sk-ico">📝</div>
-        <div class="sk-info"><b>Note Helper</b><small>Takes, finds and organizes your notes</small></div>
-        <label class="switch"><input type="checkbox" class="skill-toggle" data-skill="note_helper" checked><span class="slider"></span></label>
-      </div>
-      <div class="skill-card">
-        <div class="sk-ico">📷</div>
-        <div class="sk-info"><b>Camera Vision</b><small>Understands what the camera shows (only with permission)</small></div>
-        <label class="switch"><input type="checkbox" class="skill-toggle" data-skill="camera_vision"><span class="slider"></span></label>
-      </div>
-      <div class="skill-card skill-soon">
-        <div class="sk-ico">➕</div>
-        <div class="sk-info"><b>Add New Skill</b><small>Plug in new abilities here (Stage 7+)</small></div>
-        <span class="soon-tag">SOON</span>
-      </div>
+    <p class="hint" style="margin-top:0">Only skills actually implemented in MYRA's backend are listed here. Disabling a skill removes it from Agent Mode. External skill files are not executed for safety.</p>
+    <div class="skill-cards" id="skillCards">
+      <div class="empty-note">Loading registered skills from the local backend…</div>
     </div>
   </div>
 </section>
@@ -407,7 +391,7 @@
         <option>Motivational coach</option>
         <option>Calm mentor</option>
       </select>
-      <p class="hint">🎙️ Voice choices (male/female tones) arrive in Stage 5. Personality will shape replies from Stage 3.</p>
+      <p class="hint">🎙️ Browser read-aloud is available now. Full realtime voice will be enabled only after the one-time speech-model setup passes Windows microphone/STT/TTS/interruption tests. Personality already shapes real AI replies.</p>
     </div>
   </div>
 </section>
@@ -434,7 +418,7 @@
       </div>
       <button class="btn" id="saveKeys">💾 SAVE KEYS</button>
       <p class="hint hidden" id="keysPreviewNote">👀 <b>Preview mode:</b> keys can only be saved from the real app on your laptop (double-click <code>start.bat</code>) — not from this preview file.</p>
-      <p class="hint">Keys are stored only on your laptop in a private <code>.env</code> file, survive restarts, and afterwards only the last 4 characters are shown. Stage 3 chat uses Gemini first and Groq as backup.</p>
+      <p class="hint">Keys stay on your laptop, survive restarts, and afterwards only the last 4 characters are shown. MYRA uses the OS credential store when available; otherwise it uses the private local <code>.env</code>. Chat uses Gemini first and Groq as backup.</p>
       <p class="hint">🆓 <b>Get both keys free:</b><br>
       1. <a href="https://aistudio.google.com" target="_blank" rel="noopener">aistudio.google.com</a> → sign in → <b>Get API key</b> → <b>Create API key</b> → copy<br>
       2. <a href="https://console.groq.com" target="_blank" rel="noopener">console.groq.com</a> → sign in → <b>API Keys</b> → <b>Create API Key</b> → copy<br>
@@ -447,7 +431,7 @@
 
       <hr class="divider">
       <h3>ℹ️ About</h3>
-      <p class="hint"><b>MYRA</b> — Personal Desktop AI Assistant · <span id="aboutVersion">v0.8 · Stage 3 (AI Chat)</span><br>
+      <p class="hint"><b>MYRA</b> — Personal Desktop AI Assistant · <span id="aboutVersion">v0.9 · Core 2.0 foundation</span><br>
       Brain: Gemini (primary) + Groq (backup) — free cloud APIs · Memory: local SQLite · Runs light on 8GB RAM.<br>
       World Monitor attaches the open-source live dashboard at worldmonitor.app.</p>
     </div>

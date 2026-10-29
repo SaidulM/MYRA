@@ -1,3 +1,4 @@
-# Stage 1: no extra packages needed — Python standard library only 🎉
-# Stage 8 (Agent Mode) will add Playwright:
-# playwright>=1.44
+# MYRA's backend uses only the Python standard library.
+# Native desktop dependencies are optional and live in requirements-desktop.txt.
+# Browser/desktop automation and voice engines will be added only when those
+# features are implemented and tested, so a normal install stays lightweight.
