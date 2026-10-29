@@ -81,13 +81,13 @@ Get-ChildItem -Path $InnerDir.FullName | ForEach-Object {
 Remove-Item -Force $ZipFile -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force $ExtractDir -ErrorAction SilentlyContinue
 
-# Step 3: Install Edge Neural Voice Studio (edge-tts)
-Write-Host "🎙️ Ensuring Neural Voice Studio engine (edge-tts)..." -ForegroundColor Yellow
+# Step 3: Install Desktop AI Dependencies (edge-tts, SpeechRecognition, pywebview)
+Write-Host "🎙️ Ensuring Desktop AI dependencies (neural voice, speech recognition, desktop window)..." -ForegroundColor Yellow
 try {
-    & $PythonCmd -m pip install --quiet "edge-tts>=7.0.0"
-    Write-Host "✅ Neural human voice engine ready." -ForegroundColor Green
+    & $PythonCmd -m pip install --quiet "edge-tts>=7.0.0" "SpeechRecognition>=3.10.0" "pywebview>=4.0.0"
+    Write-Host "✅ Desktop AI engines ready." -ForegroundColor Green
 } catch {
-    Write-Host "ℹ️ edge-tts setup skipped (standard browser voice will be used as fallback)." -ForegroundColor DarkGray
+    Write-Host "ℹ️ Dependency install skipped or completed." -ForegroundColor DarkGray
 }
 
 # Step 4: Create Desktop & Start Menu Shortcuts

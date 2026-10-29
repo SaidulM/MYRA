@@ -28,7 +28,17 @@ function toast(msg, ms = 3600) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.add('hidden'), ms);
 }
-function setHoloStatus(txt) { const el = $('holoStatus'); if (el) el.textContent = txt; }
+function setHoloStatus(txt) {
+  const el = $('holoStatus');
+  if (!el) return;
+  if (!txt || /waking up|right here|online/i.test(txt)) {
+    el.classList.add('hidden');
+    el.textContent = '';
+  } else {
+    el.classList.remove('hidden');
+    el.textContent = txt;
+  }
+}
 let _stateChip = '';
 function setHoloState(txt) {
   if (txt === _stateChip) return;
@@ -96,16 +106,16 @@ function shade(nx, ny, nz) {
 
 const HEAD_ROWS = {
   female: [
-    [1.52, .15, .13, .10], [1.60, .245, .205, .055], [1.70, .315, .26, .03],
-    [1.80, .365, .30, .012], [1.92, .405, .33, 0], [2.03, .41, .335, 0],
-    [2.13, .415, .345, .005], [2.26, .435, .355, -.008], [2.40, .43, .365, -.03],
-    [2.52, .35, .30, -.05], [2.62, .17, .15, -.06],
+    [1.48, .15, .13, .10], [1.56, .24, .20, .055], [1.66, .31, .26, .03],
+    [1.76, .365, .30, .012], [1.88, .40, .33, 0], [2.00, .41, .335, 0],
+    [2.10, .415, .345, .005], [2.22, .43, .355, -.008], [2.36, .425, .365, -.03],
+    [2.48, .34, .30, -.05], [2.58, .21, .19, -.06], [2.66, .05, .04, -.065],
   ],
   male: [
-    [1.52, .185, .155, .10], [1.60, .285, .235, .055], [1.70, .345, .28, .03],
-    [1.80, .39, .32, .012], [1.92, .425, .35, 0], [2.03, .435, .355, 0],
-    [2.13, .445, .365, .008], [2.26, .45, .37, -.012], [2.40, .445, .38, -.035],
-    [2.52, .365, .315, -.05], [2.62, .185, .165, -.06],
+    [1.48, .18, .155, .10], [1.56, .28, .235, .055], [1.66, .34, .28, .03],
+    [1.76, .39, .32, .012], [1.88, .42, .35, 0], [2.00, .435, .355, 0],
+    [2.10, .445, .365, .008], [2.22, .445, .37, -.012], [2.36, .44, .38, -.035],
+    [2.48, .36, .315, -.05], [2.58, .22, .20, -.06], [2.66, .05, .04, -.065],
   ],
 };
 function rowAt(rows, y) {
@@ -130,11 +140,11 @@ function pushPt(arr, x, y, z, gray, headW) {
   arr.push({ x, y, z, gray: clamp(gray, 0.04, 1.6), headW });
 }
 
-/* Smooth head — the silhouette does the talking */
+/* Smooth sculpted face & head with nose, lips, chin and eye contours */
 function sampleSmoothHead(out, female) {
   const rows = female ? HEAD_ROWS.female : HEAD_ROWS.male;
   for (let i = 0; i < 11500; i++) {
-    const y = rand(1.52, 2.62);
+    const y = rand(1.48, 2.66);
     const [rx, rz, cz] = rowAt(rows, y);
     let th;
     if (Math.random() < 0.5) th = Math.PI / 2 + rand(-0.9, 0.9);
@@ -142,7 +152,15 @@ function sampleSmoothHead(out, female) {
     const fr = Math.sin(th);
     const x = rx * Math.cos(th);
     let z = cz + rz * fr;
-    if (fr > 0.3) z += g2(x, y, 0, 1.9, 0.05, 0.17, 0.04) * clamp((fr - 0.3) / 0.5, 0, 1);
+    // Enhanced facial features sculpting
+    if (fr > 0.28) {
+      const nose = g2(x, y, 0, 1.93, 0.045, 0.12, 0.055);
+      const lips = g2(x, y, 0, 1.76, 0.07, 0.038, 0.024);
+      const chin = g2(x, y, 0, 1.62, 0.075, 0.055, 0.032);
+      const eyeL = g2(x, y, -0.14, 2.02, 0.065, 0.045, 0.022);
+      const eyeR = g2(x, y, 0.14, 2.02, 0.065, 0.045, 0.022);
+      z += (nose + lips + chin - eyeL - eyeR) * clamp((fr - 0.28) / 0.5, 0, 1);
+    }
     const b = shade(x / (rx * rx), (y - 2.05) * 1.4, (z - cz) / (rz * rz));
     pushPt(out, x + rand(-.002, .002), y + rand(-.002, .002), z + rand(-.002, .002), b * 1.02, 1);
   }
@@ -163,8 +181,8 @@ function sampleHairCap(out, n, female) {
   const rows = female ? HEAD_ROWS.female : HEAD_ROWS.male;
   let placed = 0, guard = 0;
   while (placed < n && guard++ < n * 60) {
-    const y = rand(1.98, 2.66);
-    const [rx, rz, cz] = rowAt(rows, Math.min(y, 2.62));
+    const y = rand(1.95, 2.67);
+    const [rx, rz, cz] = rowAt(rows, Math.min(y, 2.65));
     const th = Math.random() * Math.PI * 2;
     const fr = Math.sin(th);
     const x0 = rx * Math.cos(th);
@@ -179,7 +197,7 @@ function sampleHairCap(out, n, female) {
   }
 }
 
-/* Female long hair as smooth sheets: back curtain + two front falls */
+/* Female long hair as smooth sheets */
 function sampleHairFemaleLong(out) {
   const prof = [[2.45, .47], [2.1, .55], [1.7, .585], [1.35, .555], [1.05, .48]];
   let placed = 0, guard = 0;
@@ -223,7 +241,26 @@ function sampleLoft(out, n, rows, zScale, brightMul, headWFn, frontBumpFn) {
   }
 }
 
-/* Dots dissolving below the chest — she floats, no statue base */
+/* Sample both upper arms extending down from shoulders */
+function sampleArms(out, female, n) {
+  const armThick = female ? 0.13 : 0.16;
+  const shoulderX = female ? 0.62 : 0.72;
+  for (let i = 0; i < n; i++) {
+    const s = Math.random() < 0.5 ? -1 : 1;
+    const y = rand(0.40, 1.18);
+    const t = clamp((1.18 - y) / 0.78, 0, 1);
+    const cx = s * (shoulderX + t * 0.07);
+    const cz = -0.01 + t * 0.03;
+    const a = Math.random() * Math.PI * 2;
+    const r = armThick * (1 - t * 0.2) * rand(0.9, 1.05);
+    const x = cx + r * Math.cos(a);
+    const z = cz + r * Math.sin(a);
+    const b = shade(Math.cos(a), 0.1, Math.sin(a)) * (y < 0.52 ? (y - 0.35) * 4 : 0.85);
+    pushPt(out, x + rand(-.004, .004), y + rand(-.004, .004), z + rand(-.004, .004), clamp(b, 0.08, 1.2), 0);
+  }
+}
+
+/* Dots dissolving below the chest */
 function sampleDissipation(out, n, chestRows) {
   const baseY = 0.46;
   const baseR = profileAt(chestRows, baseY);
@@ -241,22 +278,29 @@ function buildBustPoints(female) {
   const pts = [];
   sampleSmoothHead(pts, female);
   if (female) {
-    sampleHairCap(pts, 5200, true);
+    sampleHairCap(pts, 5000, true);
     sampleHairFemaleLong(pts);
   } else {
-    sampleHairCap(pts, 5400, false);
+    sampleHairCap(pts, 5200, false);
   }
+  // Shortened natural neck (starts at 1.46 down to 1.18)
   const neckRows = female
-    ? [[1.50, .135], [1.38, .14], [1.26, .165], [1.16, .26], [1.10, .34]]
-    : [[1.50, .16], [1.38, .17], [1.26, .195], [1.16, .305], [1.10, .385]];
-  sampleLoft(pts, 1500, neckRows, 0.88, 0.92, (y) => 0.55 * clamp((y - 1.12) / 0.38, 0, 1), null);
+    ? [[1.46, .135], [1.38, .145], [1.30, .18], [1.24, .28], [1.18, .38]]
+    : [[1.46, .165], [1.38, .175], [1.30, .21], [1.24, .32], [1.18, .42]];
+  sampleLoft(pts, 1400, neckRows, 0.88, 0.92, (y) => 0.55 * clamp((y - 1.18) / 0.28, 0, 1), null);
+
+  // Bust / Torso
   const chestRows = female
-    ? [[1.12, .52], [1.06, .78], [1.00, .88], [0.88, .90], [0.72, .84], [0.55, .76], [0.40, .66], [0.30, .58]]
-    : [[1.12, .62], [1.06, .92], [1.00, 1.04], [0.88, 1.07], [0.72, .99], [0.55, .89], [0.40, .78], [0.30, .70]];
+    ? [[1.18, .52], [1.12, .76], [1.02, .88], [0.88, .90], [0.72, .84], [0.55, .76], [0.40, .66], [0.30, .58]]
+    : [[1.18, .62], [1.12, .90], [1.02, 1.04], [0.88, 1.07], [0.72, .99], [0.55, .89], [0.40, .78], [0.30, .70]];
   const bustBump = female
     ? (x, y) => g2(x, y, .23, .72, .15, .13, .045) + g2(x, y, -.23, .72, .15, .13, .045)
     : null;
-  sampleLoft(pts, Math.max(N - pts.length - 1800, 200), chestRows, 0.55, 0.85, null, bustBump);
+  sampleLoft(pts, 8500, chestRows, 0.55, 0.85, null, bustBump);
+
+  // Both upper arms extending downwards
+  sampleArms(pts, female, 3800);
+
   sampleDissipation(pts, 1800, chestRows);
   return pts;
 }
@@ -580,8 +624,8 @@ function initHologram() {
     mouseParallax.x += (mouseParallax.targetX - mouseParallax.x) * 0.05;
     mouseParallax.y += (mouseParallax.targetY - mouseParallax.y) * 0.05;
 
-    if (!HOLO.dragging && HOLO.power) HOLO.autoRot += dt * 0.09;
-    world.rotation.y += ((HOLO.targetRotY + HOLO.autoRot + mouseParallax.x) - world.rotation.y) * 0.08;
+    // Stays level facing forward, smoothly tracks mouse movement (no continuous 360 spinning)
+    world.rotation.y += ((HOLO.targetRotY + mouseParallax.x) - world.rotation.y) * 0.08;
     world.rotation.x += (-mouseParallax.y - world.rotation.x) * 0.08;
 
     pMat.opacity += ((HOLO.power ? 0.88 : 0.03) - pMat.opacity) * 0.07;
@@ -1302,6 +1346,26 @@ async function sendChat() {
       throw previewError;
     }
 
+    // Multimodal Vision capture: if camera or screen stream is live, capture frame
+    let imageBase64 = null;
+    if (VIS.cam || VIS.scr) {
+      try {
+        const video = $('vhVideo');
+        if (video && video.videoWidth && video.videoHeight) {
+          const snapCanvas = document.createElement('canvas');
+          const maxDim = 800;
+          const scale = Math.min(1, maxDim / Math.max(video.videoWidth, video.videoHeight));
+          snapCanvas.width = Math.round(video.videoWidth * scale);
+          snapCanvas.height = Math.round(video.videoHeight * scale);
+          const ctx = snapCanvas.getContext('2d');
+          ctx.drawImage(video, 0, 0, snapCanvas.width, snapCanvas.height);
+          imageBase64 = snapCanvas.toDataURL('image/jpeg', 0.82);
+        }
+      } catch (err) {
+        console.warn('Frame capture skipped', err);
+      }
+    }
+
     const payload = {
       messages: chatContext.slice(-MAX_CHAT_CONTEXT),
       character: HOLO.char,
@@ -1310,6 +1374,7 @@ async function sendChat() {
       owner_name: localStorage.getItem('myra_owner') || 'Saidul',
       provider: localStorage.getItem('myra_brain_provider') || 'auto',
       custom_prompt: HOLO.char === 'custom' ? (localStorage.getItem('myra_custom_persona_prompt') || '') : undefined,
+      image: imageBase64 || undefined,
     };
     const res = await fetch('/api/chat', {
       method: 'POST',
@@ -1337,6 +1402,10 @@ async function sendChat() {
     finishAiBubble(typing, reply, meta);
     pushHistory('ai', reply);
     logEvent('chat answered by ' + (data.provider || 'AI'));
+    if (data.memory_learned) {
+      toast('🧠 মেমোরিতে সংরক্ষণ: ' + data.memory_learned, 5000);
+      try { renderMemories(); } catch (e) {}
+    }
     if (data.client_trigger) {
       if (data.action === 'open_camera') setVisual('cam', true);
       else if (data.action === 'open_screen') setVisual('scr', true);
@@ -1441,9 +1510,14 @@ function setupSpeechRecognition() {
     clearTimeout(speechSilenceTimer);
     let interim = '';
     let final = '';
+    let hasFinal = false;
     for (let i = event.resultIndex; i < event.results.length; ++i) {
-      if (event.results[i].isFinal) final += event.results[i][0].transcript;
-      else interim += event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        final += event.results[i][0].transcript;
+        hasFinal = true;
+      } else {
+        interim += event.results[i][0].transcript;
+      }
     }
     const txt = (final || interim).trim();
     if (txt) {
@@ -1452,15 +1526,32 @@ function setupSpeechRecognition() {
       setHoloState('LISTENING…');
       updateMicWave(2.5);
 
-      // Continuous conversation mode: 2200ms natural silence tolerance
+      // Fast auto-send on silence (650ms if final sentence, 1300ms if interim)
+      const silenceDelay = hasFinal ? 650 : 1300;
       speechSilenceTimer = setTimeout(() => {
-        if ($('chatInput').value.trim()) {
+        const val = $('chatInput').value.trim();
+        if (val && !chatBusy) {
+          setHoloStatus(isBengaliText(val) ? 'মাইরা শুনেছে, উত্তর দিচ্ছে এক্ষুনি…' : 'MYRA has heard you, replying now…');
           sendChat();
-          // Temporarily pause recognition while generating reply/speaking
           try { rec.stop(); } catch (err) {}
           updateMicWave(0);
         }
-      }, 2200);
+      }, silenceDelay);
+    }
+  };
+
+  rec.onspeechend = () => {
+    const val = $('chatInput').value.trim();
+    if (val && !chatBusy) {
+      clearTimeout(speechSilenceTimer);
+      speechSilenceTimer = setTimeout(() => {
+        if ($('chatInput').value.trim() && !chatBusy) {
+          setHoloStatus(isBengaliText(val) ? 'মাইরা শুনেছে, উত্তর দিচ্ছে এক্ষুনি…' : 'MYRA has heard you, replying now…');
+          sendChat();
+          try { rec.stop(); } catch (err) {}
+          updateMicWave(0);
+        }
+      }, 500);
     }
   };
 
@@ -1472,7 +1563,13 @@ function setupSpeechRecognition() {
   };
 
   rec.onend = () => {
-    if (MIC_ARMED && !HOLO.speaking) {
+    const val = $('chatInput').value.trim();
+    if (val && !chatBusy && !HOLO.speaking) {
+      clearTimeout(speechSilenceTimer);
+      setHoloStatus(isBengaliText(val) ? 'মাইরা শুনেছে, উত্তর দিচ্ছে এক্ষুনি…' : 'MYRA has heard you, replying now…');
+      sendChat();
+      updateMicWave(0);
+    } else if (MIC_ARMED && !HOLO.speaking) {
       try { rec.start(); } catch (err) {}
       updateMicWave(1);
     } else {
@@ -1604,14 +1701,17 @@ async function loadMemories() {
 
 async function renderMemories() {
   const list = $('memoryList');
+  if (!list) return;
   LOCAL_MEMORIES = await loadMemories();
   list.innerHTML = '';
   LOCAL_MEMORIES.forEach((m) => {
     const li = document.createElement('li');
     const span = document.createElement('span');
     const text = typeof m === 'object' ? m.text : m;
+    const cat = (typeof m === 'object' && m.category && m.category !== 'general') ? `[${m.category}] ` : '';
+    const date = (typeof m === 'object' && m.created_at) ? ` · ${String(m.created_at).slice(0, 16)}` : '';
     const memId = typeof m === 'object' ? m.id : null;
-    span.textContent = '🧠 ' + text;
+    span.textContent = '🧠 ' + cat + text + date;
     const del = document.createElement('button');
     del.textContent = '🗑️';
     del.title = 'Forget this';
@@ -1631,7 +1731,7 @@ async function renderMemories() {
     li.append(span, del);
     list.appendChild(li);
   });
-  $('memoryEmpty').classList.toggle('hidden', LOCAL_MEMORIES.length > 0);
+  if ($('memoryEmpty')) $('memoryEmpty').classList.toggle('hidden', LOCAL_MEMORIES.length > 0);
 }
 
 /* =========================================================
@@ -2480,11 +2580,18 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await res.json();
       paintKeyStatus('geminiKeyStatus', 'removeGemini', data.gemini);
       paintKeyStatus('groqKeyStatus', 'removeGroq', data.groq);
+      paintKeyStatus('openrouterKeyStatus', 'removeOpenrouter', data.openrouter);
+      paintKeyStatus('openaiKeyStatus', 'removeOpenai', data.openai);
+      paintKeyStatus('deepseekKeyStatus', 'removeDeepseek', data.deepseek);
+      paintKeyStatus('ollamaKeyStatus', 'removeOllama', data.ollama);
       if (data.gemini && data.gemini.model && $('geminiModelSelect')) {
         $('geminiModelSelect').value = data.gemini.model;
       }
       if (data.groq && data.groq.model && $('groqModelSelect')) {
         $('groqModelSelect').value = data.groq.model;
+      }
+      if (data.ollama && data.ollama.model && $('ollamaModel')) {
+        $('ollamaModel').value = data.ollama.model;
       }
     } catch (e) {
       const g = $('geminiKeyStatus');
@@ -2497,30 +2604,46 @@ document.addEventListener('DOMContentLoaded', () => {
   const settingsChip = document.querySelector('[data-view="setting"]');
   if (settingsChip) settingsChip.addEventListener('click', refreshKeyStatus);
 
+  // Direct brain switcher synchronization
+  const brainSelect = $('quickBrainSelect');
+  if (brainSelect) {
+    const saved = localStorage.getItem('myra_brain_provider') || 'auto';
+    brainSelect.value = saved;
+    brainSelect.addEventListener('change', () => {
+      localStorage.setItem('myra_brain_provider', brainSelect.value);
+      toast('🧠 AI Brain switched to: ' + brainSelect.options[brainSelect.selectedIndex].text, 4000);
+    });
+  }
+
   $('saveKeys').addEventListener('click', async () => {
-    const gemini = $('geminiKey').value.trim();
-    const groq = $('groqKey').value.trim();
+    const gemini = $('geminiKey') ? $('geminiKey').value.trim() : '';
+    const groq = $('groqKey') ? $('groqKey').value.trim() : '';
+    const openrouter = $('openrouterKey') ? $('openrouterKey').value.trim() : '';
+    const openai = $('openaiKey') ? $('openaiKey').value.trim() : '';
+    const deepseek = $('deepseekKey') ? $('deepseekKey').value.trim() : '';
+    const ollama = $('ollamaModel') ? $('ollamaModel').value.trim() : '';
 
     if (inPreviewFile) {
-      $('geminiKey').value = '';
-      $('groqKey').value = '';
-      toast('👀 This is the one-file preview — keys can only be saved from the real app on your laptop (double-click start.bat). Nothing was stored anywhere.', 5600);
+      if ($('geminiKey')) $('geminiKey').value = '';
+      if ($('groqKey')) $('groqKey').value = '';
+      toast('👀 Preview mode — run python run.py to save real keys locally.', 4500);
       return;
     }
-    if (!gemini && !groq) {
-      toast('🔑 Paste at least one key first (see the free-key steps in this window).');
-      return;
-    }
-
-    const warnings = [];
-    if (gemini && !gemini.startsWith('AIza')) warnings.push('Gemini keys usually start with "AIza"');
-    if (groq && !groq.startsWith('gsk_')) warnings.push('Groq keys usually start with "gsk_"');
 
     const body = {};
     if (gemini) body.gemini_key = gemini;
     if (groq) body.groq_key = groq;
+    if (openrouter) body.openrouter_key = openrouter;
+    if (openai) body.openai_key = openai;
+    if (deepseek) body.deepseek_key = deepseek;
+    if (ollama) body.ollama_model = ollama;
     if ($('geminiModelSelect')) body.gemini_model = $('geminiModelSelect').value;
     if ($('groqModelSelect')) body.groq_model = $('groqModelSelect').value;
+
+    if (!Object.keys(body).length) {
+      toast('🔑 Paste or enter at least one AI key or model to save.');
+      return;
+    }
 
     try {
       const res = await fetch('/api/settings/keys', {
@@ -2530,16 +2653,16 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
-      $('geminiKey').value = '';
-      $('groqKey').value = '';
-      paintKeyStatus('geminiKeyStatus', 'removeGemini', data.gemini);
-      paintKeyStatus('groqKeyStatus', 'removeGroq', data.groq);
-      toast('🔑 Key saved safely on this laptop (.env) and will survive restarts.'
-        + (warnings.length ? ' ⚠️ Note: ' + warnings.join('; ') + ' — please double-check the pasted key.' : '')
-        + ' Now try chatting with MYRA!', 6400);
-      logEvent('API key saved (value hidden)');
+      if ($('geminiKey')) $('geminiKey').value = '';
+      if ($('groqKey')) $('groqKey').value = '';
+      if ($('openrouterKey')) $('openrouterKey').value = '';
+      if ($('openaiKey')) $('openaiKey').value = '';
+      if ($('deepseekKey')) $('deepseekKey').value = '';
+      refreshKeyStatus();
+      toast('🔑 AI Brain keys saved safely on your laptop (.env). You can chat with MYRA now!', 5500);
+      logEvent('API keys saved');
     } catch (e) {
-      toast('❌ Could not save — is the MYRA server running? (' + e.message + ')', 5200);
+      toast('❌ Could not save (' + e.message + ')', 5000);
     }
   });
 
@@ -2553,16 +2676,19 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
-      paintKeyStatus('geminiKeyStatus', 'removeGemini', data.gemini);
-      paintKeyStatus('groqKeyStatus', 'removeGroq', data.groq);
-      toast('🗑️ ' + (which === 'gemini' ? 'Gemini' : 'Groq') + ' key removed from this laptop.');
+      refreshKeyStatus();
+      toast('🗑️ ' + which.toUpperCase() + ' key removed from this device.');
       logEvent(which + ' key removed');
     } catch (e) {
-      toast('❌ Could not remove the key (' + e.message + ').', 4600);
+      toast('❌ Could not remove (' + e.message + ')', 4600);
     }
   };
-  $('removeGemini').addEventListener('click', () => removeKey('gemini'));
-  $('removeGroq').addEventListener('click', () => removeKey('groq'));
+  $('removeGemini')?.addEventListener('click', () => removeKey('gemini'));
+  $('removeGroq')?.addEventListener('click', () => removeKey('groq'));
+  $('removeOpenrouter')?.addEventListener('click', () => removeKey('openrouter'));
+  $('removeOpenai')?.addEventListener('click', () => removeKey('openai'));
+  $('removeDeepseek')?.addEventListener('click', () => removeKey('deepseek'));
+  $('removeOllama')?.addEventListener('click', () => removeKey('ollama'));
 
   /* Reset preferences */
   $('resetPrefs').addEventListener('click', () => {

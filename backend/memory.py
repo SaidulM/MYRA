@@ -1,4 +1,4 @@
-"""MYRA — Local Memory Engine (Stage 4).
+"""MYRA — Local Memory Engine (Stage 4 + Extended Multi-Pattern Recall).
 
 Uses Python's built-in sqlite3 database stored in data/myra.db.
 Everything remains 100% local on the user's laptop and is never
@@ -65,16 +65,23 @@ def add_memory(text: str, category: str = "general") -> Optional[int]:
         conn = _get_connection()
         try:
             with conn:
+                # Check for duplicate
+                existing = conn.execute(
+                    "SELECT id FROM memories WHERE text = ? LIMIT 1", (cleaned[:1000],)
+                ).fetchone()
+                if existing:
+                    return existing["id"]
+
                 cur = conn.execute(
                     "INSERT INTO memories (text, category, updated_at) VALUES (?, ?, ?)",
-                    (cleaned[:1000], category[:50], datetime.utcnow().isoformat()),
+                    (cleaned[:1000], category[:50], datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
                 )
                 return cur.lastrowid
         finally:
             conn.close()
 
 
-def list_memories(limit: int = 100) -> List[Dict[str, Any]]:
+def list_memories(limit: int = 150) -> List[Dict[str, Any]]:
     """Retrieve memories, newest first."""
     init_db()
     with _LOCK:
@@ -124,29 +131,38 @@ def clear_memories() -> bool:
             conn.close()
 
 
-def get_memory_context(limit: int = 15) -> str:
+def get_memory_context(limit: int = 20) -> str:
     """Return a formatted string of memories for injection into AI system prompt."""
     mems = list_memories(limit=limit)
     if not mems:
         return ""
-    lines = ["Saved personal memories and facts about the user (stored locally):"]
+    lines = ["Saved personal memories and facts about the user (stored locally in data/myra.db):"]
     for m in reversed(mems):
-        lines.append(f"- {m['text']}")
+        lines.append(f"- [{m.get('category', 'fact')}] {m['text']}")
     return "\n".join(lines)
 
 
 def auto_learn_from_text(text: str) -> Optional[str]:
     """Inspect user message to automatically extract and remember personal facts in SQLite."""
     raw = str(text).strip()
-    if not raw or len(raw) < 4:
+    if not raw or len(raw) < 3:
         return None
 
-    # Skip query questions
+    # Skip general queries unless they contain remember directive
     lowered = raw.lower()
-    if any(q in lowered for q in ("what is", "who is", "where is", "how to", "কি", "কেমন", "কোথায়", "?")):
+    is_question = any(q in lowered for q in ("what is", "who is", "where is", "how to", "কি", "কেমন", "কোথায়", "কোনটা")) or "?" in raw
+
+    # 1. Explicit remember: "Remember that X", "মনে রেখো X", "মনে রাখো X", "নোট রাখো X"
+    m_exp = re.search(r"(?:remember\s+(?:that\s+)?|note\s+that\s+|মনে\s*রেখো\s+|মনে\s*রাখো\s+|মনে\s*রেখ\s+)(.+)", raw, re.IGNORECASE)
+    if m_exp:
+        fact = m_exp.group(1).strip()
+        add_memory(fact, category="user_note")
+        return fact
+
+    if is_question:
         return None
 
-    # 1. Name patterns: "my name is X", "আমার নাম X"
+    # 2. Name patterns: "my name is X", "আমার নাম X", "আমি X"
     m = re.search(r"(?:my name is|আমার নাম|amr nam)\s+([A-Za-z\u0980-\u09FF\s]{2,30})", raw, re.IGNORECASE)
     if m:
         name = m.group(1).strip()
@@ -154,8 +170,8 @@ def auto_learn_from_text(text: str) -> Optional[str]:
         add_memory(fact, category="identity")
         return fact
 
-    # 2. Favorite patterns: "my favorite X is Y", "আমার প্রিয় X হলো/হচ্ছে Y"
-    m = re.search(r"(?:my favorite|আমার প্রিয়)\s+([a-zA-Z\u0980-\u09FF\s]+?)\s+(?:is|হলো|হচ্ছে)\s+(.+)", raw, re.IGNORECASE)
+    # 3. Favorite patterns: "my favorite X is Y", "আমার প্রিয় X হলো/হচ্ছে Y"
+    m = re.search(r"(?:my favorite|আমার প্রিয়)\s+([a-zA-Z\u0980-\u09FF\s]+?)\s+(?:is|হলো|হচ্ছে|হল)\s+(.+)", raw, re.IGNORECASE)
     if m:
         item = m.group(1).strip()
         val = m.group(2).strip()
@@ -163,7 +179,29 @@ def auto_learn_from_text(text: str) -> Optional[str]:
         add_memory(fact, category="preference")
         return fact
 
-    # 3. Location: "I live in X", "আমার বাসা X এ", "আমি X থাকি"
+    # 4. Likes & Dislikes: "I like X", "আমার X পছন্দ", "আমি X পছন্দ করি", "আমার X ভালো লাগে"
+    m = re.search(r"(?:i like|i love)\s+([a-zA-Z0-9\s,]{3,40})", raw, re.IGNORECASE)
+    if m and not any(w in lowered for w in ("to be", "it if", "you")):
+        val = m.group(1).strip()
+        fact = f"User likes {val}"
+        add_memory(fact, category="preference")
+        return fact
+
+    m_bn = re.search(r"আমি\s+(.+?)\s+(?:পছন্দ\s*করি|ভালোবাসি)", raw)
+    if m_bn:
+        val = m_bn.group(1).strip()
+        fact = f"ব্যবহারকারী {val} পছন্দ করেন"
+        add_memory(fact, category="preference")
+        return fact
+
+    m_bn2 = re.search(r"আমার\s+(.+?)\s+(?:ভালো\s*লাগে|পছন্দ)", raw)
+    if m_bn2:
+        val = m_bn2.group(1).strip()
+        fact = f"ব্যবহারকারীর {val} পছন্দ"
+        add_memory(fact, category="preference")
+        return fact
+
+    # 5. Location: "I live in X", "আমার বাসা X এ", "আমি X থাকি"
     m = re.search(r"(?:i live in|আমার বাসা|আমি)\s+([A-Za-z\u0980-\u09FF\s]{2,25})\s*(?:তে থাকি|এ থাকি|থাকি)", raw, re.IGNORECASE)
     if m:
         loc = m.group(1).strip()
@@ -171,19 +209,20 @@ def auto_learn_from_text(text: str) -> Optional[str]:
         add_memory(fact, category="location")
         return fact
 
-    # 4. Profession: "I am a/an X", "আমি একজন X"
+    # 6. Profession: "I am a/an X", "আমি একজন X"
     m = re.search(r"(?:i am a|i am an|আমি একজন)\s+([a-zA-Z\u0980-\u09FF\s]{3,30})", raw, re.IGNORECASE)
-    if m and not any(w in lowered for w in ("feeling", "thinking", "student of nature")):
+    if m and not any(w in lowered for w in ("feeling", "thinking", "student of nature", "free")):
         prof = m.group(1).strip()
         fact = f"User is a {prof}"
         add_memory(fact, category="profession")
         return fact
 
-    # 5. Explicit remember: "Remember that X", "মনে রেখো X", "মনে রাখো X"
-    m = re.search(r"(?:remember that|মনে\s*রেখো|মনে\s*রাখো|মনে\s*রেখ)\s+(.+)", raw, re.IGNORECASE)
+    # 7. Age: "I am X years old", "আমার বয়স X"
+    m = re.search(r"(?:my age is|i am)\s+(\d{1,2})\s*(?:years old)?|আমার বয়স\s*(\d{1,2})", raw, re.IGNORECASE)
     if m:
-        fact = m.group(1).strip()
-        add_memory(fact, category="general")
+        age = m.group(1) or m.group(2)
+        fact = f"User is {age} years old"
+        add_memory(fact, category="identity")
         return fact
 
     return None
@@ -212,10 +251,10 @@ def resolve_memory_query(text: str) -> Optional[str]:
         return None
 
     # 2. Favorite item
-    if "favorite" in lowered or "প্রিয়" in raw or "প্রিয়" in raw:
+    if "favorite" in lowered or "প্রিয়" in raw or "প্রিয়" in raw or "পছন্দ" in raw:
         for m in mems:
             t = m["text"]
-            for keyword in ("food", "খাবার", "color", "রং", "song", "গান", "movie", "সিনেমা", "place", "জায়গা"):
+            for keyword in ("food", "খাবার", "color", "রং", "song", "গান", "movie", "সিনেমা", "place", "জায়গা", "game", "খেলা"):
                 if (keyword in lowered or keyword in raw) and (keyword in t.lower() or keyword in t):
                     return f"আপনার মেমোরি অনুযায়ী: {t}।" if is_bn else f"According to your memory: {t}."
 
@@ -228,9 +267,9 @@ def resolve_memory_query(text: str) -> Optional[str]:
 
     # 4. General recall: "what do you remember about me", "তুমি আমার সম্পর্কে কি জানো"
     if any(q in lowered for q in ("what do you remember", "what do you know about me", "তুমি আমার সম্পর্কে কি জানো", "আমার কি কি মনে আছে")):
-        fact_lines = [f"• {m['text']}" for m in mems[:8]]
+        fact_lines = [f"• [{m.get('category', 'তথ্য')}] {m['text']}" for m in mems[:10]]
         if is_bn:
-            return "আপনার সম্পর্কে আমার মেমোরিতে যা যা জমা আছে:\n" + "\n".join(fact_lines)
-        return "Here is what I remember about you from our conversations:\n" + "\n".join(fact_lines)
+            return "আপনার সম্পর্কে আমার লোকাল মেমোরিতে যা জমা আছে:\n" + "\n".join(fact_lines)
+        return "Here is what I have saved about you in local memory:\n" + "\n".join(fact_lines)
 
     return None

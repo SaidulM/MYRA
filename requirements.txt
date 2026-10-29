@@ -1,3 +1,7 @@
 # MYRA requirements
 # Natural Human Neural Voice Studio (GitHub Open-Source)
 edge-tts>=7.0.0
+# Native Voice Speech Recognition (Bengali & English)
+SpeechRecognition>=3.10.0
+# Native Desktop Window UI (Optional standalone desktop app window)
+pywebview>=4.0.0

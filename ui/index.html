@@ -68,12 +68,17 @@
       </select>
     </label>
 
-    <div class="brain-switch-wrap" title="Direct Brain Switcher (Gemini / Groq / Auto)">
+    <div class="brain-switch-wrap" title="Direct Brain Switcher (Gemini / Groq / OpenRouter / OpenAI / DeepSeek / Ollama)">
       <span class="aw-label">BRAIN</span>
       <select id="quickBrainSelect" class="brain-switch-select">
-        <option value="auto">✨ Auto (Gemini + Groq)</option>
-        <option value="gemini">⚡ Gemini Only</option>
-        <option value="groq">🚀 Groq Only</option>
+        <option value="auto">✨ Auto (Best Available Model)</option>
+        <option value="gemini">⚡ Google Gemini (Free / Paid)</option>
+        <option value="groq">🚀 Groq (Fast Free)</option>
+        <option value="openrouter">🌐 OpenRouter (Free &amp; Paid)</option>
+        <option value="openai">🤖 OpenAI ChatGPT (Paid)</option>
+        <option value="deepseek">💡 DeepSeek</option>
+        <option value="mistral">🌪️ Mistral AI</option>
+        <option value="ollama">🏠 Ollama (Local PC)</option>
       </select>
     </div>
 
@@ -170,8 +175,7 @@
           <div class="hud hud-bl"></div><div class="hud hud-br"></div>
           <div class="chip-state" id="holoState">BOOTING…</div>
           <div class="nameplate">
-            <div class="np-name" id="npName">MYRA</div>
-            <div class="np-status" id="holoStatus">✨ MYRA is waking up…</div>
+            <div class="np-status hidden" id="holoStatus"></div>
             <div class="holo-wave-box" id="holoWaveBox">
               <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
               <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
@@ -640,6 +644,30 @@
         <option value="mixtral-8x7b-32768">🔮 Mixtral 8x7B (Long context)</option>
         <option value="gemma2-9b-it">🍃 Gemma 2 9B-IT</option>
       </select>
+
+      <label class="field-label">OpenRouter API Key (Free &amp; Paid Models) <span class="key-status" id="openrouterKeyStatus"></span></label>
+      <div class="key-row">
+        <input type="password" id="openrouterKey" class="input" placeholder="Paste your OpenRouter key (sk-or-…)" autocomplete="off">
+        <button class="icon-btn key-remove hidden" id="removeOpenrouter" title="Remove saved key">✕</button>
+      </div>
+
+      <label class="field-label">OpenAI ChatGPT API Key (Paid) <span class="key-status" id="openaiKeyStatus"></span></label>
+      <div class="key-row">
+        <input type="password" id="openaiKey" class="input" placeholder="Paste OpenAI key (sk-…)" autocomplete="off">
+        <button class="icon-btn key-remove hidden" id="removeOpenai" title="Remove saved key">✕</button>
+      </div>
+
+      <label class="field-label">DeepSeek API Key <span class="key-status" id="deepseekKeyStatus"></span></label>
+      <div class="key-row">
+        <input type="password" id="deepseekKey" class="input" placeholder="Paste DeepSeek key (sk-…)" autocomplete="off">
+        <button class="icon-btn key-remove hidden" id="removeDeepseek" title="Remove saved key">✕</button>
+      </div>
+
+      <label class="field-label">Ollama Local Model (Free offline, e.g. llama3, mistral, qwen)</label>
+      <div class="key-row">
+        <input type="text" id="ollamaModel" class="input" placeholder="Model name (e.g. llama3.2, mistral, qwen2.5)" autocomplete="off">
+        <button class="icon-btn key-remove hidden" id="removeOllama" title="Clear Ollama">✕</button>
+      </div>
       <button class="btn" id="saveKeys">💾 SAVE KEYS</button>
       <p class="hint hidden" id="keysPreviewNote">👀 <b>Preview mode:</b> keys can only be saved from the real app on your laptop (double-click <code>start.bat</code>) — not from this preview file.</p>
       <p class="hint">Keys are stored only on your laptop in a private <code>.env</code> file, survive restarts, and afterwards only the last 4 characters are shown. Stage 3 chat uses Gemini first and Groq as backup.</p>

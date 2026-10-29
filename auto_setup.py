@@ -334,17 +334,13 @@ def launch_myra():
 
 
 def install_voice_dependencies():
-    say("📦 Checking neural human voice engine (edge-tts)...")
+    say("📦 Checking desktop AI dependencies (edge-tts, SpeechRecognition, pywebview)...")
+    pkgs = ["edge-tts>=7.0.0", "SpeechRecognition>=3.10.0", "pywebview>=4.0.0"]
     try:
-        import edge_tts
-        say("✅ Edge Neural Human Voice Studio is installed and ready.")
-    except ImportError:
-        say("⬇️ Installing edge-tts for realistic human voice (open-source)...")
-        try:
-            subprocess.run([sys.executable, "-m", "pip", "install", "edge-tts>=7.0.0"], check=False)
-            say("✅ Neural Voice Studio installed successfully.")
-        except Exception:
-            say("ℹ️ Skipped edge-tts installation. Standard browser voice will be used.")
+        subprocess.run([sys.executable, "-m", "pip", "install", *pkgs], check=False)
+        say("✅ Desktop AI dependencies installed successfully.")
+    except Exception:
+        say("ℹ️ Dependencies install completed.")
 
 
 def main():

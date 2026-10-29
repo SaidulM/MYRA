@@ -181,13 +181,25 @@ def start_myra():
     ).returncode
 
 
-def ensure_voice_engine():
+def ensure_dependencies():
+    missing = []
     try:
         import edge_tts
     except ImportError:
+        missing.append("edge-tts>=7.0.0")
+    try:
+        import speech_recognition
+    except ImportError:
+        missing.append("SpeechRecognition>=3.10.0")
+    try:
+        import webview
+    except ImportError:
+        missing.append("pywebview>=4.0.0")
+
+    if missing:
         try:
-            say("⬇️ Initializing neural voice engine (edge-tts)...")
-            subprocess.run([sys.executable, "-m", "pip", "install", "edge-tts>=7.0.0"], capture_output=True)
+            say(f"⬇️ Setting up desktop engines ({', '.join(missing)})...")
+            subprocess.run([sys.executable, "-m", "pip", "install", *missing], capture_output=True)
         except Exception:
             pass
 
@@ -207,7 +219,7 @@ def main(argv):
         say("🔍 Checking GitHub for MYRA updates…")
         try_update()
 
-    ensure_voice_engine()
+    ensure_dependencies()
 
     if update_only:
         say("✔️ Update check finished (--update-only). MYRA was not started.")

@@ -45,8 +45,8 @@ UI_DIR = ROOT / "ui"
 HOST = config.get("MYRA_HOST", config.get("STONIC_HOST", "0.0.0.0"))
 PORT = int(config.get("MYRA_PORT", config.get("STONIC_PORT", "8765")))
 
-MAX_BODY = 32 * 1024
-MAX_CHAT_BODY = 128 * 1024
+MAX_BODY = 1024 * 1024
+MAX_CHAT_BODY = 10 * 1024 * 1024
 
 
 def get_local_ip() -> str:
@@ -208,15 +208,24 @@ class MyraHandler(SimpleHTTPRequestHandler):
             data = self._read_json()
             if data is None:
                 return
-            gemini = data.get("gemini_key")
-            groq = data.get("groq_key")
-            gemini_model = data.get("gemini_model")
-            groq_model = data.get("groq_model")
-            for value in (gemini, groq, gemini_model, groq_model):
-                if value is not None and (not isinstance(value, str) or len(value) > 300):
-                    self._send_json({"error": "Invalid format."}, status=400)
-                    return
-            status = config.save_keys(gemini=gemini, groq=groq, gemini_model=gemini_model, groq_model=groq_model)
+            status = config.save_keys(
+                gemini=data.get("gemini_key"),
+                groq=data.get("groq_key"),
+                gemini_model=data.get("gemini_model"),
+                groq_model=data.get("groq_model"),
+                openrouter=data.get("openrouter_key"),
+                openrouter_model=data.get("openrouter_model"),
+                openai=data.get("openai_key"),
+                openai_model=data.get("openai_model"),
+                anthropic=data.get("anthropic_key"),
+                anthropic_model=data.get("anthropic_model"),
+                deepseek=data.get("deepseek_key"),
+                deepseek_model=data.get("deepseek_model"),
+                mistral=data.get("mistral_key"),
+                mistral_model=data.get("mistral_model"),
+                ollama_url=data.get("ollama_url"),
+                ollama_model=data.get("ollama_model"),
+            )
             self._send_json({"ok": True, **status})
             return
 
@@ -288,10 +297,10 @@ class MyraHandler(SimpleHTTPRequestHandler):
             if data is None:
                 return
             which = data.get("which")
-            if which == "gemini":
-                status = config.save_keys(gemini="")
-            elif which == "groq":
-                status = config.save_keys(groq="")
+            if which in ("gemini", "groq", "openrouter", "openai", "anthropic", "deepseek", "mistral"):
+                status = config.save_keys(**{which: ""})
+            elif which == "ollama":
+                status = config.save_keys(ollama_model="")
             else:
                 self._send_json({"error": "Unknown key name."}, status=400)
                 return

@@ -192,6 +192,42 @@ class BackendFeaturesTests(unittest.TestCase):
         whisper_v = voice_studio.pick_voice("Secret", character="female", style="whisper")
         self.assertEqual(whisper_v, "en-US-AvaNeural")
 
+    def test_voice_clean_text_for_speech(self):
+        import voice_studio
+        raw = "### Hello **World**! Check [link](https://example.com) `code` 🤖✨"
+        cleaned = voice_studio.clean_text_for_speech(raw)
+        self.assertNotIn("**", cleaned)
+        self.assertNotIn("https://", cleaned)
+        self.assertNotIn("```", cleaned)
+        self.assertIn("Hello World", cleaned)
+
+    def test_agent_gold_rate_and_shopping_intents(self):
+        gold = agent.parse_and_execute_local_intent("আজকের গোল্ড রেট কি")
+        self.assertIsNotNone(gold)
+        self.assertEqual(gold["action"], "gold_rate_search")
+        self.assertIn("google.com/search", gold["url"])
+
+        shop = agent.parse_and_execute_local_intent("কিনতে চাই smart watch")
+        self.assertIsNotNone(shop)
+        self.assertEqual(shop["action"], "shopping_search")
+        self.assertIn("smart watch", shop["query"])
+
+    def test_multi_brain_config(self):
+        import config
+        status = config.save_keys(
+            openrouter="sk-or-test1234",
+            openai="sk-test9876",
+            deepseek="sk-ds-test555",
+            ollama_model="llama3.2",
+        )
+        self.assertTrue(status["openrouter"]["set"])
+        self.assertTrue(status["openai"]["set"])
+        self.assertTrue(status["deepseek"]["set"])
+        self.assertEqual(status["ollama"]["model"], "llama3.2")
+
+        # Cleanup
+        config.save_keys(openrouter="", openai="", deepseek="", ollama_model="")
+
 
 if __name__ == "__main__":
     unittest.main()

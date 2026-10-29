@@ -1,8 +1,8 @@
-"""MYRA — Ultra-Realistic Neural Human Voice Studio (GitHub Open-Source).
+"""MYRA — Ultra-Realistic Neural Human Voice Studio.
 
 Powered by Microsoft Edge Neural Speech engine (edge-tts).
 Produces studio-quality human voice in MP3 with natural breathing,
-human pacing, and authentic native Bengali (bn-BD / bn-IN) & English accents.
+smooth human pacing, and authentic native Bengali (bn-BD / bn-IN) & English accents.
 Zero API keys needed, 100% free and lightweight.
 """
 from __future__ import annotations
@@ -56,6 +56,38 @@ VOICE_PRESETS = {
     "ja_female": "ja-JP-NanamiNeural",
     "ja_male": "ja-JP-KeitaNeural",
 }
+
+
+def clean_text_for_speech(raw: str) -> str:
+    """Strip markdown, code blocks, URLs, and awkward characters that cause TTS to stutter or sound robotic."""
+    if not raw:
+        return ""
+    text = str(raw)
+
+    # 1. Remove code blocks
+    text = re.sub(r"```[\s\S]*?```", "", text)
+    text = re.sub(r"`[^`]+`", "", text)
+
+    # 2. Remove markdown links: [label](url) -> label
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+
+    # 3. Remove raw URLs
+    text = re.sub(r"https?://\S+", "", text)
+
+    # 4. Remove headers, bold, italics, strikethrough, bullet points
+    text = re.sub(r"^[#*>\-\s•]+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\*{1,3}([^*]+)\*{1,3}", r"\1", text)
+    text = re.sub(r"_{1,3}([^_]+)_{1,3}", r"\1", text)
+    text = re.sub(r"~{1,2}([^~]+)~{1,2}", r"\1", text)
+
+    # 5. Remove emojis and symbols that speech synthesizers try to read out
+    text = re.sub(r"[\U00010000-\U0010ffff]", "", text)
+    text = re.sub(r"[🤖✨🧠💬⏰🎵📷⚙️🌐💡👋👂🔴🔊🔇⏻]", "", text)
+
+    # 6. Normalize whitespace and punctuation
+    text = re.sub(r"[\r\n]+", "। " if is_bengali_text(text) else ". ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
 def is_bengali_text(text: str) -> bool:
@@ -112,7 +144,8 @@ def _cache_key(text: str, voice: str, rate: str, pitch: str, style: str) -> Path
 
 
 def build_ssml(text: str, voice: str, style: str = "gentle", rate: str = "+0%", pitch: str = "+0Hz") -> str:
-    xml_lang = voice.split("-")[0] + "-" + voice.split("-")[1]
+    parts = voice.split("-")
+    xml_lang = f"{parts[0]}-{parts[1]}" if len(parts) >= 2 else "en-US"
     safe_text = (
         text.replace("&", "&amp;")
         .replace("<", "&lt;")
@@ -130,7 +163,7 @@ def build_ssml(text: str, voice: str, style: str = "gentle", rate: str = "+0%", 
 </speak>"""
     return f"""<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xmlns:mstts='https://www.w3.org/2001/mstts' xml:lang='{xml_lang}'>
 <voice name='{voice}'>
-<prosody rate='{rate}' pitch='{pitch}' volume='soft'>{safe_text}</prosody>
+<prosody rate='{rate}' pitch='{pitch}' volume='medium'>{safe_text}</prosody>
 </voice>
 </speak>"""
 
@@ -154,39 +187,37 @@ def synthesize_speech(
     pitch: str = "+0Hz",
     style: str = "gentle",
 ) -> Optional[bytes]:
-    """Generate high-fidelity human speech MP3 audio.
-
-    Returns MP3 bytes if successful, or None if edge-tts is unavailable or offline.
-    """
-    clean_text = " ".join(str(text).split()).strip()
-    if not clean_text:
+    """Generate high-fidelity human speech MP3 audio with soft human touch."""
+    clean = clean_text_for_speech(text)
+    if not clean:
         return None
 
     if not EDGE_AVAILABLE:
         return None
 
     char = (character or "core").lower()
-    # Apply soft tuning calibration if default pitch/rate
+    is_bn = is_bengali_text(clean)
+
+    # Soft, human-tuned pitch and natural pacing
     actual_pitch = pitch
     actual_rate = rate
     if pitch == "+0Hz" or not pitch:
-        if char == "female":
-            actual_pitch = "+4Hz"  # Sweet, soft, tuned feminine timbre
-        elif char == "male":
-            actual_pitch = "-2Hz"  # Smooth, deep butler timbre
+        if is_bn:
+            actual_pitch = "+1Hz" if char == "female" else "-1Hz"
         else:
-            actual_pitch = "+1Hz"
+            if char == "female":
+                actual_pitch = "+2Hz"
+            elif char == "male":
+                actual_pitch = "-2Hz"
+            else:
+                actual_pitch = "+0Hz"
 
     if rate == "+0%" or not rate:
-        if char == "female":
-            actual_rate = "-2%" if style == "whisper" else "+2%"
-        elif char == "male":
-            actual_rate = "+1%"
-        else:
-            actual_rate = "+1%"
+        # Bengali sounds best at a relaxed, gentle natural rate
+        actual_rate = "-3%" if is_bn else "+0%"
 
-    chosen_voice = pick_voice(clean_text, character=char, custom_voice=voice, style=style)
-    cache_file = _cache_key(clean_text, chosen_voice, actual_rate, actual_pitch, style)
+    chosen_voice = pick_voice(clean, character=char, custom_voice=voice, style=style)
+    cache_file = _cache_key(clean, chosen_voice, actual_rate, actual_pitch, style)
 
     # Return cached audio if present
     if cache_file.exists() and cache_file.stat().st_size > 500:
@@ -200,7 +231,7 @@ def synthesize_speech(
         loop = asyncio.new_event_loop()
         try:
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(_async_generate(clean_text, chosen_voice, actual_rate, actual_pitch, style, tmp_file))
+            loop.run_until_complete(_async_generate(clean, chosen_voice, actual_rate, actual_pitch, style, tmp_file))
         finally:
             loop.close()
 

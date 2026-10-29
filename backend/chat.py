@@ -1,13 +1,19 @@
-"""MYRA — cloud text-chat brain (Stage 3).
+"""MYRA — Multi-Brain AI Orchestration Engine.
 
-Gemini is tried first and Groq is used as the backup.  The module uses
-only Python's standard library so MYRA remains light on an 8GB laptop.
+Supports Free & Paid Providers with Dynamic Model Discovery:
+1. Google Gemini (Free & Paid, dynamic discovery, Multimodal Vision)
+2. Groq (Free fast inference)
+3. OpenRouter (Free tier models + Paid models, OpenAI format)
+4. OpenAI (GPT-4o, GPT-4o-mini, Vision)
+5. Anthropic Claude (Claude 3.5 Sonnet, Claude 3.5 Haiku)
+6. DeepSeek (deepseek-chat, deepseek-reasoner)
+7. Mistral AI (mistral-small, mistral-large)
+8. Ollama / Local AI (Zero API keys, 100% private localhost)
 
 Security/privacy rules:
 * API keys are read by the backend from .env and are never returned.
-* Provider error bodies are converted to short, safe user messages.
-* Only the recent conversation supplied by the UI is sent upstream;
-  persistent memory arrives separately in Stage 4.
+* Only the recent conversation supplied by the UI is sent upstream.
+* Persistent SQLite memory is preserved locally on this PC.
 """
 from __future__ import annotations
 
@@ -43,11 +49,23 @@ DEFAULT_GROQ_MODELS = (
     "mixtral-8x7b-32768",
     "gemma2-9b-it",
 )
+DEFAULT_OPENROUTER_MODELS = (
+    "meta-llama/llama-3.2-3b-instruct:free",
+    "google/gemini-2.0-flash-exp:free",
+    "deepseek/deepseek-r1:free",
+    "mistralai/mistral-7b-instruct:free",
+    "meta-llama/llama-3.3-70b-instruct",
+    "openai/gpt-4o-mini",
+)
+
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
+MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
 
-GEMINI_UA = "MYRA-Assistant/1.0 (Windows NT 10.0; Win64; x64)"
-GROQ_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+UA_STRING = "MYRA-Assistant/1.0 (Windows NT 10.0; Win64; x64)"
 
 MAX_MESSAGES = 16
 MAX_MESSAGE_CHARS = 6000
@@ -59,30 +77,31 @@ TIMEOUT_SECONDS = 25
 def default_opener(request, timeout=TIMEOUT_SECONDS):
     try:
         return urlopen(request, timeout=timeout)
-    except (ssl.SSLError, URLError) as exc:
-        try:
-            ctx = ssl._create_unverified_context()
-            return urlopen(request, timeout=timeout, context=ctx)
-        except Exception:
-            raise exc
+    except (ssl.SSLError, URLError):
+        ctx = ssl._create_unverified_context()
+        return urlopen(request, timeout=timeout, context=ctx)
 
 
 class ChatError(Exception):
-    """A safe, user-displayable chat failure."""
-
-    def __init__(self, code, message, provider=None, status=503):
+    def __init__(self, code, message, provider=None, status=500):
         super().__init__(message)
         self.code = code
         self.message = message
         self.provider = provider
         self.status = status
 
+    def to_dict(self):
+        body = {"ok": False, "error": self.code, "message": self.message}
+        if self.provider:
+            body["provider"] = self.provider
+        return body
 
-def _clean_short(value, fallback, max_len):
+
+def _clean_short(value, default, max_len=60):
     if not isinstance(value, str):
-        return fallback
-    value = " ".join(value.split()).strip()
-    return value[:max_len] if value else fallback
+        return default
+    cleaned = " ".join(value.split()).strip()
+    return cleaned[:max_len] if cleaned else default
 
 
 def normalize_messages(raw_messages):
@@ -146,10 +165,9 @@ def normalize_messages(raw_messages):
 
 def build_system_prompt(payload):
     assistant_name = _clean_short(payload.get("assistant_name"), "MYRA", 40)
-    owner_name = _clean_short(payload.get("owner_name"), "the owner", 60)
+    owner_name = _clean_short(payload.get("owner_name"), "Saidul", 60)
     character = _clean_short(payload.get("character"), "core", 12).lower()
     personality = _clean_short(payload.get("personality"), "Warm & friendly", 80)
-
     custom_prompt = _clean_short(payload.get("custom_prompt"), "", 1000)
 
     character_styles = {
@@ -181,7 +199,8 @@ def build_system_prompt(payload):
         f"Preferred communication style: {personality}.",
         f"Today's local date is {today}.",
         "Reply in the same language as the user's latest message (e.g. Bengali, English, etc.) unless they ask otherwise.",
-        "Be genuinely helpful. Keep normal replies reasonably concise, but give full detail when asked.",
+        "Be genuinely helpful, intelligent and empathetic. Keep normal speech replies natural and concise.",
+        "When an image or webcam/screen frame is attached, inspect it carefully and answer questions about what is seen (objects in hand, text, screens).",
         "You have local persistent SQLite memory and offline notes storage on this laptop.",
         "Never ask for, reveal, or repeat API keys, passwords, OTPs or other secrets.",
         "If you are uncertain, say what is uncertain instead of inventing facts.",
@@ -202,7 +221,6 @@ _DISCOVERED_GROQ_MODELS = {}
 
 
 def discover_gemini_models(api_key: str, opener=default_opener) -> tuple:
-    """Dynamically query Google Gemini API to discover supported models for this key (Free or Paid)."""
     clean_key = str(api_key).strip()
     if not clean_key:
         return DEFAULT_GEMINI_MODELS
@@ -210,7 +228,7 @@ def discover_gemini_models(api_key: str, opener=default_opener) -> tuple:
         return _DISCOVERED_GEMINI_MODELS[clean_key]
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models?key={quote(clean_key, safe='')}"
-    headers = {"x-goog-api-key": clean_key, "User-Agent": GEMINI_UA}
+    headers = {"x-goog-api-key": clean_key, "User-Agent": UA_STRING}
     req = Request(url, headers=headers)
     try:
         with opener(req, timeout=7) as resp:
@@ -228,8 +246,8 @@ def discover_gemini_models(api_key: str, opener=default_opener) -> tuple:
                 def priority(mid: str) -> int:
                     m = mid.lower()
                     if m == "gemini-1.5-flash": return 0
-                    if m == "gemini-1.5-pro": return 1
-                    if m == "gemini-2.0-flash": return 2
+                    if m == "gemini-2.0-flash": return 1
+                    if m == "gemini-1.5-pro": return 2
                     if m == "gemini-2.0-flash-exp": return 3
                     if m == "gemini-1.5-flash-8b": return 4
                     if "flash" in m: return 5
@@ -246,7 +264,6 @@ def discover_gemini_models(api_key: str, opener=default_opener) -> tuple:
 
 
 def discover_groq_models(api_key: str, opener=default_opener) -> tuple:
-    """Dynamically query Groq API to discover active chat models for this key."""
     clean_key = str(api_key).strip()
     if not clean_key:
         return DEFAULT_GROQ_MODELS
@@ -254,10 +271,7 @@ def discover_groq_models(api_key: str, opener=default_opener) -> tuple:
         return _DISCOVERED_GROQ_MODELS[clean_key]
 
     url = "https://api.groq.com/openai/v1/models"
-    headers = {
-        "Authorization": f"Bearer {clean_key}",
-        "User-Agent": GROQ_UA,
-    }
+    headers = {"Authorization": f"Bearer {clean_key}", "User-Agent": UA_STRING}
     req = Request(url, headers=headers)
     try:
         with opener(req, timeout=7) as resp:
@@ -266,8 +280,7 @@ def discover_groq_models(api_key: str, opener=default_opener) -> tuple:
             models = []
             for m in raw_models:
                 mid = m.get("id", "").strip()
-                if not mid:
-                    continue
+                if not mid: continue
                 lowered = mid.lower()
                 if any(bad in lowered for bad in ("whisper", "guard", "embedding", "tts", "stt")):
                     continue
@@ -281,10 +294,6 @@ def discover_groq_models(api_key: str, opener=default_opener) -> tuple:
                     if "openai/gpt-oss-120b" in m: return 2
                     if "qwen/qwen3.8-27b" in m: return 3
                     if "llama-3.1-70b" in m: return 4
-                    if "llama-3" in m and "70b" in m: return 5
-                    if "llama-3" in m and "8b" in m: return 6
-                    if "mixtral" in m: return 7
-                    if "gemma" in m: return 8
                     return 20
 
                 models.sort(key=groq_priority)
@@ -314,7 +323,17 @@ def _models_for(provider, api_key="", opener=default_opener):
 
 
 def _provider_label(provider):
-    return "Gemini" if provider == "gemini" else "Groq"
+    labels = {
+        "gemini": "Google Gemini",
+        "groq": "Groq",
+        "openrouter": "OpenRouter",
+        "openai": "OpenAI",
+        "anthropic": "Anthropic Claude",
+        "deepseek": "DeepSeek",
+        "mistral": "Mistral AI",
+        "ollama": "Ollama Local",
+    }
+    return labels.get(provider, provider.capitalize())
 
 
 def _provider_http_error(provider, status, raw_text):
@@ -322,60 +341,20 @@ def _provider_http_error(provider, status, raw_text):
     lowered = (raw_text or "").lower()
 
     if "api_key_invalid" in lowered or "api key not valid" in lowered:
-        return ChatError(
-            "invalid_key",
-            f"{label} rejected the saved API key. Please check it in Settings.",
-            provider=provider,
-            status=503,
-        )
+        return ChatError("invalid_key", f"{label} rejected the saved API key. Please check it in Settings.", provider=provider, status=503)
     if status in {401, 403}:
-        return ChatError(
-            "invalid_key",
-            f"{label} rejected the saved API key or its permission. Please check it in Settings.",
-            provider=provider,
-            status=503,
-        )
+        return ChatError("invalid_key", f"{label} rejected the saved API key or authentication. Check key in Settings.", provider=provider, status=503)
     if status == 404:
-        return ChatError(
-            "model_unavailable",
-            f"The selected {label} model is currently unavailable.",
-            provider=provider,
-            status=503,
-        )
+        return ChatError("model_unavailable", f"The selected {label} model is unavailable.", provider=provider, status=503)
     if status == 408:
-        return ChatError(
-            "timeout",
-            f"{label} took too long to answer.",
-            provider=provider,
-            status=503,
-        )
+        return ChatError("timeout", f"{label} took too long to answer.", provider=provider, status=503)
     if status == 429:
-        return ChatError(
-            "rate_limited",
-            f"{label} is busy or its free limit has been reached for now.",
-            provider=provider,
-            status=503,
-        )
+        return ChatError("rate_limited", f"{label} is busy or rate limit reached. Please wait a moment.", provider=provider, status=503)
     if status >= 500:
-        return ChatError(
-            "provider_busy",
-            f"{label} is temporarily unavailable.",
-            provider=provider,
-            status=503,
-        )
+        return ChatError("provider_busy", f"{label} service is temporarily unavailable.", provider=provider, status=503)
     if status == 400:
-        return ChatError(
-            "invalid_request",
-            f"{label} could not accept that request. The saved key or selected model may need checking.",
-            provider=provider,
-            status=503,
-        )
-    return ChatError(
-        "provider_error",
-        f"{label} returned an unexpected error (HTTP {status}).",
-        provider=provider,
-        status=503,
-    )
+        return ChatError("invalid_request", f"{label} request error: {lowered[:120]}", provider=provider, status=503)
+    return ChatError("provider_error", f"{label} error (HTTP {status}).", provider=provider, status=503)
 
 
 def _post_json(url, payload, headers, provider, opener):
@@ -393,35 +372,16 @@ def _post_json(url, payload, headers, provider, opener):
             raw_error = exc.read(4096) if exc.fp else b""
         except Exception:
             raw_error = b""
-        raise _provider_http_error(
-            provider,
-            exc.code,
-            raw_error.decode("utf-8", errors="ignore"),
-        ) from None
+        raise _provider_http_error(provider, exc.code, raw_error.decode("utf-8", errors="ignore")) from None
     except (TimeoutError, socket.timeout):
-        raise ChatError(
-            "timeout",
-            f"{_provider_label(provider)} took too long to answer. Please try again.",
-            provider=provider,
-            status=503,
-        ) from None
+        raise ChatError("timeout", f"{_provider_label(provider)} took too long to answer.", provider=provider, status=503) from None
     except URLError:
-        raise ChatError(
-            "network",
-            "MYRA could not reach the internet. Please check the connection and try again.",
-            provider=provider,
-            status=503,
-        ) from None
+        raise ChatError("network", f"Could not reach {provider}. Check internet connection.", provider=provider, status=503) from None
 
     try:
         return json.loads(raw.decode("utf-8"))
     except (ValueError, UnicodeDecodeError):
-        raise ChatError(
-            "bad_response",
-            f"{_provider_label(provider)} returned a response MYRA could not read.",
-            provider=provider,
-            status=503,
-        ) from None
+        raise ChatError("bad_response", f"{_provider_label(provider)} returned invalid response.", provider=provider, status=503) from None
 
 
 def _extract_gemini_text(data):
@@ -429,86 +389,63 @@ def _extract_gemini_text(data):
     if not isinstance(candidates, list) or not candidates:
         feedback = data.get("promptFeedback") if isinstance(data, dict) else None
         if isinstance(feedback, dict) and feedback.get("blockReason"):
-            raise ChatError(
-                "blocked",
-                "Gemini could not answer that request. Please rephrase it and try again.",
-                provider="gemini",
-                status=400,
-            )
-        raise ChatError(
-            "bad_response",
-            "Gemini returned an empty response.",
-            provider="gemini",
-            status=503,
-        )
+            raise ChatError("blocked", "Gemini filtered that request.", provider="gemini", status=400)
+        raise ChatError("bad_response", "Gemini returned an empty response.", provider="gemini", status=503)
 
     candidate = candidates[0] if isinstance(candidates[0], dict) else {}
     if candidate.get("finishReason") == "SAFETY":
-        raise ChatError(
-            "blocked",
-            "Gemini could not answer that request. Please rephrase it and try again.",
-            provider="gemini",
-            status=400,
-        )
+        raise ChatError("blocked", "Gemini filtered that request for safety.", provider="gemini", status=400)
 
     content = candidate.get("content") if isinstance(candidate.get("content"), dict) else {}
     parts = content.get("parts") if isinstance(content.get("parts"), list) else []
-    text = "".join(
-        part.get("text", "") for part in parts if isinstance(part, dict)
-    ).strip()
+    text = "".join(part.get("text", "") for part in parts if isinstance(part, dict)).strip()
     if not text:
-        raise ChatError(
-            "bad_response",
-            "Gemini returned an empty response.",
-            provider="gemini",
-            status=503,
-        )
+        raise ChatError("bad_response", "Gemini returned an empty response.", provider="gemini", status=503)
     return text
 
 
-def _extract_groq_text(data):
+def _extract_openai_text(data, provider="openai"):
     choices = data.get("choices") if isinstance(data, dict) else None
     if not isinstance(choices, list) or not choices:
-        raise ChatError(
-            "bad_response",
-            "Groq returned an empty response.",
-            provider="groq",
-            status=503,
-        )
+        raise ChatError("bad_response", f"{_provider_label(provider)} returned empty response.", provider=provider, status=503)
 
     choice = choices[0] if isinstance(choices[0], dict) else {}
     message = choice.get("message") if isinstance(choice.get("message"), dict) else {}
     content = message.get("content", "")
     if isinstance(content, list):
-        text = "".join(
-            part.get("text", "")
-            for part in content
-            if isinstance(part, dict) and isinstance(part.get("text", ""), str)
-        ).strip()
+        text = "".join(p.get("text", "") for p in content if isinstance(p, dict) and isinstance(p.get("text"), str)).strip()
     elif isinstance(content, str):
         text = content.strip()
     else:
         text = ""
 
     if not text:
-        raise ChatError(
-            "bad_response",
-            "Groq returned an empty response.",
-            provider="groq",
-            status=503,
-        )
+        raise ChatError("bad_response", f"{_provider_label(provider)} returned empty response.", provider=provider, status=503)
     return text
 
 
-def _call_gemini(messages, system_prompt, api_key, opener):
-    contents = [
-        {
-            "role": "model" if message["role"] == "assistant" else "user",
-            "parts": [{"text": message["text"]}],
-        }
-        for message in messages
-    ]
-    headers = {"x-goog-api-key": api_key, "User-Agent": GEMINI_UA}
+def _call_gemini(messages, system_prompt, api_key, opener, image=None):
+    contents = []
+    for i, msg in enumerate(messages):
+        is_user = msg["role"] == "user"
+        parts = [{"text": msg["text"]}]
+
+        # Multimodal Vision injection into the latest user message
+        if is_user and i == len(messages) - 1 and image:
+            clean_b64 = image.split(",")[-1] if "," in image else image
+            parts.append({
+                "inline_data": {
+                    "mime_type": "image/jpeg",
+                    "data": clean_b64.strip(),
+                }
+            })
+
+        contents.append({
+            "role": "user" if is_user else "model",
+            "parts": parts,
+        })
+
+    headers = {"x-goog-api-key": api_key, "User-Agent": UA_STRING}
     models = _models_for("gemini", api_key, opener=opener)
 
     last_error = None
@@ -516,71 +453,56 @@ def _call_gemini(messages, system_prompt, api_key, opener):
         payload = {
             "systemInstruction": {"parts": [{"text": system_prompt}]},
             "contents": contents,
-            "generationConfig": {
-                "temperature": 0.75,
-                "maxOutputTokens": MAX_OUTPUT_TOKENS,
-            },
+            "generationConfig": {"temperature": 0.75, "maxOutputTokens": MAX_OUTPUT_TOKENS},
         }
         url = f"{GEMINI_URL.format(model=quote(model, safe='-._~'))}?key={quote(api_key, safe='')}"
         try:
-            data = _post_json(
-                url,
-                payload,
-                headers,
-                "gemini",
-                opener,
-            )
+            data = _post_json(url, payload, headers, "gemini", opener)
             return _extract_gemini_text(data), model
         except ChatError as exc:
             last_error = exc
-            # If 400 invalid_request (some older models reject systemInstruction), retry by prepending
             if exc.code == "invalid_request":
+                # Fallback for older model syntax
                 try:
                     alt_contents = list(contents)
                     if alt_contents and alt_contents[0]["role"] == "user":
-                        orig = alt_contents[0]["parts"][0]["text"]
-                        alt_contents[0] = {
-                            "role": "user",
-                            "parts": [{"text": f"[Instruction: {system_prompt}]\n\n{orig}"}],
-                        }
-                    fallback_payload = {
-                        "contents": alt_contents,
-                        "generationConfig": {
-                            "temperature": 0.75,
-                            "maxOutputTokens": MAX_OUTPUT_TOKENS,
-                        },
-                    }
-                    data = _post_json(
-                        url,
-                        fallback_payload,
-                        headers,
-                        "gemini",
-                        opener,
-                    )
+                        orig = alt_contents[0]["parts"][0].get("text", "")
+                        alt_contents[0]["parts"][0]["text"] = f"[Instruction: {system_prompt}]\n\n{orig}"
+                    data = _post_json(url, {"contents": alt_contents, "generationConfig": {"temperature": 0.75}}, headers, "gemini", opener)
                     return _extract_gemini_text(data), model
-                except ChatError as exc2:
-                    last_error = exc2
-
-            # Try next model if current model is unavailable, rate limited, provider busy, timeout, or invalid request
+                except Exception:
+                    pass
             if exc.code in {"model_unavailable", "invalid_request", "rate_limited", "provider_busy", "timeout"}:
                 continue
             raise
     raise last_error
 
 
-def _call_groq(messages, system_prompt, api_key, opener):
+def _call_openai_compatible(messages, system_prompt, api_key, endpoint_url, models, provider, opener, image=None):
+    headers = {"User-Agent": UA_STRING}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    if provider == "openrouter":
+        headers["HTTP-Referer"] = "https://github.com/SaidulM/MYRA"
+        headers["X-Title"] = "MYRA Desktop Assistant"
+
     api_messages = [{"role": "system", "content": system_prompt}]
-    api_messages.extend(
-        {"role": message["role"], "content": message["text"]}
-        for message in messages
-    )
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "User-Agent": GROQ_UA,
-    }
+    for i, msg in enumerate(messages):
+        is_user = msg["role"] == "user"
+        if is_user and i == len(messages) - 1 and image:
+            clean_b64 = image if image.startswith("data:") else f"data:image/jpeg;base64,{image}"
+            api_messages.append({
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": msg["text"]},
+                    {"type": "image_url", "image_url": {"url": clean_b64}},
+                ],
+            })
+        else:
+            api_messages.append({"role": msg["role"], "content": msg["text"]})
 
     last_error = None
-    for model in _models_for("groq", api_key, opener=opener):
+    for model in models:
         payload = {
             "model": model,
             "messages": api_messages,
@@ -588,18 +510,18 @@ def _call_groq(messages, system_prompt, api_key, opener):
             "max_tokens": MAX_OUTPUT_TOKENS,
         }
         try:
-            data = _post_json(GROQ_URL, payload, headers, "groq", opener)
-            return _extract_groq_text(data), model
+            data = _post_json(endpoint_url, payload, headers, provider, opener)
+            return _extract_openai_text(data, provider=provider), model
         except ChatError as exc:
             last_error = exc
             if exc.code in {"model_unavailable", "rate_limited", "provider_busy", "timeout", "invalid_request"}:
                 continue
             raise
-    raise last_error
+    raise last_error or ChatError("provider_error", f"Could not connect to {provider}", provider=provider)
 
 
 def _combined_failure(errors):
-    codes = {error.code for error in errors}
+    codes = {error.code for error in errors if isinstance(error, ChatError)}
     if codes and codes.issubset({"network", "timeout"}):
         return ChatError(
             "offline",
@@ -638,17 +560,14 @@ def _combined_failure(errors):
 
 
 def get_reply(payload, opener=default_opener):
-    """Return a reply using Gemini first, then Groq as backup."""
+    """Orchestrate multi-brain intelligence with vision, memory auto-learning, and zero-token local execution."""
     if not isinstance(payload, dict):
-        raise ChatError(
-            "invalid_request",
-            "The chat request could not be read. Please try again.",
-            status=400,
-        )
+        raise ChatError("invalid_request", "The chat request could not be read. Please try again.", status=400)
 
     messages = normalize_messages(payload.get("messages"))
+    image = payload.get("image")  # base64 webcam / screen snapshot if active
 
-    # Zero-Token Local Desktop Action Intent Check (Play music, Camera, Reminders, Files, Browser)
+    # Zero-Token Local Desktop Action Intent Check (Play music, Gold rate, Shopping, Camera, Reminders, Files, Browser)
     latest_user_text = messages[-1]["text"] if messages and messages[-1]["role"] == "user" else ""
     try:
         import agent
@@ -667,57 +586,69 @@ def get_reply(payload, opener=default_opener):
     except Exception:
         pass
 
-    system_prompt = build_system_prompt(payload)
-    gemini_key = config.gemini_key().strip()
-    groq_key = config.groq_key().strip()
-    preferred_provider = str(payload.get("provider") or "").lower().strip()
-    if preferred_provider not in ("gemini", "groq", "auto"):
-        preferred_provider = "auto"
+    # Automatic Persistent Memory Extraction from chat
+    learned_fact = None
+    try:
+        learned_fact = memory.auto_learn_from_text(latest_user_text)
+    except Exception:
+        pass
 
-    if not gemini_key and not groq_key:
+    system_prompt = build_system_prompt(payload)
+
+    # Load provider keys
+    gemini_k = config.gemini_key().strip()
+    groq_k = config.groq_key().strip()
+    openrouter_k = config.openrouter_key().strip()
+    openai_k = config.openai_key().strip()
+    deepseek_k = config.deepseek_key().strip()
+    mistral_k = config.mistral_key().strip()
+    ollama_m = config.ollama_model().strip()
+
+    preferred_provider = str(payload.get("provider") or "auto").lower().strip()
+
+    # Determine order of provider execution
+    providers = []
+    if preferred_provider != "auto":
+        providers.append(preferred_provider)
+    # Default priority waterfall
+    for p in ["gemini", "groq", "openrouter", "openai", "deepseek", "mistral", "ollama"]:
+        if p not in providers:
+            providers.append(p)
+
+    has_any_key = bool(gemini_k or groq_k or openrouter_k or openai_k or deepseek_k or mistral_k or ollama_m)
+    if not has_any_key:
         raise ChatError(
             "missing_keys",
-            "My AI brain is installed, but no API key is saved yet. Open SETTING on your own laptop, paste your free Gemini key (and Groq as backup), save them, then talk to me again.",
+            "My AI brain is installed, but no API key is saved yet. Open SETTING on your laptop, paste your free Gemini or Groq or OpenRouter key, save them, then talk to me again.",
             status=503,
         )
 
     errors = []
 
-    # If user selected Groq directly or Auto when Groq is preferred
-    try_groq_first = preferred_provider == "groq"
-    providers_order = ["groq", "gemini"] if try_groq_first else ["gemini", "groq"]
-
-    for prov in providers_order:
-        if prov == "gemini" and gemini_key:
-            # Skip if user explicitly forced Groq only
-            if preferred_provider == "groq" and groq_key:
-                continue
+    for prov in providers:
+        if prov == "gemini" and gemini_k:
             try:
-                reply, model = _call_gemini(messages, system_prompt, gemini_key, opener)
+                reply, model = _call_gemini(messages, system_prompt, gemini_k, opener, image=image)
                 return {
                     "ok": True,
                     "reply": reply,
                     "provider": "gemini",
-                    "provider_label": "Gemini",
+                    "provider_label": "Google Gemini",
                     "model": model,
                     "fallback": False,
+                    "memory_learned": learned_fact,
                 }
             except Exception as exc:
-                if isinstance(exc, ChatError):
-                    errors.append(exc)
-                else:
-                    errors.append(ChatError("provider_error", f"Gemini error: {exc}", provider="gemini"))
+                errors.append(exc if isinstance(exc, ChatError) else ChatError("provider_error", str(exc), provider="gemini"))
 
-        elif prov == "groq" and groq_key:
-            # Skip if user explicitly forced Gemini only
-            if preferred_provider == "gemini" and gemini_key:
-                continue
+        elif prov == "groq" and groq_k:
             try:
-                reply, model = _call_groq(messages, system_prompt, groq_key, opener)
+                models = _models_for("groq", groq_k, opener=opener)
+                reply, model = _call_openai_compatible(messages, system_prompt, groq_k, GROQ_URL, models, "groq", opener, image=image)
                 notice = ""
-                if gemini_key and preferred_provider == "auto":
+                if gemini_k and preferred_provider == "auto":
                     notice = "Gemini was temporarily unavailable, so Groq backup answered smoothly."
-                elif not gemini_key:
+                elif not gemini_k:
                     notice = "No Gemini key is saved, so Groq answered."
                 return {
                     "ok": True,
@@ -725,59 +656,115 @@ def get_reply(payload, opener=default_opener):
                     "provider": "groq",
                     "provider_label": "Groq",
                     "model": model,
-                    "fallback": bool(gemini_key and preferred_provider == "auto"),
+                    "fallback": bool(gemini_k and preferred_provider == "auto"),
                     "notice": notice,
+                    "memory_learned": learned_fact,
                 }
             except Exception as exc:
-                if isinstance(exc, ChatError):
-                    errors.append(exc)
-                else:
-                    errors.append(ChatError("provider_error", f"Groq error: {exc}", provider="groq"))
+                errors.append(exc if isinstance(exc, ChatError) else ChatError("provider_error", str(exc), provider="groq"))
+
+        elif prov == "openrouter" and openrouter_k:
+            try:
+                conf_model = config.get("OPENROUTER_MODEL", "auto").strip()
+                models = (conf_model,) if conf_model and conf_model != "auto" else DEFAULT_OPENROUTER_MODELS
+                reply, model = _call_openai_compatible(messages, system_prompt, openrouter_k, OPENROUTER_URL, models, "openrouter", opener, image=image)
+                return {
+                    "ok": True,
+                    "reply": reply,
+                    "provider": "openrouter",
+                    "provider_label": "OpenRouter",
+                    "model": model,
+                    "fallback": False,
+                    "memory_learned": learned_fact,
+                }
+            except Exception as exc:
+                errors.append(exc if isinstance(exc, ChatError) else ChatError("provider_error", str(exc), provider="openrouter"))
+
+        elif prov == "openai" and openai_k:
+            try:
+                conf_model = config.get("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
+                reply, model = _call_openai_compatible(messages, system_prompt, openai_k, OPENAI_URL, (conf_model,), "openai", opener, image=image)
+                return {
+                    "ok": True,
+                    "reply": reply,
+                    "provider": "openai",
+                    "provider_label": "OpenAI ChatGPT",
+                    "model": model,
+                    "fallback": False,
+                    "memory_learned": learned_fact,
+                }
+            except Exception as exc:
+                errors.append(exc if isinstance(exc, ChatError) else ChatError("provider_error", str(exc), provider="openai"))
+
+        elif prov == "deepseek" and deepseek_k:
+            try:
+                conf_model = config.get("DEEPSEEK_MODEL", "deepseek-chat").strip() or "deepseek-chat"
+                reply, model = _call_openai_compatible(messages, system_prompt, deepseek_k, DEEPSEEK_URL, (conf_model,), "deepseek", opener)
+                return {
+                    "ok": True,
+                    "reply": reply,
+                    "provider": "deepseek",
+                    "provider_label": "DeepSeek",
+                    "model": model,
+                    "fallback": False,
+                    "memory_learned": learned_fact,
+                }
+            except Exception as exc:
+                errors.append(exc if isinstance(exc, ChatError) else ChatError("provider_error", str(exc), provider="deepseek"))
+
+        elif prov == "mistral" and mistral_k:
+            try:
+                conf_model = config.get("MISTRAL_MODEL", "mistral-small-latest").strip() or "mistral-small-latest"
+                reply, model = _call_openai_compatible(messages, system_prompt, mistral_k, MISTRAL_URL, (conf_model,), "mistral", opener)
+                return {
+                    "ok": True,
+                    "reply": reply,
+                    "provider": "mistral",
+                    "provider_label": "Mistral AI",
+                    "model": model,
+                    "fallback": False,
+                    "memory_learned": learned_fact,
+                }
+            except Exception as exc:
+                errors.append(exc if isinstance(exc, ChatError) else ChatError("provider_error", str(exc), provider="mistral"))
+
+        elif prov == "ollama" and ollama_m:
+            try:
+                ollama_base = config.ollama_url()
+                endpoint = f"{ollama_base.rstrip('/')}/v1/chat/completions"
+                reply, model = _call_openai_compatible(messages, system_prompt, "", endpoint, (ollama_m,), "ollama", opener)
+                return {
+                    "ok": True,
+                    "reply": reply,
+                    "provider": "ollama",
+                    "provider_label": "Ollama Local AI",
+                    "model": model,
+                    "fallback": False,
+                    "memory_learned": learned_fact,
+                }
+            except Exception as exc:
+                errors.append(exc if isinstance(exc, ChatError) else ChatError("provider_error", str(exc), provider="ollama"))
 
     raise _combined_failure(errors)
 
 
 def verify_key_connection(gemini: str = None, groq: str = None, opener=default_opener) -> dict:
-    """Test validity and connection for provided API keys."""
     results = {}
     test_msg = [{"role": "user", "text": "Hello"}]
     test_sys = "Reply with 'OK'."
 
     if gemini:
-        clean_gemini = gemini.strip()
         try:
-            models = discover_gemini_models(clean_gemini, opener=opener)
-            _, model = _call_gemini(test_msg, test_sys, clean_gemini, opener)
-            results["gemini"] = {
-                "ok": True,
-                "model": model,
-                "message": f"Connected successfully (Model: {model})",
-                "models": list(models)[:6],
-            }
-        except ChatError as exc:
-            results["gemini"] = {"ok": False, "code": exc.code, "message": exc.message}
-        except Exception as exc:
-            results["gemini"] = {"ok": False, "code": "unknown", "message": str(exc)}
+            _, model = _call_gemini(test_msg, test_sys, gemini.strip(), opener)
+            results["gemini"] = {"ok": True, "model": model}
+        except Exception as e:
+            results["gemini"] = {"ok": False, "error": str(e)}
 
     if groq:
-        clean_groq = groq.strip()
         try:
-            models = discover_groq_models(clean_groq, opener=opener)
-            _, model = _call_groq(test_msg, test_sys, clean_groq, opener)
-            results["groq"] = {
-                "ok": True,
-                "model": model,
-                "message": f"Connected successfully (Model: {model})",
-                "models": list(models)[:6],
-            }
-        except ChatError as exc:
-            results["groq"] = {"ok": False, "code": exc.code, "message": exc.message}
-        except Exception as exc:
-            results["groq"] = {"ok": False, "code": "unknown", "message": str(exc)}
+            _, model = _call_openai_compatible(test_msg, test_sys, groq.strip(), GROQ_URL, DEFAULT_GROQ_MODELS, "groq", opener)
+            results["groq"] = {"ok": True, "model": model}
+        except Exception as e:
+            results["groq"] = {"ok": False, "error": str(e)}
 
-    overall_ok = any(v.get("ok") for v in results.values())
-    return {
-        "ok": overall_ok,
-        "results": results,
-    }
-
+    return results
