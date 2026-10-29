@@ -7,7 +7,11 @@ and auto-update detection.
 from __future__ import annotations
 
 import json
+import os
+import socket
 import sys
+import threading
+import time
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -38,11 +42,23 @@ except Exception:
 
 UI_DIR = ROOT / "ui"
 
-HOST = config.get("MYRA_HOST", config.get("STONIC_HOST", "127.0.0.1"))
+HOST = config.get("MYRA_HOST", config.get("STONIC_HOST", "0.0.0.0"))
 PORT = int(config.get("MYRA_PORT", config.get("STONIC_PORT", "8765")))
 
 MAX_BODY = 32 * 1024
 MAX_CHAT_BODY = 128 * 1024
+
+
+def get_local_ip() -> str:
+    """Detect LAN IPv4 address for mobile QR pairing."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
 
 
 class MyraHandler(SimpleHTTPRequestHandler):
@@ -118,6 +134,16 @@ class MyraHandler(SimpleHTTPRequestHandler):
                 "current_version": current_ver[:8] if current_ver else "local",
                 "latest_version": latest_ver[:8] if latest_ver else "unknown",
                 "error": error_msg,
+            })
+            return
+
+        if path == "/api/system/network-info":
+            local_ip = get_local_ip()
+            self._send_json({
+                "ok": True,
+                "local_ip": local_ip,
+                "port": PORT,
+                "mobile_url": f"http://{local_ip}:{PORT}",
             })
             return
 
@@ -202,13 +228,14 @@ class MyraHandler(SimpleHTTPRequestHandler):
             voice = data.get("voice")
             rate = str(data.get("rate", "+0%"))
             pitch = str(data.get("pitch", "+0Hz"))
+            style = str(data.get("style", "gentle"))
 
             if not text or not voice_studio:
                 self._send_json({"ok": False, "error": "TTS engine not ready"}, status=400)
                 return
 
             audio_bytes = voice_studio.synthesize_speech(
-                text, character=character, voice=voice, rate=rate, pitch=pitch
+                text, character=character, voice=voice, rate=rate, pitch=pitch, style=style
             )
             if audio_bytes:
                 self.send_response(200)
@@ -221,6 +248,12 @@ class MyraHandler(SimpleHTTPRequestHandler):
             else:
                 self._send_json({"ok": False, "fallback_to_browser": True}, status=503)
                 return
+
+        # 2b2. Safe shutdown endpoint
+        if path == "/api/system/shutdown":
+            self._send_json({"ok": True, "message": "MYRA is shutting down cleanly."})
+            threading.Thread(target=lambda: (time.sleep(1.0), os._exit(0)), daemon=True).start()
+            return
 
         # 2c. Reminders endpoints
         if path == "/api/reminders":

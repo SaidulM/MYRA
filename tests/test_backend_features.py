@@ -147,6 +147,51 @@ class BackendFeaturesTests(unittest.TestCase):
         self.assertTrue(status["ok"])
         self.assertIn("bn-BD-NabanitaNeural", status["supported_voices"])
 
+    def test_auto_learn_and_memory_recall(self):
+        # Auto-learn name from user speech
+        learned = memory.auto_learn_from_text("আমার নাম সাইদুল")
+        self.assertIsNotNone(learned)
+        self.assertIn("সাইদুল", learned)
+
+        # Zero-token query resolution in Bengali
+        answer_bn = memory.resolve_memory_query("আমার নাম কি?")
+        self.assertIsNotNone(answer_bn)
+        self.assertIn("সাইদুল", answer_bn)
+
+        # Zero-token query resolution in English
+        answer_en = memory.resolve_memory_query("What is my name?")
+        self.assertIsNotNone(answer_en)
+        self.assertIn("সাইদুল", answer_en)
+
+    def test_agent_shutdown_search_and_whatsapp(self):
+        # Shutdown intent
+        shut = agent.parse_and_execute_local_intent("তুমি বন্ধ হয়ে যাও")
+        self.assertIsNotNone(shut)
+        self.assertEqual(shut["action"], "shutdown_app")
+        self.assertTrue(shut["client_trigger"])
+
+        # File search intent
+        fsearch = agent.parse_and_execute_local_intent("search file run.py")
+        self.assertIsNotNone(fsearch)
+        self.assertEqual(fsearch["action"], "search_files")
+        self.assertEqual(fsearch["tokens_used"], 0)
+
+        # WhatsApp intent
+        wa = agent.parse_and_execute_local_intent("send whatsapp to 01711223344 hello friend")
+        self.assertIsNotNone(wa)
+        self.assertEqual(wa["action"], "send_whatsapp")
+        self.assertIn("web.whatsapp.com", wa["url"])
+        self.assertEqual(wa["tokens_used"], 0)
+
+    def test_voice_ssml_and_whisper_style(self):
+        import voice_studio
+        ssml = voice_studio.build_ssml("Secret message", "en-US-AvaNeural", style="whisper")
+        self.assertIn("whispering", ssml)
+        self.assertIn("Secret message", ssml)
+
+        whisper_v = voice_studio.pick_voice("Secret", character="female", style="whisper")
+        self.assertEqual(whisper_v, "en-US-AvaNeural")
+
 
 if __name__ == "__main__":
     unittest.main()

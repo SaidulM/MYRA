@@ -25,11 +25,12 @@ from urllib.parse import quote, quote_plus
 ROOT = Path(__file__).resolve().parent.parent
 
 try:
+    import memory
     import notes
     import reminders
     import skills_manager
 except ImportError:
-    from . import notes, reminders, skills_manager
+    from . import memory, notes, reminders, skills_manager
 
 
 def _open_url_safely(url: str) -> bool:
@@ -48,6 +49,51 @@ def parse_and_execute_local_intent(text: str) -> Optional[Dict[str, Any]]:
     raw = str(text).strip()
     lowered = raw.lower()
     now_str = datetime.now().strftime("%H:%M:%S")
+
+    # 0a. Auto Memory Learning from speech
+    try:
+        memory.auto_learn_from_text(raw)
+    except Exception:
+        pass
+
+    # 0b. Zero-Token Memory Query Resolver (e.g. "what is my name", "আমার প্রিয় খাবার কি")
+    try:
+        mem_answer = memory.resolve_memory_query(raw)
+        if mem_answer:
+            return {
+                "ok": True,
+                "handled_locally": True,
+                "action": "memory_recall",
+                "tokens_used": 0,
+                "logs": [
+                    f"[{now_str}] 🧠 Queried local SQLite memory.",
+                    f"[{now_str}] ✅ Fact retrieved with 0 cloud tokens.",
+                ],
+                "report": f"### 🧠 Memory Recall\n\n{mem_answer}",
+                "voice_reply": mem_answer,
+            }
+    except Exception:
+        pass
+
+    # 0c. Self-Closing / Shutdown application ("বন্ধ হয়ে যাও", "close yourself", "quit", "exit")
+    if any(k in lowered for k in ("close yourself", "shut down", "exit", "quit", "turn off", "sleep now")) or re.search(
+        r"(?:তুমি\s*)?(?:ক্লোজ|বন্ধ)\s*(?:হয়ে\s*যাও|হও|করো)|বিদায়\s*মায়রা", raw
+    ):
+        is_bn = bool(re.search(r"[\u0980-\u09FF]", raw))
+        reply = "ঠিক আছে, আজকের মতো আমি বন্ধ হচ্ছি। ভালো থাকবেন!" if is_bn else "Understood, closing now. Have a wonderful day!"
+        return {
+            "ok": True,
+            "handled_locally": True,
+            "action": "shutdown_app",
+            "client_trigger": True,
+            "tokens_used": 0,
+            "logs": [
+                f"[{now_str}] ⏻ Application shutdown requested.",
+                f"[{now_str}] 🛑 Stopping desktop server and window.",
+            ],
+            "report": f"### ⏻ System Closing\n\n{reply}",
+            "voice_reply": reply,
+        }
 
     # 1. Play Music / Song ("গানা চালাতে পারি", "গান বাজাও", "play song")
     music_match = re.search(
@@ -240,6 +286,98 @@ def parse_and_execute_local_intent(text: str) -> Optional[Dict[str, Any]]:
             ],
             "report": f"### 📂 Directory Files\n\n{file_list_str}",
             "voice_reply": f"মোট {len(workspace_files)} টি ফাইল ও ফোল্ডার পাওয়া গেছে।" if re.search(r"[\u0980-\u09FF]", raw) else f"Found {len(workspace_files)} files in your directory.",
+        }
+
+    # 7b. Search Files across PC ("search file resume", "ফাইল খোঁজো invoice")
+    file_search_match = re.search(
+        r"(?:search\s+file|find\s+file|ফাইল\s*খোঁজো|ফাইল\s*খুঁজে\s*দাও|search\s+for\s+file)\s+(.+)",
+        raw,
+        re.IGNORECASE,
+    )
+    if file_search_match:
+        query_filename = file_search_match.group(1).strip().strip('"').strip("'")
+        found_files = []
+        search_dirs = [
+            Path.home() / "Desktop",
+            Path.home() / "Downloads",
+            Path.home() / "Documents",
+            ROOT,
+        ]
+        q_lower = query_filename.lower()
+        for sdir in search_dirs:
+            if not sdir.exists():
+                continue
+            try:
+                for entry in sdir.glob(f"*{q_lower}*"):
+                    if not entry.name.startswith("."):
+                        size_kb = entry.stat().st_size / 1024 if entry.is_file() else 0
+                        found_files.append({
+                            "name": entry.name,
+                            "path": str(entry.resolve()),
+                            "dir": sdir.name,
+                            "size": f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb/1024:.2f} MB",
+                            "is_dir": entry.is_dir(),
+                        })
+                        if len(found_files) >= 12:
+                            break
+            except Exception:
+                continue
+
+        is_bn = bool(re.search(r"[\u0980-\u09FF]", raw))
+        if found_files:
+            file_report_lines = [f"- **{f['name']}** ({f['size']}) in `{f['dir']}`\n  `{f['path']}`" for f in found_files]
+            rep = f"### 🔍 Found {len(found_files)} files matching '{query_filename}':\n\n" + "\n".join(file_report_lines)
+            v_rep = f"'{query_filename}' সম্পর্কিত {len(found_files)} টি ফাইল খুঁজে পেয়েছি।" if is_bn else f"Found {len(found_files)} files matching '{query_filename}'."
+        else:
+            rep = f"### 🔍 No files found matching '{query_filename}' in Desktop, Downloads, or Documents."
+            v_rep = f"'{query_filename}' নামে কোনো ফাইল খুঁজে পাওয়া যায়নি।" if is_bn else f"Could not find any file named '{query_filename}'."
+
+        return {
+            "ok": True,
+            "handled_locally": True,
+            "action": "search_files",
+            "query": query_filename,
+            "files": found_files,
+            "tokens_used": 0,
+            "logs": [
+                f"[{now_str}] 🔍 Searching for file: '{query_filename}'",
+                f"[{now_str}] 📂 Scanned Desktop, Downloads, Documents.",
+                f"[{now_str}] 📄 Found: {len(found_files)} matching items.",
+            ],
+            "report": rep,
+            "voice_reply": v_rep,
+        }
+
+    # 7c. WhatsApp Message ("send whatsapp to ...", "হোয়াটসঅ্যাপে মেসেজ পাঠাও")
+    wa_match = re.search(
+        r"(?:whatsapp|হোয়াটসঅ্যাপে\s*মেসেজ\s*পাঠাও|send\s+whatsapp)\s*(?:to\s+([+0-9\s-]+))?(?:\s+(?:saying|message|বলো|যে)?\s*(.+))?",
+        raw,
+        re.IGNORECASE,
+    )
+    if wa_match and not any(k in lowered for k in ("what is", "কি")):
+        phone = re.sub(r"[^\d+]", "", wa_match.group(1) or "")
+        msg = (wa_match.group(2) or "").strip()
+        if not msg and not phone:
+            msg = "Hello"
+        wa_url = f"https://web.whatsapp.com/send?text={quote(msg)}"
+        if phone:
+            wa_url += f"&phone={quote(phone)}"
+        _open_url_safely(wa_url)
+        is_bn = bool(re.search(r"[\u0980-\u09FF]", raw))
+        rep = f"### 💬 WhatsApp Web Launched\n\n- **Target**: `{phone or 'Select contact'}`\n- **Message**: {msg}\n- **Action**: Opened in browser."
+        v_rep = "হোয়াটসঅ্যাপে মেসেজ পাঠানোর জন্য ব্রাউজার চালু করা হয়েছে।" if is_bn else "Opening WhatsApp Web to send your message."
+        return {
+            "ok": True,
+            "handled_locally": True,
+            "action": "send_whatsapp",
+            "url": wa_url,
+            "tokens_used": 0,
+            "logs": [
+                f"[{now_str}] 💬 WhatsApp integration triggered.",
+                f"[{now_str}] 🌐 Launching WhatsApp Web: {wa_url}",
+            ],
+            "report": rep,
+            "voice_reply": v_rep,
         }
 
     # 8. System Status / Telemetry ("পিসির অবস্থা", "system status", "battery", "ram")

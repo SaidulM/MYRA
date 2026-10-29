@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="vendor/three.min.js"></script>
+<script src="vendor/qrcode.min.js"></script>
 </head>
 <body>
 <canvas id="starfieldCanvas" class="starfield-canvas"></canvas>
@@ -23,6 +24,7 @@
       </div>
     </div>
     <nav class="top-links">
+      <button class="top-link" id="mobileLinkBtn" title="Control MYRA on your Laptop from your Mobile Phone">📱 Phone Link (QR)</button>
       <div class="dd-wrap">
         <button class="top-link" id="feedbackBtn">Feedback</button>
         <div class="dropdown hidden" id="feedbackDrop">
@@ -566,6 +568,14 @@
           <option value="auto">✨ Auto-Detect (Bengali &amp; English Natural Voices)</option>
         </select>
 
+        <label class="field-label">Speech Style (কণ্ঠের ধরণ)</label>
+        <select id="voiceStyleSelect" class="input" style="width:100%; margin-bottom:12px;">
+          <option value="gentle">🌸 Sweet &amp; Gentle (কোমল ও মধুর — Human Intimacy)</option>
+          <option value="whisper">🤫 Whispering (ফিসফিসিয়ে মিষ্টি কথা — Ultra-Soft Whisper)</option>
+          <option value="chat">💬 Natural Chat (স্বাভাবিক আলাপ — Expressive)</option>
+          <option value="jarvis">🎩 JARVIS Butler (স্পষ্ট ও নির্ভরযোগ্য — Confident)</option>
+        </select>
+
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:12px;">
           <div>
             <label class="field-label" style="display:flex; justify-content:space-between;">
@@ -760,45 +770,94 @@
 <!-- CINEMATIC FIRST-RUN ONBOARDING MODAL -->
 <div class="onboard-backdrop hidden" id="onboardModal">
   <div class="onboard-card">
-    <div class="onboard-avatar-hero">
-      <div class="onboard-glow-orb"></div>
-      <div>
-        <h2 style="margin:0 0 4px 0; font-family:'Orbitron',sans-serif; color:var(--accent); font-size:18px;">
-          Welcome to MYRA
-        </h2>
-        <p style="margin:0; font-size:13px; color:var(--text); line-height:1.4;" id="onboardHeroVoiceText">
-          "Hello! I have been waiting for you. Let's personalize your companion."
-        </p>
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div class="onboard-avatar-hero" style="flex:1; margin-right:12px;">
+        <div class="onboard-glow-orb"></div>
+        <div>
+          <h2 style="margin:0 0 2px 0; font-family:'Orbitron',sans-serif; color:var(--accent); font-size:17px;">
+            Welcome to MYRA — Desktop AI Companion
+          </h2>
+          <p style="margin:0; font-size:12px; color:var(--text); line-height:1.4;" id="onboardHeroVoiceText">
+            "Hello! I am your personal desktop assistant. Choose your language and voice to begin."
+          </p>
+        </div>
       </div>
+      <button class="icon-btn" id="onboardCloseBtn" title="Close / Skip for now" style="font-size:18px;">✕</button>
     </div>
 
     <div class="onboard-steps">
       <div>
-        <label class="field-label">What should I call you? (Your Name)</label>
-        <input type="text" id="onboardUserName" class="input" placeholder="e.g. Saidul" maxlength="24">
+        <label class="field-label" style="color:var(--accent); font-weight:700;">🌐 Choose Language (প্রথমেই আপনার ভাষা নির্বাচন করুন)</label>
+        <select id="onboardLangSelect" class="input" style="margin-bottom:10px; font-weight:600;">
+          <option value="bn-BD">🇧🇩 বাংলা (Bengali - বাংলাদেশ / ভারত)</option>
+          <option value="en-US">🇺🇸 English (Global / US / UK)</option>
+          <option value="hi-IN">🇮🇳 हिन्दी (Hindi)</option>
+          <option value="es-ES">🇪🇸 Español (Spanish)</option>
+          <option value="ar-SA">🇸🇦 العربية (Arabic)</option>
+          <option value="fr-FR">🇫🇷 Français (French)</option>
+          <option value="de-DE">🇩🇪 Deutsch (German)</option>
+          <option value="ja-JP">🇯🇵 日本語 (Japanese)</option>
+        </select>
 
-        <label class="field-label" style="margin-top:10px;">My Name (Assistant)</label>
-        <input type="text" id="onboardAiName" class="input" value="MYRA" maxlength="16">
+        <label class="field-label">Speech Style (কণ্ঠস্বরের ধরণ)</label>
+        <select id="onboardVoiceStyle" class="input" style="margin-bottom:10px;">
+          <option value="gentle">🌸 Sweet &amp; Gentle (কোমল ও মধুর — Human Intimacy)</option>
+          <option value="whisper">🤫 Whispering (ফিসফিসিয়ে মিষ্টি কথা — Ultra-Soft Whisper)</option>
+          <option value="chat">💬 Natural Conversational (স্বাভাবিক আলাপ)</option>
+          <option value="jarvis">🎩 JARVIS Butler (স্পষ্ট ও নির্ভরযোগ্য)</option>
+        </select>
+
+        <label class="field-label">Your Name (আপনার নাম)</label>
+        <input type="text" id="onboardUserName" class="input" placeholder="e.g. Saidul" maxlength="24">
       </div>
 
       <div>
-        <label class="field-label">Choose Companion Persona</label>
+        <label class="field-label">Assistant Name (অ্যাসিস্ট্যান্টের নাম)</label>
+        <input type="text" id="onboardAiName" class="input" value="MYRA" maxlength="16" style="margin-bottom:10px;">
+
+        <label class="field-label">Choose Initial Persona</label>
         <select id="onboardPersonaSelect" class="input" style="margin-bottom:10px;">
           <option value="female">♀ Female — Sweet Companion (Warm, Caring, Storyteller)</option>
           <option value="male">♂ Male — JARVIS Butler (Sharp, Witty, Professional)</option>
           <option value="core">⬢ Core — Hyper-Intelligent Objective AI</option>
         </select>
 
-        <label class="field-label">Gemini API Key (Optional now, free)</label>
-        <input type="password" id="onboardApiKey" class="input" placeholder="Paste AIza... key or skip">
+        <label class="field-label">Gemini API Key (Optional — free)</label>
+        <input type="password" id="onboardApiKey" class="input" placeholder="Paste AIza... key or skip for offline mode">
       </div>
     </div>
 
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; flex-wrap:wrap; gap:8px;">
       <button class="top-link" id="onboardVoiceTestBtn" style="font-size:12px;">🔊 Hear Greeting Voice</button>
-      <button class="btn btn-send" id="onboardStartBtn" style="padding:10px 28px; font-weight:700;">
-        🚀 ENTER MYRA DESKTOP
-      </button>
+      <div style="display:flex; gap:10px; margin-left:auto;">
+        <button class="btn" id="onboardSkipBtn" style="background:transparent; border:1px solid rgba(var(--accent-rgb), 0.3); font-size:12px;">
+          ⚡ Skip &amp; Use Offline Mode
+        </button>
+        <button class="btn btn-send" id="onboardStartBtn" style="padding:10px 24px; font-weight:700;">
+          🚀 ENTER MYRA DESKTOP
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MOBILE PHONE LINK (QR) MODAL -->
+<div class="modal-backdrop hidden" id="mobileLinkModal">
+  <div class="qr-modal-box">
+    <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+      <h3 style="margin:0; font-family:'Orbitron',sans-serif; color:var(--accent); font-size:16px;">📱 Connect Mobile Phone</h3>
+      <button class="icon-btn" id="mobileLinkCloseBtn" style="font-size:16px;">✕</button>
+    </div>
+    <p style="margin:0; font-size:12px; color:var(--text); line-height:1.4;">
+      Scan this QR code with your phone camera or mobile browser (must be connected to the same Wi-Fi network) to control MYRA on your laptop!
+    </p>
+    <div class="qr-container" id="phoneQrContainer">
+      <div id="phoneQrBox"></div>
+    </div>
+    <div class="mobile-url-chip" id="mobileUrlDisplay">Loading network address...</div>
+    <div style="display:flex; gap:10px; width:100%;">
+      <button class="btn" id="copyMobileUrlBtn" style="flex:1; padding:8px 12px; font-size:12px;">📋 Copy Link</button>
+      <button class="btn btn-send" id="mobileLinkDoneBtn" style="flex:1; padding:8px 12px; font-size:12px;">Done</button>
     </div>
   </div>
 </div>

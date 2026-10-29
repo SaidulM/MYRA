@@ -19,8 +19,9 @@ $RepoUrl = "https://codeload.github.com/SaidulM/MYRA/zip/refs/heads/main"
 $ZipFile = "$env:TEMP\MYRA-main.zip"
 $ExtractDir = "$env:TEMP\MYRA-extract"
 
-# Step 1: Detect Python
-Write-Host "🔍 Checking Python environment..." -ForegroundColor Yellow
+# Step 1: Detect Python & Windows Version
+Write-Host "🔍 Checking Windows and Python environment..." -ForegroundColor Yellow
+$isWin7 = ([System.Environment]::OSVersion.Version.Major -eq 6 -and [System.Environment]::OSVersion.Version.Minor -eq 1)
 $PythonCmd = $null
 if (Get-Command py -ErrorAction SilentlyContinue) {
     $PythonCmd = "py -3"
@@ -29,18 +30,29 @@ if (Get-Command py -ErrorAction SilentlyContinue) {
 }
 
 if (-not $PythonCmd) {
-    Write-Host "❌ Python 3.8+ was not found on your system." -ForegroundColor Red
-    Write-Host "   Installing Python via Winget..." -ForegroundColor Yellow
-    try {
-        winget install -e --id Python.Python.3.11 --silent --accept-package-agreements --accept-source-agreements
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-        $PythonCmd = "python"
-    } catch {
-        Write-Host "   Please download Python from https://www.python.org and tick 'Add Python to PATH'." -ForegroundColor Red
-        Exit 1
+    Write-Host "ℹ️ Python 3.8+ was not found. Installing Python automatically..." -ForegroundColor Yellow
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    if ($isWin7) {
+        Write-Host "   Detected Windows 7: installing Python 3.8.10 (last official Win7 release)..." -ForegroundColor Cyan
+        $pyInstaller = "$env:TEMP\python-3.8.10.exe"
+        Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.8.10/python-3.8.10-amd64.exe" -OutFile $pyInstaller -UseBasicParsing
+        Start-Process -FilePath $pyInstaller -ArgumentList "/quiet", "InstallAllUsers=0", "PrependPath=1" -Wait
+        Remove-Item -Force $pyInstaller -ErrorAction SilentlyContinue
+    } else {
+        Write-Host "   Detected Windows 10/11: installing Python..." -ForegroundColor Cyan
+        try {
+            winget install -e --id Python.Python.3.11 --silent --accept-package-agreements --accept-source-agreements
+        } catch {
+            $pyInstaller = "$env:TEMP\python-3.11.9.exe"
+            Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe" -OutFile $pyInstaller -UseBasicParsing
+            Start-Process -FilePath $pyInstaller -ArgumentList "/quiet", "InstallAllUsers=0", "PrependPath=1" -Wait
+            Remove-Item -Force $pyInstaller -ErrorAction SilentlyContinue
+        }
     }
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    $PythonCmd = "python"
 }
-Write-Host "✅ Python detected: $PythonCmd" -ForegroundColor Green
+Write-Host "✅ Python environment ready: $PythonCmd" -ForegroundColor Green
 
 # Step 2: Download latest MYRA files
 Write-Host "⬇️ Downloading MYRA release from GitHub..." -ForegroundColor Yellow

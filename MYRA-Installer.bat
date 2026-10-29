@@ -50,6 +50,17 @@ exit /b
 
 :manual_py
 echo.
+echo   [!] Python not found on standard PATH.
+echo   Attempting automatic installer download (works on Windows 7, 10, 11)...
+powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.8.10/python-3.8.10-amd64.exe' -OutFile '%TEMP%\py_setup.exe'" >nul 2>&1
+if exist "%TEMP%\py_setup.exe" (
+    echo   Installing Python silently into user profile...
+    "%TEMP%\py_setup.exe" /quiet InstallAllUsers=0 PrependPath=1
+    del "%TEMP%\py_setup.exe" >nul 2>&1
+    py -3 --version >nul 2>&1 && set "PY=py -3" && goto :py_ready
+    python --version >nul 2>&1 && set "PY=python" && goto :py_ready
+)
+echo.
 echo   ------------------------------------------------------------
 echo   Python installation needed (free, takes ~1 minute).
 echo   A browser page will open now. During installation, make sure to check:

@@ -1103,6 +1103,7 @@ async function speakDemo(text) {
         text: text,
         character: HOLO.char,
         voice: localStorage.getItem('myra_voice_uri') || 'auto',
+        style: localStorage.getItem('myra_voice_style') || 'gentle',
       }),
     });
 
@@ -1339,6 +1340,11 @@ async function sendChat() {
     if (data.client_trigger) {
       if (data.action === 'open_camera') setVisual('cam', true);
       else if (data.action === 'open_screen') setVisual('scr', true);
+      else if (data.action === 'shutdown_app') {
+        toast('⏻ Closing MYRA Desktop... Good bye!', 4000);
+        try { fetch('/api/system/shutdown', { method: 'POST' }); } catch (e) {}
+        setTimeout(() => window.close(), 2200);
+      }
     }
     if (data.notice) toast('ℹ️ ' + data.notice, 4200);
     speakDemo(reply);
@@ -1804,12 +1810,71 @@ function initCustomPersona() {
 }
 
 /* =========================================================
-   Cinematic First-Run Onboarding Modal
+   Cinematic First-Run Onboarding Modal & Language Selection
    ========================================================= */
+const ONBOARD_GREETINGS = {
+  'bn-BD': "হ্যালো! আমি মায়রা, আপনার পার্সোনাল ডেস্কটপ এআই কম্প্যানিয়ন। আমি আপনার সাথে আছি।",
+  'en-US': "Hello! I am MYRA, your personal desktop AI companion. I have been waiting for you.",
+  'hi-IN': "नमस्ते! मैं मायरा हूँ, आपकी पर्सनल डेस्कटॉप साथी। मैं आपके साथ हूँ।",
+  'es-ES': "¡Hola! Soy MYRA, tu asistente personal de escritorio. Estoy lista para ayudarte.",
+  'ar-SA': "مرحباً! أنا مايرا، رفيقتك الذكية لسطح المكتب. أنا هنا معك.",
+  'fr-FR': "Bonjour! Je suis MYRA, votre assistante personnelle de bureau.",
+  'de-DE': "Hallo! Ich bin MYRA, Ihre persönliche Desktop-Assistentin.",
+  'ja-JP': "こんにちは！私はMYRA、あなたのパーソナルAIコンパニオンです。",
+};
+
 function checkOnboarding() {
   const onboarded = localStorage.getItem('myra_onboarded');
   const modal = $('onboardModal');
   if (!modal) return;
+
+  const langSelect = $('onboardLangSelect');
+  const heroVoiceText = $('onboardHeroVoiceText');
+  const styleSelect = $('onboardVoiceStyle');
+  const closeBtn = $('onboardCloseBtn');
+  const skipBtn = $('onboardSkipBtn');
+
+  // Load saved preferences if any
+  const currentLang = localStorage.getItem('myra_lang') || 'bn-BD';
+  if (langSelect) langSelect.value = currentLang;
+  if (styleSelect) styleSelect.value = localStorage.getItem('myra_voice_style') || 'gentle';
+
+  const updateGreetingText = (lang) => {
+    if (heroVoiceText) {
+      heroVoiceText.textContent = `"${ONBOARD_GREETINGS[lang] || ONBOARD_GREETINGS['bn-BD']}"`;
+    }
+  };
+  updateGreetingText(currentLang);
+
+  if (langSelect) {
+    langSelect.addEventListener('change', () => {
+      const selected = langSelect.value;
+      localStorage.setItem('myra_lang', selected);
+      localStorage.setItem('myra_speech_lang', selected);
+      if (speechRecognizer) speechRecognizer.lang = selected;
+      updateGreetingText(selected);
+    });
+  }
+
+  if (styleSelect) {
+    styleSelect.addEventListener('change', () => {
+      localStorage.setItem('myra_voice_style', styleSelect.value);
+    });
+  }
+
+  const dismissModal = () => {
+    modal.classList.add('hidden');
+    localStorage.setItem('myra_onboarded', 'true');
+  };
+
+  if (closeBtn) closeBtn.addEventListener('click', dismissModal);
+  if (skipBtn) {
+    skipBtn.addEventListener('click', () => {
+      dismissModal();
+      toast('⚡ Started in Offline Desktop Mode! You can add keys anytime in SETTINGS.');
+    });
+  }
+
   if (!onboarded) {
     modal.classList.remove('hidden');
     const ownerName = localStorage.getItem('myra_owner') || 'Saidul';
@@ -1819,8 +1884,9 @@ function checkOnboarding() {
     const voiceTest = $('onboardVoiceTestBtn');
     if (voiceTest) {
       voiceTest.addEventListener('click', () => {
-        const welcomeText = "Hello! I have been waiting for you. Let's personalize your companion.";
-        speakDemo(welcomeText);
+        const selLang = (langSelect && langSelect.value) || 'bn-BD';
+        const txt = ONBOARD_GREETINGS[selLang] || ONBOARD_GREETINGS['bn-BD'];
+        speakDemo(txt);
       });
     }
 
@@ -1831,9 +1897,13 @@ function checkOnboarding() {
         const aName = ($('onboardAiName').value || 'MYRA').trim();
         const persona = $('onboardPersonaSelect').value || 'female';
         const apiKey = ($('onboardApiKey').value || '').trim();
+        const lang = (langSelect && langSelect.value) || 'bn-BD';
 
         localStorage.setItem('myra_owner', uName);
         localStorage.setItem('myra_name', aName);
+        localStorage.setItem('myra_lang', lang);
+        localStorage.setItem('myra_speech_lang', lang);
+        if (speechRecognizer) speechRecognizer.lang = lang;
         localStorage.setItem('myra_onboarded', 'true');
 
         if (apiKey) {
@@ -1849,9 +1919,67 @@ function checkOnboarding() {
         setChar(persona);
         modal.classList.add('hidden');
         toast(`✨ Welcome ${uName}! MYRA is online.`);
-        speakDemo(`Hello ${uName}! I am happy to meet you.`);
+        speakDemo(ONBOARD_GREETINGS[lang] || `Hello ${uName}! I am happy to meet you.`);
       });
     }
+  }
+}
+
+/* =========================================================
+   Mobile Phone Link QR Modal
+   ========================================================= */
+function initMobileLink() {
+  const btn = $('mobileLinkBtn');
+  const modal = $('mobileLinkModal');
+  const closeBtn = $('mobileLinkCloseBtn');
+  const doneBtn = $('mobileLinkDoneBtn');
+  const copyBtn = $('copyMobileUrlBtn');
+  const urlDisplay = $('mobileUrlDisplay');
+  const qrBox = $('phoneQrBox');
+
+  if (!btn || !modal) return;
+
+  const closeModal = () => modal.classList.add('hidden');
+  if (closeBtn) closeBtn.addEventListener('click', closeModal);
+  if (doneBtn) doneBtn.addEventListener('click', closeModal);
+
+  btn.addEventListener('click', async () => {
+    modal.classList.remove('hidden');
+    if (qrBox) qrBox.innerHTML = '';
+    if (urlDisplay) urlDisplay.textContent = 'Scanning network address…';
+    try {
+      const res = await fetch('/api/system/network-info');
+      const data = await res.json();
+      const mobileUrl = data.mobile_url || `http://${location.hostname}:${location.port || 8765}`;
+      if (urlDisplay) urlDisplay.textContent = mobileUrl;
+      if (qrBox) {
+        if (typeof QRCode !== 'undefined') {
+          new QRCode(qrBox, {
+            text: mobileUrl,
+            width: 170,
+            height: 170,
+            colorDark: '#020b18',
+            colorLight: '#ffffff',
+            correctLevel: QRCode.CorrectLevel.M,
+          });
+        } else {
+          qrBox.innerHTML = `<a href="${mobileUrl}" target="_blank" style="color:var(--accent); font-weight:700;">${mobileUrl}</a>`;
+        }
+      }
+    } catch (e) {
+      const fallbackUrl = `http://${location.hostname}:${location.port || 8765}`;
+      if (urlDisplay) urlDisplay.textContent = fallbackUrl;
+    }
+  });
+
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      const url = urlDisplay && urlDisplay.textContent;
+      if (url && navigator.clipboard) {
+        navigator.clipboard.writeText(url);
+        toast('📋 Phone link copied to clipboard!');
+      }
+    });
   }
 }
 
@@ -1868,8 +1996,18 @@ document.addEventListener('DOMContentLoaded', () => {
   initVisualHubTabs();
   setupBrainSwitcher();
   initCustomPersona();
+  initMobileLink();
   checkOnboarding();
   syncCharUI();
+
+  const voiceStyleSel = $('voiceStyleSelect');
+  if (voiceStyleSel) {
+    voiceStyleSel.value = localStorage.getItem('myra_voice_style') || 'gentle';
+    voiceStyleSel.addEventListener('change', () => {
+      localStorage.setItem('myra_voice_style', voiceStyleSel.value);
+      toast('🌸 Speech style updated!');
+    });
+  }
   renderMemories();
   loadNewsCache();
   renderNews();
@@ -2081,6 +2219,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (data.client_trigger) {
         if (data.action === 'open_camera') setVisual('cam', true);
         else if (data.action === 'open_screen') setVisual('scr', true);
+        else if (data.action === 'shutdown_app') {
+          toast('⏻ Closing MYRA Desktop... Good bye!', 4000);
+          try { fetch('/api/system/shutdown', { method: 'POST' }); } catch (e) {}
+          setTimeout(() => window.close(), 2200);
+        }
       }
       if (data.voice_reply) speakDemo(data.voice_reply);
       toast('✅ Agent completed task!');

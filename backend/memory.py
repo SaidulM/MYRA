@@ -6,6 +6,7 @@ uploaded to the cloud.
 """
 from __future__ import annotations
 
+import re
 import sqlite3
 import threading
 from datetime import datetime
@@ -132,3 +133,104 @@ def get_memory_context(limit: int = 15) -> str:
     for m in reversed(mems):
         lines.append(f"- {m['text']}")
     return "\n".join(lines)
+
+
+def auto_learn_from_text(text: str) -> Optional[str]:
+    """Inspect user message to automatically extract and remember personal facts in SQLite."""
+    raw = str(text).strip()
+    if not raw or len(raw) < 4:
+        return None
+
+    # Skip query questions
+    lowered = raw.lower()
+    if any(q in lowered for q in ("what is", "who is", "where is", "how to", "কি", "কেমন", "কোথায়", "?")):
+        return None
+
+    # 1. Name patterns: "my name is X", "আমার নাম X"
+    m = re.search(r"(?:my name is|আমার নাম|amr nam)\s+([A-Za-z\u0980-\u09FF\s]{2,30})", raw, re.IGNORECASE)
+    if m:
+        name = m.group(1).strip()
+        fact = f"User's name is {name}"
+        add_memory(fact, category="identity")
+        return fact
+
+    # 2. Favorite patterns: "my favorite X is Y", "আমার প্রিয় X হলো/হচ্ছে Y"
+    m = re.search(r"(?:my favorite|আমার প্রিয়)\s+([a-zA-Z\u0980-\u09FF\s]+?)\s+(?:is|হলো|হচ্ছে)\s+(.+)", raw, re.IGNORECASE)
+    if m:
+        item = m.group(1).strip()
+        val = m.group(2).strip()
+        fact = f"User's favorite {item} is {val}"
+        add_memory(fact, category="preference")
+        return fact
+
+    # 3. Location: "I live in X", "আমার বাসা X এ", "আমি X থাকি"
+    m = re.search(r"(?:i live in|আমার বাসা|আমি)\s+([A-Za-z\u0980-\u09FF\s]{2,25})\s*(?:তে থাকি|এ থাকি|থাকি)", raw, re.IGNORECASE)
+    if m:
+        loc = m.group(1).strip()
+        fact = f"User lives in {loc}"
+        add_memory(fact, category="location")
+        return fact
+
+    # 4. Profession: "I am a/an X", "আমি একজন X"
+    m = re.search(r"(?:i am a|i am an|আমি একজন)\s+([a-zA-Z\u0980-\u09FF\s]{3,30})", raw, re.IGNORECASE)
+    if m and not any(w in lowered for w in ("feeling", "thinking", "student of nature")):
+        prof = m.group(1).strip()
+        fact = f"User is a {prof}"
+        add_memory(fact, category="profession")
+        return fact
+
+    # 5. Explicit remember: "Remember that X", "মনে রেখো X", "মনে রাখো X"
+    m = re.search(r"(?:remember that|মনে\s*রেখো|মনে\s*রাখো|মনে\s*রেখ)\s+(.+)", raw, re.IGNORECASE)
+    if m:
+        fact = m.group(1).strip()
+        add_memory(fact, category="general")
+        return fact
+
+    return None
+
+
+def resolve_memory_query(text: str) -> Optional[str]:
+    """Answer questions about stored user facts directly from SQLite without using cloud tokens."""
+    raw = str(text).strip()
+    lowered = raw.lower()
+    is_bn = bool(re.search(r"[\u0980-\u09FF]", raw))
+
+    mems = list_memories(limit=100)
+
+    # 1. Name question
+    if any(q in lowered for q in ("what is my name", "what's my name", "who am i", "আমার নাম কি", "আমি কে")):
+        if mems:
+            for m in mems:
+                t = m["text"]
+                match = re.search(r"(?:name is|নাম)\s+([A-Za-z\u0980-\u09FF\s]+)", t, re.IGNORECASE)
+                if match:
+                    name = match.group(1).strip()
+                    return f"আপনার নাম {name}।" if is_bn else f"Your name is {name}."
+        return "আমি এখনো আপনার নাম মনে রাখতে পারিনি। আপনার নাম কি বলবেন?" if is_bn else "I don't have your name in my memory yet. What is your name?"
+
+    if not mems:
+        return None
+
+    # 2. Favorite item
+    if "favorite" in lowered or "প্রিয়" in raw or "প্রিয়" in raw:
+        for m in mems:
+            t = m["text"]
+            for keyword in ("food", "খাবার", "color", "রং", "song", "গান", "movie", "সিনেমা", "place", "জায়গা"):
+                if (keyword in lowered or keyword in raw) and (keyword in t.lower() or keyword in t):
+                    return f"আপনার মেমোরি অনুযায়ী: {t}।" if is_bn else f"According to your memory: {t}."
+
+    # 3. Location question
+    if any(q in lowered for q in ("where do i live", "where is my home", "আমি কোথায় থাকি", "আমার বাসা কোথায়")):
+        for m in mems:
+            t = m["text"]
+            if "live" in t.lower() or "বাসা" in t or "থাকি" in t:
+                return f"আপনার মেমোরি অনুযায়ী: {t}।" if is_bn else f"According to your memory: {t}."
+
+    # 4. General recall: "what do you remember about me", "তুমি আমার সম্পর্কে কি জানো"
+    if any(q in lowered for q in ("what do you remember", "what do you know about me", "তুমি আমার সম্পর্কে কি জানো", "আমার কি কি মনে আছে")):
+        fact_lines = [f"• {m['text']}" for m in mems[:8]]
+        if is_bn:
+            return "আপনার সম্পর্কে আমার মেমোরিতে যা যা জমা আছে:\n" + "\n".join(fact_lines)
+        return "Here is what I remember about you from our conversations:\n" + "\n".join(fact_lines)
+
+    return None

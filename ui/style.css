@@ -632,3 +632,22 @@ body.view-open{overflow:hidden}
 @media (max-width: 640px) {
   .onboard-steps { grid-template-columns: 1fr; }
 }
+
+/* Phone / Mobile Link QR Modal */
+.qr-modal-box {
+  background: rgba(6, 20, 46, 0.96); border: 1px solid var(--accent);
+  box-shadow: 0 0 40px rgba(var(--accent-rgb), 0.35);
+  border-radius: 14px; max-width: 480px; width: 100%; padding: 24px;
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px;
+  animation: modalPop 0.25s ease-out;
+}
+.qr-container {
+  background: #ffffff; padding: 12px; border-radius: 12px;
+  display: inline-flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 20px rgba(0,0,0,0.5); min-width: 180px; min-height: 180px;
+}
+.mobile-url-chip {
+  background: rgba(var(--accent-rgb), 0.12); border: 1px solid rgba(var(--accent-rgb), 0.3);
+  padding: 8px 14px; border-radius: 8px; font-family: monospace; font-size: 13px;
+  color: var(--accent); width: 100%; word-break: break-all; user-select: all;
+}

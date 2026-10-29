@@ -32,13 +32,29 @@ VOICE_PRESETS = {
     "bn_male": "bn-BD-PradeepNeural",
     "bn_in_female": "bn-IN-TanishaaNeural",
     "bn_in_male": "bn-IN-BashkarNeural",
-    # English (Natural Warm / JARVIS / Companion Human Voices)
+    # English (Natural Whispering / Warm / JARVIS Human Voices)
+    "en_whisper": "en-US-AvaNeural",
     "en_female": "en-US-JennyNeural",
     "en_male": "en-US-GuyNeural",
     "en_core": "en-US-AriaNeural",
     # Hindi
     "hi_female": "hi-IN-SwaraNeural",
     "hi_male": "hi-IN-MadhurNeural",
+    # Spanish
+    "es_female": "es-ES-ElviraNeural",
+    "es_male": "es-ES-AlvaroNeural",
+    # Arabic
+    "ar_female": "ar-SA-ZariyahNeural",
+    "ar_male": "ar-SA-HamedNeural",
+    # French
+    "fr_female": "fr-FR-DeniseNeural",
+    "fr_male": "fr-FR-HenriNeural",
+    # German
+    "de_female": "de-DE-KatjaNeural",
+    "de_male": "de-DE-ConradNeural",
+    # Japanese
+    "ja_female": "ja-JP-NanamiNeural",
+    "ja_male": "ja-JP-KeitaNeural",
 }
 
 
@@ -51,8 +67,16 @@ def is_hindi_text(text: str) -> bool:
     return bool(re.search(r"[\u0900-\u097F]", text))
 
 
-def pick_voice(text: str, character: str = "core", custom_voice: Optional[str] = None) -> str:
-    """Select the best ultra-realistic neural voice for the given text and persona."""
+def is_arabic_text(text: str) -> bool:
+    return bool(re.search(r"[\u0600-\u06FF]", text))
+
+
+def is_japanese_text(text: str) -> bool:
+    return bool(re.search(r"[\u3040-\u30FF\u4E00-\u9FFF]", text))
+
+
+def pick_voice(text: str, character: str = "core", custom_voice: Optional[str] = None, style: str = "gentle") -> str:
+    """Select the best ultra-realistic neural voice for the given text, persona, and style."""
     if custom_voice and custom_voice != "auto":
         return custom_voice
 
@@ -65,23 +89,61 @@ def pick_voice(text: str, character: str = "core", custom_voice: Optional[str] =
     if is_hindi_text(text):
         return VOICE_PRESETS["hi_male"] if is_male else VOICE_PRESETS["hi_female"]
 
+    if is_arabic_text(text):
+        return VOICE_PRESETS["ar_male"] if is_male else VOICE_PRESETS["ar_female"]
+
+    if is_japanese_text(text):
+        return VOICE_PRESETS["ja_male"] if is_male else VOICE_PRESETS["ja_female"]
+
     # English voices
     if is_male:
         return VOICE_PRESETS["en_male"]
+    if style == "whisper":
+        return VOICE_PRESETS["en_whisper"]
     if char == "female":
         return VOICE_PRESETS["en_female"]
     return VOICE_PRESETS["en_core"]
 
 
-def _cache_key(text: str, voice: str, rate: str, pitch: str) -> Path:
-    token = f"{voice}:{rate}:{pitch}:{text.strip()}"
+def _cache_key(text: str, voice: str, rate: str, pitch: str, style: str) -> Path:
+    token = f"{voice}:{rate}:{pitch}:{style}:{text.strip()}"
     digest = hashlib.sha256(token.encode("utf-8")).hexdigest()[:24]
     return CACHE_DIR / f"{digest}.mp3"
 
 
-async def _async_generate(text: str, voice: str, rate: str, pitch: str, out_path: Path):
-    communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
-    await communicate.save(str(out_path))
+def build_ssml(text: str, voice: str, style: str = "gentle", rate: str = "+0%", pitch: str = "+0Hz") -> str:
+    xml_lang = voice.split("-")[0] + "-" + voice.split("-")[1]
+    safe_text = (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
+    )
+    if style == "whisper" and ("Ava" in voice or "Aria" in voice):
+        return f"""<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xmlns:mstts='https://www.w3.org/2001/mstts' xml:lang='{xml_lang}'>
+<voice name='{voice}'>
+<mstts:express-as style='whispering'>
+<prosody rate='{rate}' pitch='{pitch}' volume='soft'>{safe_text}</prosody>
+</mstts:express-as>
+</voice>
+</speak>"""
+    return f"""<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xmlns:mstts='https://www.w3.org/2001/mstts' xml:lang='{xml_lang}'>
+<voice name='{voice}'>
+<prosody rate='{rate}' pitch='{pitch}' volume='soft'>{safe_text}</prosody>
+</voice>
+</speak>"""
+
+
+async def _async_generate(text: str, voice: str, rate: str, pitch: str, style: str, out_path: Path):
+    ssml = build_ssml(text, voice, style=style, rate=rate, pitch=pitch)
+    try:
+        communicate = edge_tts.Communicate(ssml, voice)
+        await communicate.save(str(out_path))
+    except Exception:
+        # Fallback to plain text if SSML rejected
+        communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
+        await communicate.save(str(out_path))
 
 
 def synthesize_speech(
@@ -90,6 +152,7 @@ def synthesize_speech(
     voice: Optional[str] = None,
     rate: str = "+0%",
     pitch: str = "+0Hz",
+    style: str = "gentle",
 ) -> Optional[bytes]:
     """Generate high-fidelity human speech MP3 audio.
 
@@ -116,14 +179,14 @@ def synthesize_speech(
 
     if rate == "+0%" or not rate:
         if char == "female":
-            actual_rate = "+3%"   # Lively, affectionate, natural pacing
+            actual_rate = "-2%" if style == "whisper" else "+2%"
         elif char == "male":
             actual_rate = "+1%"
         else:
-            actual_rate = "+2%"
+            actual_rate = "+1%"
 
-    chosen_voice = pick_voice(clean_text, character=char, custom_voice=voice)
-    cache_file = _cache_key(clean_text, chosen_voice, actual_rate, actual_pitch)
+    chosen_voice = pick_voice(clean_text, character=char, custom_voice=voice, style=style)
+    cache_file = _cache_key(clean_text, chosen_voice, actual_rate, actual_pitch, style)
 
     # Return cached audio if present
     if cache_file.exists() and cache_file.stat().st_size > 500:
@@ -134,19 +197,17 @@ def synthesize_speech(
 
     tmp_file = cache_file.with_suffix(".tmp")
     try:
-        # Run async generation synchronously
         loop = asyncio.new_event_loop()
         try:
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(_async_generate(clean_text, chosen_voice, actual_rate, actual_pitch, tmp_file))
+            loop.run_until_complete(_async_generate(clean_text, chosen_voice, actual_rate, actual_pitch, style, tmp_file))
         finally:
             loop.close()
 
         if tmp_file.exists() and tmp_file.stat().st_size > 500:
             tmp_file.replace(cache_file)
             return cache_file.read_bytes()
-    except Exception as exc:
-        # If offline or temporary network glitch
+    except Exception:
         try:
             tmp_file.unlink(missing_ok=True)
         except OSError:
