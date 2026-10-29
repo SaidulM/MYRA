@@ -47,7 +47,8 @@
   </div>
 
   <div class="topbar-right">
-    <span class="version-chip" id="versionChip">v0.8 · Stage 3</span>
+    <span class="version-chip" id="versionChip">v1.0 · Active</span>
+    <span class="update-chip hidden" id="updateChip">⬆️ UPDATE READY</span>
 
     <div class="awareness" title="Ambient awareness — MYRA proactively pays attention (real senses arrive in Stages 5 & 9)">
       <span class="aw-label">AWARENESS</span>
@@ -172,6 +173,7 @@
       <header class="mod-head"><span class="mod-index">VIS</span><h3>VISUAL HUB — Eyes of MYRA</h3><span class="led"></span></header>
       <div class="vh-grid">
         <div class="vh-preview">
+          <video id="vhVideo" class="vh-video hidden" autoplay playsinline muted></video>
           <div class="vh-layers"><span></span><span></span><span></span></div>
           <div class="vh-msg">Camera &amp; screen are OFF<br><small>Preview appears here when you turn one on (Stage 9)</small></div>
           <div class="vh-chips">
@@ -482,19 +484,63 @@
 
 <!-- ===== Footer: Build Progress ===== -->
 <footer class="footer">
-  <span class="ft-label">BUILD:</span>
+  <span class="ft-label">MYRA STATUS:</span>
   <span class="ft-stage current">1 · UI</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">2 · API Keys</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">3 · Chat</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">4 · Memory</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">5 · Voice</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">6 · Holo Sync</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">7 · Notes/Skills</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">8 · Agent</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">9 · Camera</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">10 · World</span><span class="ft-arrow">›</span>
-  <span class="ft-stage">11 · Setup</span>
+  <span class="ft-stage current">2 · Keys</span><span class="ft-arrow">›</span>
+  <span class="ft-stage current">3 · Chat</span><span class="ft-arrow">›</span>
+  <span class="ft-stage current">4 · Memory</span><span class="ft-arrow">›</span>
+  <span class="ft-stage current">5 · Voice</span><span class="ft-arrow">›</span>
+  <span class="ft-stage current">6 · Sync</span><span class="ft-arrow">›</span>
+  <span class="ft-stage current">7 · Notes/Skills</span><span class="ft-arrow">›</span>
+  <span class="ft-stage current">8 · Agent</span><span class="ft-arrow">›</span>
+  <span class="ft-stage current">9 · Vision</span><span class="ft-arrow">›</span>
+  <span class="ft-stage current">10 · World</span><span class="ft-arrow">›</span>
+  <span class="ft-stage current">11 · Auto-Update</span>
 </footer>
+
+<!-- INITIAL CONNECT / API KEY MODAL -->
+<div class="modal-backdrop hidden" id="connectModal">
+  <div class="modal-box">
+    <h2>🤖 Connect MYRA AI Brain</h2>
+    <p class="modal-desc">
+      To activate MYRA on your laptop, enter your free Google Gemini API key below.
+      The key is tested and saved securely on your laptop only.
+    </p>
+    <div>
+      <label class="field-label">Gemini API Key (Primary — Free)</label>
+      <input type="password" id="welcomeGeminiKey" class="input" placeholder="Paste your Gemini key (starts with AIza…)" autocomplete="off">
+    </div>
+    <div>
+      <label class="field-label">Groq API Key (Optional Backup — Free)</label>
+      <input type="password" id="welcomeGroqKey" class="input" placeholder="Paste your Groq key (optional, starts with gsk_…)" autocomplete="off">
+    </div>
+    <div id="welcomeStatus" class="hint" style="margin: 0; min-height: 20px;"></div>
+    <div class="modal-actions">
+      <a href="https://aistudio.google.com" target="_blank" rel="noopener" class="top-link" style="margin-right:auto;align-self:center">🔑 Get Free Key</a>
+      <button class="btn" id="welcomeLaterBtn" style="background:transparent;border:1px solid var(--panel-border)">Later</button>
+      <button class="btn btn-send" id="welcomeConnectBtn" style="padding: 9px 20px;">⚡ Connect &amp; Activate</button>
+    </div>
+  </div>
+</div>
+
+<!-- MANDATORY / AUTO-UPDATE MODAL -->
+<div class="modal-backdrop hidden" id="updateModal">
+  <div class="modal-box">
+    <h2>🚀 MYRA Update Required</h2>
+    <p class="modal-desc" id="updateModalDesc">
+      A newer version of MYRA is published on GitHub.
+      Updates ensure you have the latest AI enhancements, memory optimizations, and security fixes.
+    </p>
+    <div class="input-row" style="background:rgba(2,16,12,0.6);padding:10px;border-radius:8px;font-size:12px;">
+      <div>Current version: <b id="updateCurrentVer">...</b></div>
+      <div style="margin-left:auto;">Latest on GitHub: <b id="updateLatestVer" style="color:var(--accent);">...</b></div>
+    </div>
+    <div id="updateProgressMsg" class="hint" style="color:var(--accent);"></div>
+    <div class="modal-actions">
+      <button class="btn btn-send" id="applyUpdateBtn" style="width:100%;padding:12px;">⬇️ Update MYRA Now</button>
+    </div>
+  </div>
+</div>
 
 <div id="toast" class="toast hidden"></div>
 

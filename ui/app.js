@@ -1253,20 +1253,92 @@ function setPower(on) {
 }
 
 /* =========================================================
-   Stage controls: mic toggle + voice mute
+   Stage controls: mic toggle + voice mute (Stage 5)
+   Smart silence detection: automatically sends chat when user stops speaking.
    ========================================================= */
 let MIC_ARMED = false;
+let speechRecognizer = null;
+let speechSilenceTimer = null;
+
+function setupSpeechRecognition() {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) return null;
+  const rec = new SpeechRec();
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.lang = 'en-US';
+
+  rec.onresult = (event) => {
+    clearTimeout(speechSilenceTimer);
+    let interim = '';
+    let final = '';
+    for (let i = event.resultIndex; i < event.results.length; ++i) {
+      if (event.results[i].isFinal) final += event.results[i][0].transcript;
+      else interim += event.results[i][0].transcript;
+    }
+    const txt = (final || interim).trim();
+    if (txt) {
+      $('chatInput').value = txt;
+      setHoloStatus('👂 Listening: "' + txt + '"');
+      setHoloState('LISTENING…');
+      speechSilenceTimer = setTimeout(() => {
+        if ($('chatInput').value.trim()) {
+          sendChat();
+          setMic(false);
+        }
+      }, 1300);
+    }
+  };
+
+  rec.onerror = (e) => {
+    logEvent('speech error: ' + e.error);
+    if (e.error !== 'no-speech') {
+      setMic(false, true);
+    }
+  };
+
+  rec.onend = () => {
+    if (MIC_ARMED) {
+      try { rec.start(); } catch (err) {}
+    }
+  };
+
+  return rec;
+}
+
 function setMic(on, silent) {
   MIC_ARMED = on;
-  $('stageMicBtn').classList.toggle('on', on);
-  $('stageMicBtn').textContent = on ? '🔴' : '🎤';
-  if (!silent) {
-    toast(on
-      ? '🎤 Mic ON (armed) — real listening arrives in Stage 5. When MYRA speaks, the badge above her shows SPEAKING.'
-      : '🎤 Mic OFF.');
-    logEvent('mic ' + (on ? 'armed' : 'off'));
+  const btn = $('stageMicBtn');
+  btn.classList.toggle('on', on);
+  btn.classList.toggle('mic-listening', on);
+  btn.textContent = on ? '🔴' : '🎤';
+
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) {
+    if (on) toast('🎤 Speech recognition is not supported in this browser. You can still type below!');
+    MIC_ARMED = false;
+    btn.classList.remove('on', 'mic-listening');
+    return;
+  }
+
+  if (!speechRecognizer) speechRecognizer = setupSpeechRecognition();
+
+  if (on) {
+    setHoloState('LISTENING…');
+    setHoloStatus('🎤 Listening… speak now, I will answer when you finish.');
+    try { speechRecognizer.start(); } catch (err) {}
+    if (!silent) toast('🎤 Listening active — speak naturally, MYRA responds after silence.');
+    logEvent('mic armed (silence detection active)');
+  } else {
+    clearTimeout(speechSilenceTimer);
+    try { speechRecognizer.stop(); } catch (err) {}
+    setHoloState(HOLO.power ? 'IDLE // ONLINE' : 'OFFLINE');
+    setHoloStatus(idleStatus());
+    if (!silent) toast('🎤 Mic off.');
+    logEvent('mic stopped');
   }
 }
+
 function setMute(muted) {
   VOICE_MUTED = muted;
   const b = $('muteBtn');
@@ -1278,11 +1350,49 @@ function setMute(muted) {
 }
 
 /* =========================================================
-   Visual Hub — the single home of camera/screen control
+   Visual Hub — Camera and Screen Share (Stage 9)
    ========================================================= */
 const VIS = { cam: false, scr: false };
-function setVisual(kind, on) {
-  VIS[kind] = on;
+let currentVisualStream = null;
+
+async function setVisual(kind, on) {
+  const vVideo = $('vhVideo');
+  if (currentVisualStream) {
+    currentVisualStream.getTracks().forEach((t) => t.stop());
+    currentVisualStream = null;
+  }
+  if (vVideo) {
+    vVideo.srcObject = null;
+    vVideo.classList.add('hidden');
+  }
+
+  VIS.cam = false;
+  VIS.scr = false;
+
+  if (on) {
+    try {
+      let stream = null;
+      if (kind === 'cam') {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 } } });
+        VIS.cam = true;
+        toast('📷 Camera active — MYRA is viewing the feed.');
+      } else if (kind === 'scr') {
+        stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        VIS.scr = true;
+        toast('🖥️ Screen share active.');
+        stream.getVideoTracks()[0].onended = () => setVisual('scr', false);
+      }
+      if (stream && vVideo) {
+        currentVisualStream = stream;
+        vVideo.srcObject = stream;
+        vVideo.classList.remove('hidden');
+      }
+    } catch (err) {
+      toast('⚠️ Could not open ' + (kind === 'cam' ? 'camera' : 'screen') + ': ' + err.message);
+      VIS[kind] = false;
+    }
+  }
+
   $('camIndicator').classList.toggle('hidden', !(VIS.cam || VIS.scr));
   $('camChip').textContent = 'CAM · ' + (VIS.cam ? 'ON' : 'OFF');
   $('camChip').classList.toggle('on', VIS.cam);
@@ -1290,40 +1400,57 @@ function setVisual(kind, on) {
   $('scrChip').classList.toggle('on', VIS.scr);
   $('vhCamBtn').classList.toggle('on', VIS.cam);
   $('vhScrBtn').classList.toggle('on', VIS.scr);
-  logEvent('visual hub: ' + kind + ' ' + (on ? 'ON (preview)' : 'OFF'));
-  toast(on
-    ? '🔴 Preview indicator only — no real camera/screen access yet. Permission-based vision arrives in Stage 9, and this red warning will glow whenever it is on.'
-    : '✅ Turned off — MYRA cannot see anything now.', 4600);
+  logEvent('visual hub: ' + kind + ' ' + (VIS[kind] ? 'LIVE' : 'OFF'));
 }
 
 /* =========================================================
-   Memory window (plugs into SQLite in Stage 4)
+   Memory window — SQLite local storage (Stage 4)
    ========================================================= */
-function loadMemories() {
-  try { return JSON.parse(localStorage.getItem('myra_memories_demo') || '[]'); }
-  catch (e) { return []; }
+let LOCAL_MEMORIES = [];
+async function loadMemories() {
+  if (location.protocol === 'file:') {
+    try { return JSON.parse(localStorage.getItem('myra_memories_demo') || '[]'); }
+    catch (e) { return []; }
+  }
+  try {
+    const res = await fetch('/api/memory');
+    const data = await res.json();
+    return data.memories || [];
+  } catch (e) {
+    return [];
+  }
 }
-function renderMemories() {
+
+async function renderMemories() {
   const list = $('memoryList');
-  const mems = loadMemories();
+  LOCAL_MEMORIES = await loadMemories();
   list.innerHTML = '';
-  mems.forEach((m, idx) => {
+  LOCAL_MEMORIES.forEach((m) => {
     const li = document.createElement('li');
     const span = document.createElement('span');
-    span.textContent = '🧠 ' + m;
+    const text = typeof m === 'object' ? m.text : m;
+    const memId = typeof m === 'object' ? m.id : null;
+    span.textContent = '🧠 ' + text;
     const del = document.createElement('button');
     del.textContent = '🗑️';
     del.title = 'Forget this';
-    del.onclick = () => {
-      const arr = loadMemories();
-      arr.splice(idx, 1);
-      localStorage.setItem('myra_memories_demo', JSON.stringify(arr));
+    del.onclick = async () => {
+      if (memId && location.protocol !== 'file:') {
+        await fetch('/api/memory/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: memId }),
+        });
+      } else {
+        localStorage.removeItem('myra_memories_demo');
+      }
       renderMemories();
+      toast('🗑️ Memory removed.');
     };
     li.append(span, del);
     list.appendChild(li);
   });
-  $('memoryEmpty').classList.toggle('hidden', mems.length > 0);
+  $('memoryEmpty').classList.toggle('hidden', LOCAL_MEMORIES.length > 0);
 }
 
 /* =========================================================
@@ -1535,22 +1662,81 @@ document.addEventListener('DOMContentLoaded', () => {
   $('sendBtn').addEventListener('click', sendChat);
   $('chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChat(); });
 
-  /* Agent demo */
-  const runAgentDemo = () => {
-    const task = $('agentInput').value.trim() || '(empty task)';
+  /* Agent Mode (Stage 8) */
+  const runAgentTask = async () => {
+    const task = $('agentInput').value.trim();
+    if (!task) return;
     const log = $('agentLog');
-    log.textContent = `📝 Task received: "${task}"\n`;
-    logEvent('agent task received: ' + task.slice(0, 60));
-    setTimeout(() => { log.textContent += '⏳ In Stage 8, I would now open the browser myself…\n'; }, 600);
-    setTimeout(() => { log.textContent += '🔍 …search, read the results, and hand you a summary report.\n✅ The browser engine arrives in Stage 8.'; }, 1400);
+    const btn = $('agentBtn');
+    log.textContent = `🚀 Dispatched Agent task: "${task}"\nConnecting to agent engine…\n`;
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/agent/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Agent execution failed');
+      log.textContent = data.logs.join('\n') + '\n\n' + data.report;
+      toast('✅ Agent completed task!');
+      logEvent('agent task finished');
+    } catch (err) {
+      log.textContent += `\n❌ Agent Error: ${err.message}`;
+      toast('❌ Agent task failed: ' + err.message);
+    } finally {
+      btn.disabled = false;
+    }
   };
-  $('agentBtn').addEventListener('click', runAgentDemo);
-  $('agentInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') runAgentDemo(); });
+  $('agentBtn').addEventListener('click', runAgentTask);
+  $('agentInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') runAgentTask(); });
 
-  /* Notes */
-  const addNote = () => {
+  /* Notes (Stage 7) */
+  const loadNotes = async () => {
+    if (location.protocol === 'file:') return;
+    try {
+      const res = await fetch('/api/notes');
+      const data = await res.json();
+      const list = $('notesList');
+      list.innerHTML = '';
+      (data.notes || []).forEach((n) => {
+        const li = document.createElement('li');
+        const span = document.createElement('span');
+        span.textContent = '📌 ' + (n.title ? n.title + ': ' : '') + n.content;
+        const del = document.createElement('button');
+        del.textContent = '🗑️';
+        del.onclick = async () => {
+          await fetch('/api/notes/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: n.id }),
+          });
+          loadNotes();
+          toast('🗑️ Note deleted');
+        };
+        li.append(span, del);
+        list.appendChild(li);
+      });
+    } catch (e) {}
+  };
+  loadNotes();
+
+  const addNote = async () => {
     const v = $('noteInput').value.trim();
     if (!v) return;
+    if (location.protocol !== 'file:') {
+      try {
+        await fetch('/api/notes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: v }),
+        });
+        $('noteInput').value = '';
+        loadNotes();
+        toast('📌 Note saved to SQLite database');
+        return;
+      } catch (e) {}
+    }
     const li = document.createElement('li');
     const span = document.createElement('span');
     span.textContent = '📌 ' + v;
@@ -1564,22 +1750,38 @@ document.addEventListener('DOMContentLoaded', () => {
   $('noteAdd').addEventListener('click', addNote);
   $('noteInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') addNote(); });
 
-  /* Memory window */
-  const addMemory = () => {
+  /* Memory window (Stage 4) */
+  const addMemory = async () => {
     const v = $('memoryInput').value.trim();
     if (!v) return;
-    const arr = loadMemories();
+    if (location.protocol !== 'file:') {
+      try {
+        await fetch('/api/memory', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: v }),
+        });
+        $('memoryInput').value = '';
+        renderMemories();
+        toast('🧠 Saved permanently into MYRA\'s SQLite memory on this laptop!');
+        logEvent('memory saved to SQLite');
+        return;
+      } catch (e) {}
+    }
+    const arr = await loadMemories();
     arr.unshift(v);
     localStorage.setItem('myra_memories_demo', JSON.stringify(arr));
     $('memoryInput').value = '';
     renderMemories();
-    toast('🧠 Noted! (The permanent SQLite memory arrives in Stage 4.)');
-    logEvent('memory added');
   };
   $('memoryAdd').addEventListener('click', addMemory);
   $('memoryInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') addMemory(); });
-  $('clearMemory').addEventListener('click', () => {
-    localStorage.removeItem('myra_memories_demo');
+  $('clearMemory').addEventListener('click', async () => {
+    if (location.protocol !== 'file:') {
+      await fetch('/api/memory/clear', { method: 'POST' });
+    } else {
+      localStorage.removeItem('myra_memories_demo');
+    }
     renderMemories();
     toast('🗑️ All memories erased.');
   });
@@ -1740,7 +1942,114 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  /* Initial Setup Check & Connect Modal */
+  const checkInitialSetup = async () => {
+    if (location.protocol === 'file:') return;
+    try {
+      const res = await fetch('/api/settings');
+      const data = await res.json();
+      if (!data.gemini.set && !data.groq.set) {
+        $('connectModal').classList.remove('hidden');
+      }
+    } catch (e) {}
+  };
+  checkInitialSetup();
+
+  /* Auto Update Check (runs every 5 mins & on start) */
+  const checkAppUpdate = async () => {
+    if (location.protocol === 'file:') return;
+    try {
+      const res = await fetch('/api/system/update-check');
+      const data = await res.json();
+      if (data.update_available) {
+        $('updateChip').classList.remove('hidden');
+        $('updateCurrentVer').textContent = data.current_version;
+        $('updateLatestVer').textContent = data.latest_version;
+        $('updateModal').classList.remove('hidden');
+      }
+    } catch (e) {}
+  };
+  setTimeout(checkAppUpdate, 2500);
+  setInterval(checkAppUpdate, 5 * 60 * 1000);
+
+  $('updateChip').addEventListener('click', () => $('updateModal').classList.remove('hidden'));
+
+  $('applyUpdateBtn').addEventListener('click', async () => {
+    const btn = $('applyUpdateBtn');
+    btn.disabled = true;
+    $('updateProgressMsg').textContent = '⬇️ Downloading update from GitHub and refreshing files…';
+    try {
+      const res = await fetch('/api/system/update-apply', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        $('updateProgressMsg').textContent = '✅ Update complete! Restarting MYRA…';
+        toast('🚀 MYRA updated successfully! Reloading…');
+        setTimeout(() => window.location.reload(), 1600);
+      } else {
+        throw new Error(data.error || 'Update failed');
+      }
+    } catch (e) {
+      $('updateProgressMsg').textContent = '⚠️ Could not update: ' + e.message;
+      btn.disabled = false;
+    }
+  });
+
+  $('welcomeLaterBtn').addEventListener('click', () => $('connectModal').classList.add('hidden'));
+
+  $('welcomeConnectBtn').addEventListener('click', async () => {
+    const gemini = $('welcomeGeminiKey').value.trim();
+    const groq = $('welcomeGroqKey').value.trim();
+    const statusEl = $('welcomeStatus');
+    const btn = $('welcomeConnectBtn');
+
+    if (!gemini && !groq) {
+      statusEl.textContent = '⚠️ Please enter at least your Gemini API key.';
+      statusEl.style.color = '#f87171';
+      return;
+    }
+
+    btn.disabled = true;
+    statusEl.textContent = '🔄 Testing connection to AI brain…';
+    statusEl.style.color = 'var(--accent)';
+
+    try {
+      const vRes = await fetch('/api/settings/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gemini_key: gemini, groq_key: groq }),
+      });
+      const vData = await vRes.json();
+      if (!vData.ok) {
+        const errDetail = (vData.results && vData.results.gemini && vData.results.gemini.message) || 'API key test failed. Please check AI Studio.';
+        throw new Error(errDetail);
+      }
+
+      await fetch('/api/settings/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gemini_key: gemini, groq_key: groq }),
+      });
+
+      statusEl.textContent = '✅ Connected successfully! Brain is active.';
+      statusEl.style.color = '#4ade80';
+      refreshKeyStatus();
+
+      setTimeout(() => {
+        $('connectModal').classList.add('hidden');
+        const greet = "Hello! I am MYRA, your AI desktop companion. My brain is now connected and ready to assist you.";
+        addMsg(greet, 'ai');
+        speakDemo(greet);
+        toast('🟢 Brain connected! Welcome to MYRA.');
+      }, 1000);
+    } catch (err) {
+      statusEl.textContent = '❌ ' + err.message;
+      statusEl.style.color = '#f87171';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   pushHistory('ai', GREETINGS[HOLO.char] || GREETINGS.core);
-  logEvent('shell ready · stage 3 (real AI chat) v0.8');
-  toast('🧠 MYRA v0.8 — Stage 3 is live: real AI chat with Gemini first and Groq as backup. Save your free keys in SETTING on your own laptop, then talk to her!', 7400);
+  logEvent('shell ready · MYRA v1.0 complete');
+  toast('🤖 MYRA v1.0 — Online & Ready! Complete Personal Desktop AI Assistant.', 6000);
 });

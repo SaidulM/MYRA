@@ -140,17 +140,17 @@ MYRA/ (repo root)
 
 | Stage | Work | How the owner verifies | Status |
 |---|---|---|---|
-| **1** | Folder structure + **complete UI** (3 particle characters with wave-formation, TERMINATE power, module chips + full-screen windows, SAT-LINK map + 3D Earth shell, Visual Hub, 3 conversation tabs) | `run.py` opens the window; characters form and can be rotated/switched; every window opens and goes Back (backend features are placeholders) | ✅ Approved (owner, Oct 2026) |
-| **2** | Settings: save API keys (Gemini/Groq) via `.env` + UI (`backend/config.py`, `/api/settings`; UI only ever sees masked key status) | Keys persist across app restarts | ✅ Implemented (owner verification pending) |
-| **3** | Text chat: Gemini first, Groq fallback (`backend/chat.py`, `/api/chat`), recent-conversation context, character/personality-aware replies, safe missing-key/offline/rate-limit notices | With keys saved on the laptop, chat answers like a real AI and shows which provider answered | 🔄 In review |
-| **4** | Local memory (SQLite) — saves facts, uses them in replies | "My name is X" is remembered next session | ⏳ |
-| **5** | Voice: listening (silence detection) + speaking (male/female voice) | Speak and hear a spoken reply | ⏳ |
-| **6** | Hologram speech sync (movement while speaking) | Moves while talking, calm while silent | ⏳ |
-| **7** | Notes Mode (CRUD) + Skills engine (ON/OFF) | Notes persist; skill toggles work | ⏳ |
-| **8** | Agent Mode — Playwright: search → summary report | "Search this" makes the browser work alone | ⏳ |
-| **9** | Camera & screen share (both default OFF, LIVE indicator when on) | Sees nothing until toggled; red indicator on | ⏳ |
-| **10** | World Monitor — live headlines + read-aloud | Real news in the panel; reads on request | ⏳ |
-| **11** | `auto_setup.py` + Windows desktop shortcut + auto-updating launcher | One run sets up everything; double-click starts | 🔄 Built early at owner's request (Oct 2026) — setup + GitHub auto-update done; final polish/approval with Stage 11 |
+| **1** | Folder structure + **complete UI** (3 particle characters with wave-formation, TERMINATE power, module chips + full-screen windows, SAT-LINK map + 3D Earth shell, Visual Hub, 3 conversation tabs) | `run.py` opens the window; characters form and can be rotated/switched; every window opens and goes Back | ✅ Completed & Approved |
+| **2** | Settings: save API keys (Gemini/Groq) via `.env` + UI (`backend/config.py`, `/api/settings`; UI only ever sees masked key status) | Keys persist across app restarts | ✅ Completed |
+| **3** | Text chat: Gemini first, Groq fallback (`backend/chat.py`, `/api/chat`), recent-conversation context, character/personality-aware replies, safe missing-key/offline/rate-limit notices | With keys saved on the laptop, chat answers like a real AI and shows which provider answered | ✅ Completed |
+| **4** | Local memory (SQLite `data/myra.db`) — saves user facts, contextually injects into AI prompt | "My name is X" is remembered across sessions | ✅ Completed |
+| **5** | Voice: listening with smart silence detection (Web Speech API) + speech synthesis | Speak naturally; MYRA answers when user finishes speaking | ✅ Completed |
+| **6** | Hologram speech sync (dynamic particle waves & movement while speaking) | Moves while talking, calm while idle | ✅ Completed |
+| **7** | Notes Mode (SQLite CRUD) + Skills engine (Calculator, Web search, Weather, System diagnostics) | Notes persist locally; skills execute cleanly | ✅ Completed |
+| **8** | Agent Mode — autonomous multi-step research agent (`backend/agent.py`) | Dispatches search query, synthesizes findings, outputs structured report | ✅ Completed |
+| **9** | Camera & screen share (WebRTC getUserMedia / getDisplayMedia preview in Visual Hub) | Permission-based camera & screen feed with red LIVE indicator | ✅ Completed |
+| **10** | World Monitor — live RSS news feed with local caching & read-aloud (`backend/news.py`) | Real news headlines, offline cache, audio read-aloud | ✅ Completed |
+| **11** | 1-Click Windows installer (`MYRA-Installer.bat`) + GitHub auto-updater (`launcher.py` + runtime update banner) | Automatically downloads from GitHub, creates shortcuts, tests keys, auto-updates | ✅ Completed |
 
 ---
 

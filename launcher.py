@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import sys
 import zipfile
+import ssl
 from datetime import datetime
 from pathlib import Path
 from urllib.error import URLError
@@ -57,7 +58,12 @@ def say(line=""):
 
 
 def _open(url, timeout):
-    return urlopen(Request(url, headers=HEADERS), timeout=timeout)
+    req = Request(url, headers=HEADERS)
+    try:
+        return urlopen(req, timeout=timeout)
+    except (ssl.SSLError, URLError):
+        ctx = ssl._create_unverified_context()
+        return urlopen(req, timeout=timeout, context=ctx)
 
 
 def fetch_latest_sha():

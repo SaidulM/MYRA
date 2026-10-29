@@ -13,12 +13,17 @@ from __future__ import annotations
 
 import json
 import socket
+import ssl
 from datetime import datetime
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 import config
+try:
+    import memory
+except ImportError:
+    from . import memory
 
 
 DEFAULT_GEMINI_MODELS = ("gemini-2.5-flash", "gemini-2.0-flash")
@@ -135,20 +140,26 @@ def build_system_prompt(payload):
     character_style = character_styles.get(character, character_styles["core"])
     today = datetime.now().astimezone().strftime("%A, %d %B %Y")
 
-    return "\n".join(
-        [
-            f"You are {assistant_name}, a personal desktop AI assistant for {owner_name}.",
-            character_style,
-            f"Preferred communication style: {personality}.",
-            f"Today's local date is {today}.",
-            "Reply in the same language as the user's latest message unless they ask otherwise.",
-            "Be genuinely helpful. Keep normal replies reasonably concise, but give full detail when asked.",
-            "Use only the conversation supplied here. Do not claim to have permanent long-term memory yet.",
-            "You cannot browse the web inside this chat yet. If fresh web research is required, say so plainly.",
-            "Never ask for, reveal, or repeat API keys, passwords, OTPs or other secrets.",
-            "If you are uncertain, say what is uncertain instead of inventing facts.",
-        ]
-    )
+    prompt_lines = [
+        f"You are {assistant_name}, a personal desktop AI assistant for {owner_name}.",
+        character_style,
+        f"Preferred communication style: {personality}.",
+        f"Today's local date is {today}.",
+        "Reply in the same language as the user's latest message (e.g. Bengali, English, etc.) unless they ask otherwise.",
+        "Be genuinely helpful. Keep normal replies reasonably concise, but give full detail when asked.",
+        "You have local persistent SQLite memory and offline notes storage on this laptop.",
+        "Never ask for, reveal, or repeat API keys, passwords, OTPs or other secrets.",
+        "If you are uncertain, say what is uncertain instead of inventing facts.",
+    ]
+
+    try:
+        mem_ctx = memory.get_memory_context()
+        if mem_ctx:
+            prompt_lines.append(mem_ctx)
+    except Exception:
+        pass
+
+    return "\n".join(prompt_lines)
 
 
 def _models_for(provider):
@@ -447,7 +458,18 @@ def _combined_failure(errors):
     )
 
 
-def get_reply(payload, opener=urlopen):
+def default_opener(request, timeout=TIMEOUT_SECONDS):
+    try:
+        return urlopen(request, timeout=timeout)
+    except (ssl.SSLError, URLError) as exc:
+        try:
+            ctx = ssl._create_unverified_context()
+            return urlopen(request, timeout=timeout, context=ctx)
+        except Exception:
+            raise exc
+
+
+def get_reply(payload, opener=default_opener):
     """Return a reply using Gemini first, then Groq as backup."""
     if not isinstance(payload, dict):
         raise ChatError(
@@ -505,3 +527,35 @@ def get_reply(payload, opener=urlopen):
             errors.append(exc)
 
     raise _combined_failure(errors)
+
+
+def verify_key_connection(gemini: str = None, groq: str = None, opener=default_opener) -> dict:
+    """Test validity and connection for provided API keys."""
+    results = {}
+    test_msg = [{"role": "user", "text": "Hello"}]
+    test_sys = "Reply with 'OK'."
+
+    if gemini:
+        try:
+            _, model = _call_gemini(test_msg, test_sys, gemini.strip(), opener)
+            results["gemini"] = {"ok": True, "model": model, "message": "Connected successfully"}
+        except ChatError as exc:
+            results["gemini"] = {"ok": False, "code": exc.code, "message": exc.message}
+        except Exception as exc:
+            results["gemini"] = {"ok": False, "code": "unknown", "message": str(exc)}
+
+    if groq:
+        try:
+            _, model = _call_groq(test_msg, test_sys, groq.strip(), opener)
+            results["groq"] = {"ok": True, "model": model, "message": "Connected successfully"}
+        except ChatError as exc:
+            results["groq"] = {"ok": False, "code": exc.code, "message": exc.message}
+        except Exception as exc:
+            results["groq"] = {"ok": False, "code": "unknown", "message": str(exc)}
+
+    overall_ok = any(v.get("ok") for v in results.values())
+    return {
+        "ok": overall_ok,
+        "results": results,
+    }
+
