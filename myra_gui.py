@@ -252,7 +252,7 @@ def start_gui():
 
     root = tk.Tk()
     root.title("MYRA — Desktop AI Assistant")
-    root.geometry("1160, 780")
+    root.geometry("1160x780")
     root.minsize(980, 640)
     root.configure(bg="#020908")
 
@@ -411,15 +411,18 @@ def start_gui():
 
     def on_mouse_move(event):
         nonlocal mouse_target_yaw, mouse_target_pitch
-        # Get position relative to canvas center
-        cx, cy = 145, 160
-        rx = event.x_root - avatar_canvas.winfo_rootx()
-        ry = event.y_root - avatar_canvas.winfo_rooty()
-        # Clamped angle range [-0.45, 0.45] radians so it NEVER spins 360!
-        target_y = (rx - cx) * 0.0022
-        target_p = (ry - cy) * 0.0016
-        mouse_target_yaw = max(-0.45, min(0.45, target_y))
-        mouse_target_pitch = max(-0.35, min(0.35, target_p))
+        try:
+            # Get position relative to canvas center
+            cx, cy = 145, 160
+            rx = event.x_root - avatar_canvas.winfo_rootx()
+            ry = event.y_root - avatar_canvas.winfo_rooty()
+            # Clamped angle range [-0.45, 0.45] radians so it NEVER spins 360!
+            target_y = (rx - cx) * 0.0022
+            target_p = (ry - cy) * 0.0016
+            mouse_target_yaw = max(-0.45, min(0.45, target_y))
+            mouse_target_pitch = max(-0.35, min(0.35, target_p))
+        except Exception:
+            pass
 
     root.bind("<Motion>", on_mouse_move)
 
@@ -452,6 +455,11 @@ def start_gui():
     # 3D Animation Render Loop
     def render_avatar_frame():
         nonlocal cur_yaw, cur_pitch, morph_burst, wave_pulse
+        try:
+            if not root.winfo_exists():
+                return
+        except Exception:
+            return
         avatar_canvas.delete("all")
 
         # Smooth interpolation to mouse target (smooth easing)
@@ -808,7 +816,7 @@ def start_gui():
         mems = memory.list_memories()
         win = tk.Toplevel(root)
         win.title("🧠 Saved Local SQLite Memory")
-        win.geometry("580, 420")
+        win.geometry("580x420")
         win.configure(bg=BG_DARK)
 
         tk.Label(win, text="🧠 MYRA Persistent SQLite Memories", font=("Segoe UI", 11, "bold"), fg=ACCENT_CYAN, bg=BG_DARK).pack(pady=(12, 4))
@@ -825,7 +833,7 @@ def start_gui():
     def show_settings_dialog():
         win = tk.Toplevel(root)
         win.title("⚙️ AI Multi-Brain API Keys")
-        win.geometry("560, 520")
+        win.geometry("560x520")
         win.configure(bg=BG_DARK)
 
         st = config.key_status()
