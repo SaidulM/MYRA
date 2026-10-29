@@ -1,9 +1,10 @@
-"""First-run pure-Python GUI setup for MYRA source installs.
+"""First-run/update GUI setup for MYRA source installs.
 
-When ``MYRA.pyw`` is opened with a Python that does not yet have PySide6,
-this module shows a small Tkinter setup window, creates ``.venv-desktop``
-with Python's own ``venv`` module, installs MYRA's Python packages without
-a shell/console window, then relaunches MYRA through ``pythonw.exe``.
+When ``MYRA.pyw`` is opened with a Python that does not yet have MYRA's
+desktop packages (pywebview/PySide6), this module shows a small Tkinter
+setup window, creates or updates ``.venv-desktop`` with Python's own
+``venv`` module, installs MYRA's packages without a shell/console window,
+then relaunches MYRA through ``pythonw.exe``.
 """
 from __future__ import annotations
 
@@ -41,7 +42,7 @@ def bootstrap_and_launch(root: Path) -> bool:
     window.geometry("680x430")
     window.resizable(False, False)
 
-    title = tk.Label(window, text="Setting up MYRA Native Desktop", font=("Segoe UI", 15, "bold"))
+    title = tk.Label(window, text="Setting up MYRA Desktop", font=("Segoe UI", 15, "bold"))
     title.pack(pady=(16, 6))
     note = tk.Label(
         window,
@@ -89,7 +90,7 @@ def bootstrap_and_launch(root: Path) -> bool:
         command = [str(python), "-m", "pip", "install"]
         for requirement in requirements:
             command += ["-r", str(requirement)]
-        write("Installing PySide6, voice and automation packages…")
+        write("Installing MYRA desktop (smooth GPU shell), voice and automation packages…")
         result = subprocess.run(
             command, cwd=str(root), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, encoding="utf-8", errors="replace", creationflags=_no_window_flags(),

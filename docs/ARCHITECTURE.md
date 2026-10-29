@@ -1,8 +1,8 @@
-# MYRA Architecture (Core 3.0 — Python-native desktop)
+# MYRA Architecture (Core 3.0 — smooth desktop)
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ Existing Web UI (ui/)          Native Desktop UI (desktop/) │
+│ Original UI in GPU shell (ui/)   Qt fallback UI (desktop/)   │
 └──────────────────┬───────────────────────┬───────────────────┘
                    │                       │
                    └──────────┬────────────┘
@@ -33,8 +33,8 @@
 
 ## Integration note (updated Oct 2026)
 
-- The **native PySide6 desktop app is the primary interface**. `desktop/embedded_backend.py` runs `server.create_server(...)` in a daemon thread inside the GUI process (`MYRA.pyw`/`pythonw` in source mode, windowed `MYRA.exe` when packaged). No CMD/PowerShell/browser or child Python process exists at runtime.
-- The web UI remains available for compatibility via the same server; the auto-update `launcher.py` now opens the desktop app after updating (`--web` forces the legacy UI).
+- The **default desktop window is `desktop/web_shell.py`**: the owner's original `ui/` interface rendered by the OS GPU web engine (WebView2 on Windows) in a native app window. `desktop/embedded_backend.py` runs `server.create_server(...)` in a daemon thread inside the same process (`MYRA.pyw`/`pythonw` in source mode, windowed `MYRA.exe` when packaged). No CMD/PowerShell, external browser window or child Python backend exists at runtime.
+- The all-Qt PySide6 window remains an advanced fallback (`MYRA_UI=qt` / `--qt`); its QPainter hologram was CPU-bound and stuttered for the owner, so it is no longer the default. The auto-update `launcher.py` opens `MYRA.pyw` after updating (`--web` forces the legacy browser UI).
 - **One unified SQLite store.** `backend/core_memory.py` (schema v2, app-data `myra.db`) owns conversations, memories, notes, reminders, preferences and tasks. Legacy `backend/memory.py`, `notes.py` and `reminders.py` keep their old APIs but delegate to this store, and legacy `data/myra.db` rows are imported once (idempotent, legacy IDs tracked in `legacy_id_map`). A note or memory created in either surface now appears in both.
 - Core Chat calls the shared provider layer with legacy local-intent execution, silent auto-learning and legacy-memory injection disabled. The older web chat retains its existing behavior for compatibility, so its local actions are not the same confirmation boundary as Core Agent Mode.
 - Provider layer (`backend/providers.py`) implements streaming, validated structured JSON, tool calling and vision across Gemini/Groq/OpenAI-compatible providers, advertising only capabilities each adapter actually implements.
@@ -47,7 +47,7 @@
 - Built-in file skills are restricted to `%LOCALAPPDATA%\MYRA\workspace` on Windows. They refuse traversal and absolute paths.
 - There is no arbitrary shell skill, unrestricted file deletion, or CAPTCHA/MFA/password bypass. Browser automation is visible and refuses challenge/secret fields; Windows control prefers semantic UI Automation (pywinauto), offers a separately gated coordinate fallback (PyAutoGUI), shows a "MYRA IS CONTROLLING" banner and honours an emergency stop.
 - Camera/screen capture is OFF by default, consent-gated, visibly indicated, sampled at a configurable interval, and released immediately on stop.
-- Desktop background work uses Qt worker threads whose Python wrappers are kept alive in `MyraWindow._workers` until they report (PySide6 does not keep QRunnable wrappers alive by itself).
+- Desktop background work in the Qt fallback uses worker threads whose Python wrappers are kept alive in `MyraWindow._workers` until they report (PySide6 does not keep QRunnable wrappers alive by itself). Its hologram now batches points with `drawPoints`, but the GPU shell remains the smooth default.
 
 ## Local data
 
@@ -103,5 +103,5 @@ Validated by the automated suite (48 tests) plus an offscreen Qt GUI smoke test.
 | Web research | Implemented (SSRF-guarded search/fetch/extract with citations) |
 | Browser automation | Implemented with optional Playwright (visible, gated); owner acceptance pending |
 | Semantic Windows app control | Implemented with optional pywinauto + PyAutoGUI fallback; owner acceptance pending |
-| Native hologram parity | Implemented in Qt (CORE/MALE/FEMALE morphing busts, first-open formation, drag rotation) |
+| Hologram | Original Three.js/WebGL busts are the default through the GPU shell; Qt point-cloud parity remains in the fallback window |
 | Packaged EXE/installer | Builder + spec implemented and self-test wired; actual build runs on Windows |

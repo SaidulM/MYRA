@@ -1,4 +1,4 @@
-# PyInstaller spec for the pure-Python MYRA native desktop build.
+# PyInstaller spec for the MYRA desktop build (smooth GPU web shell).
 # The generated MYRA.exe is a windowed GUI executable (console=False):
 # no Command Prompt or PowerShell window is opened at runtime.
 from pathlib import Path
@@ -17,7 +17,7 @@ hiddenimports = [
     # Secure storage and optional engines.
     "keyring.backends.Windows", "keyring.backends.fail", "keyring.backends.null",
     "edge_tts", "faster_whisper", "huggingface_hub", "playwright.sync_api",
-    "pyautogui", "pywinauto", "win32com.client",
+    "pyautogui", "pywinauto", "win32com.client", "webview", "clr",
 ]
 
 datas = [
@@ -29,7 +29,7 @@ binaries = []
 
 # Optional engines are installed by packaging/build_windows.py.  collect_all
 # is guarded so this spec can still be inspected on a minimal machine.
-for package in ("faster_whisper", "playwright", "edge_tts"):
+for package in ("faster_whisper", "playwright", "edge_tts", "webview"):
     try:
         package_datas, package_binaries, package_hidden = collect_all(package)
         datas += package_datas
