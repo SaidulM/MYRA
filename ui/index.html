@@ -409,7 +409,48 @@
         <option>Motivational coach</option>
         <option>Calm mentor</option>
       </select>
-      <p class="hint">🎙️ Voice choices (male/female tones) arrive in Stage 5. Personality will shape replies from Stage 3.</p>
+
+      <hr class="divider" style="margin: 20px 0 15px 0; max-width: 520px;">
+      
+      <!-- VOICE STUDIO SECTION -->
+      <div class="voice-studio-box" style="max-width:520px; background:rgba(4,22,18,0.55); border:1px solid var(--panel-border); border-radius:10px; padding:16px; margin-top:10px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+          <h3 style="margin:0; font-size:14px; color:var(--accent); display:flex; align-items:center; gap:8px;">
+            🎙️ VOICE STUDIO — NATURAL SPEECH
+          </h3>
+          <span class="live-badge" id="voiceStudioStatus" style="font-size:10px;">NEURAL READY</span>
+        </div>
+        <p class="hint" style="margin-top:0; margin-bottom:10px; font-size:12px;">
+          Smart bilingual speech engine: speaks Bengali (বাংলা bn-BD/bn-IN) and English naturally according to text language.
+        </p>
+
+        <label class="field-label">Voice / Speaker Selection</label>
+        <select id="voiceStudioSelect" class="input" style="width:100%; margin-bottom:12px;">
+          <option value="auto">✨ Auto-Detect (Bengali &amp; English Natural Voices)</option>
+        </select>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:12px;">
+          <div>
+            <label class="field-label" style="display:flex; justify-content:space-between;">
+              Pitch Tone <span id="voicePitchVal" style="color:var(--accent);">1.00x</span>
+            </label>
+            <input type="range" id="voicePitchSlider" min="0.6" max="1.4" step="0.05" value="1.0" style="width:100%; accent-color:var(--accent); cursor:pointer;">
+          </div>
+          <div>
+            <label class="field-label" style="display:flex; justify-content:space-between;">
+              Speech Speed <span id="voiceSpeedVal" style="color:var(--accent);">1.00x</span>
+            </label>
+            <input type="range" id="voiceSpeedSlider" min="0.7" max="1.5" step="0.05" value="1.0" style="width:100%; accent-color:var(--accent); cursor:pointer;">
+          </div>
+        </div>
+
+        <div style="display:flex; gap:10px; align-items:center; margin-top:8px;">
+          <button class="btn btn-send" id="voiceTestBtn" style="padding:8px 16px; font-size:12px;">
+            ▶ Test Voice (বাংলা &amp; English)
+          </button>
+          <span class="hint" id="voiceTestNotice" style="margin:0; font-size:11px;">Tap to test natural pronunciation</span>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -442,6 +483,16 @@
         <input type="password" id="groqKey" class="input" placeholder="Paste your Groq key (starts with gsk_…)" autocomplete="off">
         <button class="icon-btn key-remove hidden" id="removeGroq" title="Remove the saved Groq key">✕</button>
       </div>
+      <label class="field-label">Groq AI Model (Auto-detects active models)</label>
+      <select id="groqModelSelect" class="input" style="margin-bottom: 10px;">
+        <option value="auto">✨ Auto-Detect (Fastest &amp; best Groq model)</option>
+        <option value="llama-3.3-70b-versatile">⚡ Llama 3.3 70B Versatile (Recommended / Fast &amp; Smart)</option>
+        <option value="llama-3.1-8b-instant">🚀 Llama 3.1 8B Instant (Ultra-fast)</option>
+        <option value="openai/gpt-oss-120b">🧠 OpenAI GPT-OSS 120B</option>
+        <option value="qwen/qwen3.8-27b">🌐 Qwen 3.8 27B</option>
+        <option value="mixtral-8x7b-32768">🔮 Mixtral 8x7B (Long context)</option>
+        <option value="gemma2-9b-it">🍃 Gemma 2 9B-IT</option>
+      </select>
       <button class="btn" id="saveKeys">💾 SAVE KEYS</button>
       <p class="hint hidden" id="keysPreviewNote">👀 <b>Preview mode:</b> keys can only be saved from the real app on your laptop (double-click <code>start.bat</code>) — not from this preview file.</p>
       <p class="hint">Keys are stored only on your laptop in a private <code>.env</code> file, survive restarts, and afterwards only the last 4 characters are shown. Stage 3 chat uses Gemini first and Groq as backup.</p>
@@ -530,6 +581,16 @@
     <div>
       <label class="field-label">Groq API Key (Optional Backup — Free)</label>
       <input type="password" id="welcomeGroqKey" class="input" placeholder="Paste your Groq key (optional, starts with gsk_…)" autocomplete="off">
+    </div>
+    <div>
+      <label class="field-label">Groq Model Preference</label>
+      <select id="welcomeGroqModelSelect" class="input" style="margin-bottom: 6px;">
+        <option value="auto">✨ Auto-Detect (Fastest &amp; best Groq model)</option>
+        <option value="llama-3.3-70b-versatile">⚡ Llama 3.3 70B Versatile (Recommended)</option>
+        <option value="llama-3.1-8b-instant">🚀 Llama 3.1 8B Instant (Ultra-fast)</option>
+        <option value="openai/gpt-oss-120b">🧠 OpenAI GPT-OSS 120B</option>
+        <option value="qwen/qwen3.8-27b">🌐 Qwen 3.8 27B</option>
+      </select>
     </div>
     <div id="welcomeStatus" class="hint" style="margin: 0; min-height: 20px;"></div>
     <div class="modal-actions">

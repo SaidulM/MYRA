@@ -73,6 +73,17 @@ class BackendFeaturesTests(unittest.TestCase):
         self.assertTrue(len(result["logs"]) > 0)
         self.assertIn("Autonomous Agent Report", result["report"])
 
+    def test_config_groq_model_and_key_status(self):
+        import config
+        status = config.save_keys(gemini="AIzaTest123", groq="gsk_Test456", gemini_model="gemini-1.5-pro", groq_model="llama-3.3-70b-versatile")
+        self.assertTrue(status["gemini"]["set"])
+        self.assertTrue(status["groq"]["set"])
+        self.assertEqual(status["gemini"]["model"], "gemini-1.5-pro")
+        self.assertEqual(status["groq"]["model"], "llama-3.3-70b-versatile")
+
+        # Clean up
+        config.save_keys(gemini="", groq="", gemini_model="auto", groq_model="auto")
+
 
 if __name__ == "__main__":
     unittest.main()

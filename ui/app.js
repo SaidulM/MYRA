@@ -1024,20 +1024,49 @@ function speakDemo(text) {
     HOLO.speaking = false;
     setHoloStatus(idleStatus());
   };
-  setTimeout(finish, Math.min(800 + text.length * 55, 9000));
+  setTimeout(finish, Math.min(800 + text.length * 55, 12000));
   if ('speechSynthesis' in window) {
     try {
       speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'en-US';
-      u.pitch = HOLO.char === 'female' ? 1.25 : (HOLO.char === 'male' ? 0.82 : 1.0);
-      u.rate = HOLO.char === 'core' ? 1.02 : 1.0;
+      const lang = speechLangFor(text);
+      u.lang = lang;
+
+      // Voice Studio custom pitch & rate controls
+      const savedPitch = parseFloat(localStorage.getItem('myra_voice_pitch'));
+      const savedRate = parseFloat(localStorage.getItem('myra_voice_rate'));
+      const defaultPitch = HOLO.char === 'female' ? 1.2 : (HOLO.char === 'male' ? 0.85 : 1.0);
+      u.pitch = !isNaN(savedPitch) ? savedPitch : defaultPitch;
+      u.rate = !isNaN(savedRate) ? savedRate : (HOLO.char === 'core' ? 1.02 : 1.0);
+
       const voices = speechSynthesis.getVoices();
-      const match = HOLO.char === 'female'
-        ? voices.find((v) => /female|zira|samantha|Jenny|veena/i.test(v.name))
-        : HOLO.char === 'male'
-          ? voices.find((v) => /male|david|daniel|ravi/i.test(v.name))
-          : null;
+      const userVoiceUri = localStorage.getItem('myra_voice_uri') || 'auto';
+
+      let match = null;
+      if (userVoiceUri && userVoiceUri !== 'auto') {
+        match = voices.find((v) => v.voiceURI === userVoiceUri || v.name === userVoiceUri);
+      }
+
+      if (!match) {
+        if (lang.startsWith('bn')) {
+          // Bengali voice detection (bn-BD / bn-IN)
+          match = voices.find((v) => v.lang.toLowerCase().startsWith('bn') || /bangla|bengali|tanishaa|bashkar/i.test(v.name));
+        } else if (lang.startsWith('hi')) {
+          match = voices.find((v) => v.lang.toLowerCase().startsWith('hi') || /hindi|kalpana|hemant/i.test(v.name));
+        } else {
+          // English natural / neural voice selection based on persona
+          if (HOLO.char === 'female') {
+            match = voices.find((v) => /natural.*female|jenny|aria|samantha|zira|female/i.test(v.name) && v.lang.toLowerCase().startsWith('en'))
+                 || voices.find((v) => /female/i.test(v.name));
+          } else if (HOLO.char === 'male') {
+            match = voices.find((v) => /natural.*male|guy|david|daniel|ravi|male/i.test(v.name) && v.lang.toLowerCase().startsWith('en'))
+                 || voices.find((v) => /male/i.test(v.name));
+          } else {
+            match = voices.find((v) => /natural|neural|google|samantha/i.test(v.name) && v.lang.toLowerCase().startsWith('en'));
+          }
+        }
+      }
+
       if (match) u.voice = match;
       u.onend = finish;
       u.onerror = finish;
@@ -1818,6 +1847,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (data.gemini && data.gemini.model && $('geminiModelSelect')) {
         $('geminiModelSelect').value = data.gemini.model;
       }
+      if (data.groq && data.groq.model && $('groqModelSelect')) {
+        $('groqModelSelect').value = data.groq.model;
+      }
     } catch (e) {
       const g = $('geminiKeyStatus');
       const q = $('groqKeyStatus');
@@ -1852,6 +1884,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (gemini) body.gemini_key = gemini;
     if (groq) body.groq_key = groq;
     if ($('geminiModelSelect')) body.gemini_model = $('geminiModelSelect').value;
+    if ($('groqModelSelect')) body.groq_model = $('groqModelSelect').value;
 
     try {
       const res = await fetch('/api/settings/keys', {
@@ -1897,7 +1930,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   /* Reset preferences */
   $('resetPrefs').addEventListener('click', () => {
-    ['myra_char', 'myra_name', 'myra_skills', 'myra_personality', 'myra_theme', 'myra_awareness', 'myra_owner']
+    ['myra_char', 'myra_name', 'myra_skills', 'myra_personality', 'myra_theme', 'myra_awareness', 'myra_owner', 'myra_voice_uri', 'myra_voice_pitch', 'myra_voice_rate']
       .forEach((k) => localStorage.removeItem(k));
     toast('🧹 Preferences reset — reload the page to start fresh.', 4200);
     logEvent('preferences reset');
@@ -1934,6 +1967,120 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('myra_personality', e.target.value);
     toast(`🎭 Personality set to "${e.target.value}" — it now shapes MYRA's real AI replies.`);
   });
+
+  /* Voice Studio — Smart Bilingual Speech Engine */
+  function initVoiceStudio() {
+    const select = $('voiceStudioSelect');
+    const pitchSlider = $('voicePitchSlider');
+    const pitchVal = $('voicePitchVal');
+    const speedSlider = $('voiceSpeedSlider');
+    const speedVal = $('voiceSpeedVal');
+    const testBtn = $('voiceTestBtn');
+    const testNotice = $('voiceTestNotice');
+    const statusBadge = $('voiceStudioStatus');
+
+    if (!select) return;
+
+    const savedPitch = localStorage.getItem('myra_voice_pitch');
+    if (savedPitch && pitchSlider && pitchVal) {
+      pitchSlider.value = savedPitch;
+      pitchVal.textContent = parseFloat(savedPitch).toFixed(2) + 'x';
+    }
+    const savedRate = localStorage.getItem('myra_voice_rate');
+    if (savedRate && speedSlider && speedVal) {
+      speedSlider.value = savedRate;
+      speedVal.textContent = parseFloat(savedRate).toFixed(2) + 'x';
+    }
+
+    if (pitchSlider) {
+      pitchSlider.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value).toFixed(2);
+        if (pitchVal) pitchVal.textContent = v + 'x';
+        localStorage.setItem('myra_voice_pitch', v);
+      });
+    }
+
+    if (speedSlider) {
+      speedSlider.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value).toFixed(2);
+        if (speedVal) speedVal.textContent = v + 'x';
+        localStorage.setItem('myra_voice_rate', v);
+      });
+    }
+
+    function populateVoices() {
+      if (!('speechSynthesis' in window)) return;
+      const voices = speechSynthesis.getVoices();
+      if (!voices.length) return;
+
+      const currentSaved = localStorage.getItem('myra_voice_uri') || 'auto';
+      select.innerHTML = '<option value="auto">✨ Auto-Detect (Smart Bengali &amp; English Neural)</option>';
+
+      const bnGroup = document.createElement('optgroup');
+      bnGroup.label = '🇧🇩 Bengali (বাংলা bn-BD / bn-IN)';
+      const enGroup = document.createElement('optgroup');
+      enGroup.label = '🇺🇸 English Natural / Neural';
+      const otherGroup = document.createElement('optgroup');
+      otherGroup.label = '🌐 Other Installed Voices';
+
+      voices.forEach((v) => {
+        const opt = document.createElement('option');
+        opt.value = v.voiceURI;
+        opt.textContent = `${v.name} (${v.lang})`;
+        if (v.voiceURI === currentSaved) opt.selected = true;
+
+        const langLow = v.lang.toLowerCase();
+        if (langLow.startsWith('bn') || /bangla|bengali/i.test(v.name)) {
+          bnGroup.appendChild(opt);
+        } else if (langLow.startsWith('en')) {
+          enGroup.appendChild(opt);
+        } else {
+          otherGroup.appendChild(opt);
+        }
+      });
+
+      if (bnGroup.children.length) select.appendChild(bnGroup);
+      if (enGroup.children.length) select.appendChild(enGroup);
+      if (otherGroup.children.length) select.appendChild(otherGroup);
+    }
+
+    if ('speechSynthesis' in window) {
+      populateVoices();
+      speechSynthesis.onvoiceschanged = populateVoices;
+    }
+
+    select.addEventListener('change', () => {
+      localStorage.setItem('myra_voice_uri', select.value);
+      toast('🎙️ Voice Studio speaker preference updated.');
+    });
+
+    if (testBtn) {
+      testBtn.addEventListener('click', () => {
+        const sample = "হ্যালো! আমি মায়রা, আপনার ব্যক্তিগত এআই সহকারী। Hello! I am MYRA, your personal desktop AI companion.";
+        if (testNotice) testNotice.textContent = "🗣️ Speaking test sample…";
+        speakDemo(sample);
+        setTimeout(() => {
+          if (testNotice) testNotice.textContent = "Tap to test natural pronunciation";
+        }, 4500);
+      });
+    }
+
+    // Check backend voice status for local open-source TTS
+    fetch('/api/voice/status')
+      .then((r) => r.json())
+      .then((d) => {
+        if (statusBadge && d.ok) {
+          if (d.local_tts_running) {
+            statusBadge.textContent = 'LOCAL STUDIO ACTIVE';
+            statusBadge.style.background = '#059669';
+          } else {
+            statusBadge.textContent = 'NEURAL READY';
+          }
+        }
+      })
+      .catch(() => {});
+  }
+  initVoiceStudio();
 
   /* News */
   $('refreshNews').addEventListener('click', () => fetchNews(true));
@@ -2024,19 +2171,25 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       const vData = await vRes.json();
       if (!vData.ok) {
-        const errDetail = (vData.results && vData.results.gemini && vData.results.gemini.message) || 'API key test failed. Please check AI Studio.';
-        throw new Error(errDetail);
+        const gemErr = vData.results && vData.results.gemini && vData.results.gemini.message;
+        const groqErr = vData.results && vData.results.groq && vData.results.groq.message;
+        throw new Error(gemErr || groqErr || 'API key test failed. Please check the entered keys.');
       }
 
       const geminiModel = $('welcomeModelSelect') ? $('welcomeModelSelect').value : 'auto';
+      const groqModel = $('welcomeGroqModelSelect') ? $('welcomeGroqModelSelect').value : 'auto';
       await fetch('/api/settings/keys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gemini_key: gemini, groq_key: groq, gemini_model: geminiModel }),
+        body: JSON.stringify({ gemini_key: gemini, groq_key: groq, gemini_model: geminiModel, groq_model: groqModel }),
       });
 
-      const modelUsed = (vData.results && vData.results.gemini && vData.results.gemini.model) || '';
-      const modelInfo = modelUsed ? ` (Model: ${modelUsed})` : '';
+      const gemModel = (vData.results && vData.results.gemini && vData.results.gemini.model) || '';
+      const groqModelActive = (vData.results && vData.results.groq && vData.results.groq.model) || '';
+      const parts = [];
+      if (gemModel) parts.push(`Gemini: ${gemModel}`);
+      if (groqModelActive) parts.push(`Groq: ${groqModelActive}`);
+      const modelInfo = parts.length ? ` (${parts.join(', ')})` : '';
       statusEl.textContent = '✅ Connected successfully! Brain is active' + modelInfo + '.';
       statusEl.style.color = '#4ade80';
       refreshKeyStatus();

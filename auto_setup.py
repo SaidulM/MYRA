@@ -222,19 +222,46 @@ def setup_api_keys():
     except Exception as exc:
         say(f"⚠️ Could not test live connection ({exc}). Saving key.")
 
+    # Also optionally prompt for Groq backup key
+    say("")
+    say("🔑 Groq API Key (Optional Free Backup Key)")
+    say("   Groq provides instant fallback if Gemini is busy or rate-limited.")
+    say("   Get free key in 1 minute: https://console.groq.com")
+    try:
+        groq_k = input("Paste your Groq API key (or press Enter to skip): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        groq_k = ""
+
+    if groq_k:
+        say("🔄 Verifying Groq backup connection…")
+        try:
+            sys.path.insert(0, str(TARGET / "backend"))
+            import chat  # type: ignore
+            res_groq = chat.verify_key_connection(groq=groq_k)
+            if res_groq.get("ok"):
+                gmodel = res_groq.get("results", {}).get("groq", {}).get("model", "auto")
+                say(f"✅ Groq backup verified! (Auto-selected model: {gmodel})")
+            else:
+                msg = res_groq.get("results", {}).get("groq", {}).get("message", "Verification failed")
+                say(f"⚠️ Notice: {msg} (Saving key anyway)")
+        except Exception:
+            pass
+
     # Save to .env
     try:
         sys.path.insert(0, str(TARGET / "backend"))
         import config  # type: ignore
-        config.save_keys(gemini=key)
-        say("💾 Key securely saved on your laptop.")
+        config.save_keys(gemini=key, groq=groq_k if groq_k else None)
+        say("💾 Keys securely saved on your laptop.")
     except Exception:
         # Fallback manual write
         lines = env_file.read_text(encoding="utf-8").splitlines() if env_file.exists() else []
-        new_lines = [l for l in lines if not l.startswith("GEMINI_API_KEY=")]
+        new_lines = [l for l in lines if not l.startswith("GEMINI_API_KEY=") and not l.startswith("GROQ_API_KEY=")]
         new_lines.append(f"GEMINI_API_KEY={key}")
+        if groq_k:
+            new_lines.append(f"GROQ_API_KEY={groq_k}")
         env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-        say("💾 Key saved to .env.")
+        say("💾 Keys saved to .env.")
 
 
 def make_shortcut(link_path: Path, target_bat: Path, description: str) -> bool:

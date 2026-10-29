@@ -115,6 +115,25 @@ class MyraHandler(SimpleHTTPRequestHandler):
             })
             return
 
+        if path == "/api/voice/status":
+            local_found = False
+            for port in (8000, 5000, 8880):
+                try:
+                    import socket
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                        local_found = True
+                        break
+                except Exception:
+                    pass
+            self._send_json({
+                "ok": True,
+                "local_tts_running": local_found,
+                "engine": "Local Voice Studio Engine" if local_found else "Browser Neural Studio Engine",
+                "bilingual_support": True,
+                "languages": ["bn-BD", "bn-IN", "en-US", "en-GB"],
+            })
+            return
+
         if path.startswith("/api/"):
             self._send_json({"error": "Unknown API endpoint."}, status=404)
             return
@@ -164,12 +183,24 @@ class MyraHandler(SimpleHTTPRequestHandler):
             gemini = data.get("gemini_key")
             groq = data.get("groq_key")
             gemini_model = data.get("gemini_model")
-            for value in (gemini, groq, gemini_model):
+            groq_model = data.get("groq_model")
+            for value in (gemini, groq, gemini_model, groq_model):
                 if value is not None and (not isinstance(value, str) or len(value) > 300):
                     self._send_json({"error": "Invalid format."}, status=400)
                     return
-            status = config.save_keys(gemini=gemini, groq=groq, gemini_model=gemini_model)
+            status = config.save_keys(gemini=gemini, groq=groq, gemini_model=gemini_model, groq_model=groq_model)
             self._send_json({"ok": True, **status})
+            return
+
+        # 2b. Voice TTS endpoint
+        if path == "/api/voice/tts":
+            data = self._read_json() or {}
+            text = str(data.get("text", "")).strip()
+            self._send_json({
+                "ok": True,
+                "use_browser": True,
+                "text": text,
+            })
             return
 
         # 3. Key verification
