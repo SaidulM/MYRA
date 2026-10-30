@@ -89,9 +89,13 @@ When the optional `keyring` package has a working backend, provider keys from th
 
 If the server is not bound to loopback, state-changing/private API v1 calls require `MYRA_API_TOKEN` through `X-MYRA-Token`.
 
+## Updates never block the app
+
+`launcher.py` checks GitHub `main` during Start and the web/desktop UI polls the legacy system update route while MYRA is open. The update notice is optional and can be closed with the × button, **Later — Continue MYRA**, Escape, or a click outside the card. Dismissals are remembered for that exact remote version so a periodic poll cannot reopen it indefinitely. Only `updated`/`current` are reported as success; `failed`/`offline` return an error without forcing a reload, and a partial file copy does not save the remote version marker. Every updater failure therefore leaves the installed MYRA usable.
+
 ## Honest capability status
 
-Validated by the automated suite (56 tests) plus prior offscreen GUI smoke tests. Items marked "owner acceptance" are code-complete but need the owner's physical Windows hardware to prove.
+Validated by the automated suite (61 tests) plus prior offscreen GUI smoke tests. Items marked "owner acceptance" are code-complete but need the owner's physical Windows hardware to prove.
 
 | Capability | Status |
 |---|---|

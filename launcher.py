@@ -49,9 +49,17 @@ PROTECTED_FILES = {".env", ".myra-version", "launcher-log.txt", ".myra-update.zi
 HEADERS = {"User-Agent": "MYRA-Launcher/1.0"}
 
 
+def _print_safe(*args, **kwargs):
+    """Never let a missing GUI stdout (for example pythonw) break updates."""
+    try:
+        print(*args, **kwargs)
+    except Exception:
+        pass
+
+
 def say(line=""):
-    """Print to the console and append to launcher-log.txt."""
-    print(line, flush=True)
+    """Print when a console exists, and append to launcher-log.txt."""
+    _print_safe(line, flush=True)
     try:
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(line + "\n")
@@ -85,12 +93,13 @@ def local_version():
 def save_version(sha):
     try:
         VERSION_FILE.write_text(sha + "\n", encoding="utf-8")
+        return True
     except OSError:
-        pass
+        return False
 
 
 def _download(url, dest):
-    with _open(url, timeout=20) as res:
+    with _open(url, timeout=60) as res:
         total = int(res.headers.get("Content-Length") or 0)
         done = 0
         with open(dest, "wb") as f:
@@ -102,8 +111,8 @@ def _download(url, dest):
                 done += len(chunk)
                 if total:
                     pct = done * 100 // total
-                    print(f"\r   Downloading update… {pct:3d}%", end="", flush=True)
-    print()
+                    _print_safe(f"\r   Downloading update… {pct:3d}%", end="", flush=True)
+    _print_safe()
 
 
 def _copy_update(src_root):
@@ -152,12 +161,19 @@ def try_update():
         with zipfile.ZipFile(TMP_ZIP) as zf:
             zf.extractall(TMP_DIR)
         inners = [p for p in TMP_DIR.iterdir() if p.is_dir()]
-        if not inners:
+        inner = next((p for p in inners if (p / "launcher.py").exists()), inners[0] if inners else None)
+        if inner is None:
             raise OSError("update package was empty")
-        copied, failed = _copy_update(inners[0])
-        save_version(latest)
-        say(f"✅ Update installed ({copied} files refreshed"
-            + (f", {failed} skipped" if failed else "") + ").")
+        copied, failed = _copy_update(inner)
+        if copied == 0 or failed:
+            # Do not mark a partial/failed copy as the latest version. The
+            # next successful attempt must still be allowed to finish it.
+            say(f"⚠️ Update was incomplete ({copied} files refreshed, {failed} failed) — starting the installed version.")
+            return "failed"
+        if not save_version(latest):
+            say("⚠️ Update files copied, but the version marker could not be saved — MYRA will retry later.")
+            return "failed"
+        say(f"✅ Update installed ({copied} files refreshed).")
         return "updated"
     except (URLError, TimeoutError, OSError, zipfile.BadZipFile) as exc:
         say(f"⚠️ Update could not finish ({type(exc).__name__}) — starting the installed version.")

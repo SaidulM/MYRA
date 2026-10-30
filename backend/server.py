@@ -378,13 +378,30 @@ class MyraHandler(CoreApiMixin, SimpleHTTPRequestHandler):
             self._send_json(res)
             return
 
-        # 8. Auto-update apply route
+        # 8. Auto-update apply route. Only a finished/current update is a
+        # success; offline/failed must not make the UI claim success or loop.
         if path == "/api/system/update-apply":
-            if launcher:
+            if not launcher:
+                self._send_json({"ok": False, "status": "failed", "error": "Launcher not found"}, status=500)
+                return
+            try:
                 status = launcher.try_update()
+            except Exception as exc:
+                self._send_json({
+                    "ok": False,
+                    "status": "failed",
+                    "error": f"Update could not finish ({exc.__class__.__name__}). MYRA will keep using the installed version.",
+                }, status=503)
+                return
+            if status in {"updated", "current"}:
                 self._send_json({"ok": True, "status": status})
             else:
-                self._send_json({"ok": False, "error": "Launcher not found"}, status=500)
+                message = (
+                    "GitHub could not be reached. Check the internet and try again later."
+                    if status == "offline"
+                    else "The update did not finish. MYRA will keep using the installed version."
+                )
+                self._send_json({"ok": False, "status": status, "error": message}, status=503)
             return
 
         self._send_json({"error": "Not found."}, status=404)
