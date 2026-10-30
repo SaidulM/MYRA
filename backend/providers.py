@@ -543,6 +543,17 @@ def _analyze_image_openai_compatible(image_base64, mime_type, prompt, opener=Non
     if config.openrouter_key().strip():
         models = _compatible_models("openrouter", config.openrouter_key(), opener)
         candidates.append(("openrouter", config.openrouter_key().strip(), "https://openrouter.ai/api/v1/chat/completions", models[:1]))
+    ollama_model = config.ollama_model().strip()
+    if ollama_model:
+        # A configured local vision model (llava, qwen2.5vl…) can inspect the
+        # frame fully offline. Text-only local models make Ollama itself
+        # return an honest unsupported-image error.
+        candidates.append((
+            "ollama",
+            "",
+            f"{config.ollama_url().rstrip('/')}/v1/chat/completions",
+            (ollama_model,),
+        ))
     last_error = None
     for provider, api_key, endpoint, models in candidates:
         for model in models:
@@ -571,7 +582,7 @@ def _analyze_image_openai_compatible(image_base64, mime_type, prompt, opener=Non
         raise last_error
     raise _chat_error(
         "vision_provider_missing",
-        "Image analysis requires a saved Gemini, OpenAI or OpenRouter vision-capable key/model.",
+        "Image analysis requires a saved Gemini, OpenAI or OpenRouter vision-capable key/model, or a configured Ollama vision model.",
         provider="gemini",
         status=503,
     )
@@ -743,7 +754,7 @@ def _sse_data(line):
         return None
 
 
-def _stream_gemini(messages, system_prompt, api_key, opener, override=None):
+def _stream_gemini(messages, system_prompt, api_key, opener, override=None, max_output_tokens=220):
     model = _provider_models("gemini", api_key, opener, override)[0]
     contents = []
     for message in messages:
@@ -754,7 +765,7 @@ def _stream_gemini(messages, system_prompt, api_key, opener, override=None):
     payload = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
         "contents": contents,
-        "generationConfig": {"temperature": 0.5, "maxOutputTokens": 1800},
+        "generationConfig": {"temperature": 0.5, "maxOutputTokens": int(max_output_tokens or 220)},
     }
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse"
     for line in _stream_lines(url, payload, {"x-goog-api-key": api_key}, "gemini", opener):
@@ -768,7 +779,7 @@ def _stream_gemini(messages, system_prompt, api_key, opener, override=None):
                     yield {"type": "delta", "text": text, "provider": "gemini", "model": model}
 
 
-def _stream_compatible(provider, messages, system_prompt, api_key, opener, override=None):
+def _stream_compatible(provider, messages, system_prompt, api_key, opener, override=None, max_output_tokens=220):
     endpoint = _OPENAI_COMPATIBLE[provider][0]
     model = _compatible_models(provider, api_key, opener, override)[0]
     payload = {
@@ -779,7 +790,7 @@ def _stream_compatible(provider, messages, system_prompt, api_key, opener, overr
         ],
         "stream": True,
         "temperature": 0.5,
-        "max_tokens": 1800,
+        "max_tokens": int(max_output_tokens or 220),
     }
     for line in _stream_lines(endpoint, payload, {"Authorization": f"Bearer {api_key}"}, provider, opener):
         data = _sse_data(line)
@@ -791,7 +802,7 @@ def _stream_compatible(provider, messages, system_prompt, api_key, opener, overr
                 yield {"type": "delta", "text": text, "provider": provider, "model": data.get("model") or model}
 
 
-def _stream_anthropic(messages, system_prompt, api_key, opener, override=None):
+def _stream_anthropic(messages, system_prompt, api_key, opener, override=None, max_output_tokens=220):
     model = override or config.get("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022") or "claude-3-5-haiku-20241022"
     payload = {
         "model": model,
@@ -800,7 +811,7 @@ def _stream_anthropic(messages, system_prompt, api_key, opener, override=None):
             {"role": message.get("role", "user"), "content": str(message.get("text") or message.get("content") or "")}
             for message in messages if message.get("role") in {"user", "assistant"}
         ],
-        "max_tokens": 1800,
+        "max_tokens": int(max_output_tokens or 220),
         "stream": True,
     }
     headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
@@ -813,7 +824,7 @@ def _stream_anthropic(messages, system_prompt, api_key, opener, override=None):
             yield {"type": "delta", "text": text, "provider": "anthropic", "model": model}
 
 
-def stream_text(messages, system_prompt, provider="auto", opener=None, model_overrides=None):
+def stream_text(messages, system_prompt, provider="auto", opener=None, model_overrides=None, max_output_tokens=220):
     """Yield text deltas from the first configured streaming provider.
 
     If a provider fails before emitting anything, the next configured
@@ -825,15 +836,15 @@ def stream_text(messages, system_prompt, provider="auto", opener=None, model_ove
     requested = str(provider or "auto").lower()
     candidates = []
     if requested in {"auto", "gemini"} and config.gemini_key().strip():
-        candidates.append(("gemini", lambda: _stream_gemini(messages, system_prompt, config.gemini_key().strip(), opener, model_overrides.get("gemini"))))
+        candidates.append(("gemini", lambda: _stream_gemini(messages, system_prompt, config.gemini_key().strip(), opener, model_overrides.get("gemini"), max_output_tokens=max_output_tokens)))
     for name in ("groq", "openrouter", "openai", "mistral", "deepseek"):
         if requested not in {"auto", name}:
             continue
         api_key = _OPENAI_COMPATIBLE[name][1]().strip()
         if api_key:
-            candidates.append((name, lambda n=name, k=api_key: _stream_compatible(n, messages, system_prompt, k, opener, model_overrides.get(n))))
+            candidates.append((name, lambda n=name, k=api_key: _stream_compatible(n, messages, system_prompt, k, opener, model_overrides.get(n), max_output_tokens=max_output_tokens)))
     if requested in {"auto", "anthropic"} and config.anthropic_key().strip():
-        candidates.append(("anthropic", lambda: _stream_anthropic(messages, system_prompt, config.anthropic_key().strip(), opener, model_overrides.get("anthropic"))))
+        candidates.append(("anthropic", lambda: _stream_anthropic(messages, system_prompt, config.anthropic_key().strip(), opener, model_overrides.get("anthropic"), max_output_tokens=max_output_tokens)))
     if not candidates:
         raise _chat_error("missing_keys", "No streaming provider key is saved.", status=503)
 

@@ -109,13 +109,16 @@ def is_japanese_text(text: str) -> bool:
     return bool(re.search(r"[\u3040-\u30FF\u4E00-\u9FFF]", text))
 
 
-def speech_text_for_reply(raw: str, max_chars: int = 700) -> str:
+def speech_text_for_reply(raw: str, max_chars: int | None = None, detailed: bool = False) -> str:
     """Return only the main answer for speech.
 
-    The on-screen reply can contain a fuller report, sources or background
-    detail.  Spoken replies should start with the actual answer and stay
-    concise instead of reading every trailing section aloud.
+    Normal spoken replies are deliberately short (first two sentences /
+    about 300 characters) so MYRA starts speaking quickly.  When the owner
+    explicitly asks for more, ``detailed`` allows a longer main answer.
+    The on-screen reply can still contain the fuller report and sources.
     """
+    if max_chars is None:
+        max_chars = 850 if detailed else 300
     text = clean_text_for_speech(raw)
     if not text:
         return ""
@@ -142,7 +145,7 @@ def speech_text_for_reply(raw: str, max_chars: int = 700) -> str:
         sentences = sentences[1:]
 
     spoken = ""
-    for sentence in sentences[:4]:
+    for sentence in sentences[:(5 if detailed else 2)]:
         candidate = f"{spoken} {sentence}".strip() if spoken else sentence
         if len(candidate) > max_chars and spoken:
             break
@@ -234,14 +237,20 @@ def build_ssml(text: str, voice: str, style: str = "gentle", rate: str = "+0%", 
 
 
 async def _async_generate(text: str, voice: str, rate: str, pitch: str, style: str, out_path: Path):
-    ssml = build_ssml(text, voice, style=style, rate=rate, pitch=pitch)
-    try:
-        communicate = edge_tts.Communicate(ssml, voice)
-        await communicate.save(str(out_path))
-    except Exception:
-        # Fallback to plain text if SSML rejected
-        communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
-        await communicate.save(str(out_path))
+    # Normal replies use Edge TTS plain-text mode directly.  Trying SSML
+    # first and falling back after a rejection can make MYRA wait through
+    # two network generations before the first sound.  Only the optional
+    # whisper style uses the SSML attempt.
+    if style == "whisper" and ("Ava" in voice or "Aria" in voice):
+        ssml = build_ssml(text, voice, style=style, rate=rate, pitch=pitch)
+        try:
+            communicate = edge_tts.Communicate(ssml, voice)
+            await communicate.save(str(out_path))
+            return
+        except Exception:
+            pass
+    communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
+    await communicate.save(str(out_path))
 
 
 def synthesize_speech(
@@ -251,9 +260,10 @@ def synthesize_speech(
     rate: str = "+0%",
     pitch: str = "+0Hz",
     style: str = "gentle",
+    detailed: bool = False,
 ) -> Optional[bytes]:
     """Generate high-fidelity human speech MP3 audio with soft human touch."""
-    clean = speech_text_for_reply(text)
+    clean = speech_text_for_reply(text, detailed=detailed)
     if not clean:
         return None
 
@@ -273,8 +283,14 @@ def synthesize_speech(
             actual_pitch = "+2Hz" if character_gender(char) == "female" else "-2Hz"
 
     if rate == "+0%" or not rate:
-        # Bengali sounds best at a relaxed, gentle natural rate
-        actual_rate = "-3%" if is_bn else "+0%"
+        # Bengali sounds best at a relaxed, gentle natural rate.  The
+        # selected speech style gives a small, predictable pacing change.
+        if style == "chat":
+            actual_rate = "+0%" if is_bn else "+4%"
+        elif style == "jarvis":
+            actual_rate = "-2%" if is_bn else "+0%"
+        else:
+            actual_rate = "-3%" if is_bn else "+0%"
 
     chosen_voice = pick_voice(clean, character=char, custom_voice=voice, style=style)
     cache_file = _cache_key(clean, chosen_voice, actual_rate, actual_pitch, style)
@@ -313,6 +329,9 @@ def get_voice_status() -> dict:
         "ok": True,
         "engine": "Edge Neural Human Voice Studio" if EDGE_AVAILABLE else "Browser Speech Engine",
         "neural": EDGE_AVAILABLE,
+        "local_tts_running": EDGE_AVAILABLE,
+        "ready": True,
+        "spoken_reply_default": "short main answer (first 1–2 sentences)",
         "default_bengali_voice": VOICE_PRESETS["bn_male"],
         "default_english_voice": VOICE_PRESETS["en_male"],
         "voice_map": {

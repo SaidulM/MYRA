@@ -49,7 +49,7 @@ def wav_bytes(pcm, sample_rate=16000, channels=1, sample_width=2):
 class VoiceActivitySegmenter:
     """Energy VAD that emits one utterance after trailing silence."""
 
-    def __init__(self, sample_rate=16000, threshold=650, min_speech_ms=250, silence_ms=750, max_utterance_ms=30000):
+    def __init__(self, sample_rate=16000, threshold=650, min_speech_ms=250, silence_ms=650, max_utterance_ms=30000):
         self.sample_rate = int(sample_rate)
         self.threshold = float(threshold)
         self.min_speech_bytes = int(self.sample_rate * 2 * (min_speech_ms / 1000))
@@ -128,7 +128,13 @@ class FasterWhisperTranscriber:
         temp_path = temp_dir / f"utterance-{threading.get_ident()}.wav"
         try:
             temp_path.write_bytes(audio_bytes)
-            kwargs = {"vad_filter": True, "beam_size": 1, "without_timestamps": True}
+            kwargs = {
+                "vad_filter": True,
+                "beam_size": 1,
+                "without_timestamps": True,
+                "condition_on_previous_text": False,
+                "temperature": 0,
+            }
             if language and str(language).lower() not in {"auto", ""}:
                 kwargs["language"] = str(language).split("-")[0].lower()
             segments, info = model.transcribe(str(temp_path), **kwargs)
@@ -153,6 +159,8 @@ class VoiceEngine:
         self.models = model_manager or VoiceModelManager(paths.data_dir())
         self._transcriber = transcriber
         self._transcriber_path = None
+        self._warmup_thread = None
+        self._warmup_error = ""
 
     def status(self):
         model_status = self.models.status()
@@ -161,6 +169,9 @@ class VoiceEngine:
             "mode": "microphone -> faster-whisper -> MYRA chat -> Edge TTS/SAPI -> speaker",
             "native_provider_realtime_session": False,
             "turn_based_realtime_ready": bool(model_status.get("pipeline_ready")),
+            "transcriber_loaded": bool(getattr(self._transcriber, "_model", None) is not None),
+            "transcriber_warming": bool(self._warmup_thread and self._warmup_thread.is_alive()),
+            "transcriber_warmup_error": self._warmup_error,
             "microphone_owned_by": "PySide6 desktop (QtMultimedia)",
             "speaker_owned_by": "PySide6 desktop (QtMultimedia) or Windows SAPI",
         }
@@ -194,6 +205,41 @@ class VoiceEngine:
         self._transcriber_path = path
         return self._transcriber
 
+    def warmup(self, requested_model=""):
+        """Load the already-downloaded STT model in the background.
+
+        Called when the owner arms the microphone, so model loading overlaps
+        with speaking instead of delaying the first transcription.  This
+        never downloads anything.
+        """
+        try:
+            transcriber = self.transcriber(requested_model)
+        except Exception as exc:
+            self._warmup_error = f"{exc.__class__.__name__}: {exc}"[:400]
+            return {"ok": False, "started": False, "ready": False, "error": self._warmup_error}
+
+        load = getattr(transcriber, "_load", None)
+        if not callable(load):
+            return {"ok": True, "started": False, "ready": True}
+        if getattr(transcriber, "_model", None) is not None:
+            return {"ok": True, "started": False, "ready": True}
+        if self._warmup_thread and self._warmup_thread.is_alive():
+            return {"ok": True, "started": False, "ready": False, "warming": True}
+
+        def _load_model():
+            try:
+                load()
+                self._warmup_error = ""
+            except Exception as exc:  # surfaced through status/transcribe
+                self._warmup_error = f"{exc.__class__.__name__}: {exc}"[:400]
+
+        self._warmup_error = ""
+        self._warmup_thread = threading.Thread(
+            target=_load_model, name="myra-voice-model-warmup", daemon=True
+        )
+        self._warmup_thread.start()
+        return {"ok": True, "started": True, "ready": False, "warming": True}
+
     @staticmethod
     def decode_audio_base64(value, max_bytes=25 * 1024 * 1024):
         raw = str(value or "")
@@ -211,10 +257,12 @@ class VoiceEngine:
         data = self.decode_audio_base64(audio_base64)
         return self.transcriber(model).transcribe_wav(data, language=language)
 
-    def synthesize(self, text, character="core", voice=None, style="gentle"):
+    def synthesize(self, text, character="core", voice=None, style="gentle", detailed=False):
         import voice_studio
 
-        audio = voice_studio.synthesize_speech(str(text or ""), character=character, voice=voice, style=style)
+        audio = voice_studio.synthesize_speech(
+            str(text or ""), character=character, voice=voice, style=style, detailed=detailed
+        )
         if not audio:
             raise VoiceEngineError("Edge TTS could not synthesize speech (package/network unavailable).")
         return {

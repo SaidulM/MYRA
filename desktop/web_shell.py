@@ -60,9 +60,33 @@ def _wait_for_backend(base_url: str, timeout: float = 12.0) -> bool:
     return False
 
 
+def _configured_setting(name: str) -> str:
+    """Read one backend setting from the environment, then private .env."""
+    if os.environ.get(name):
+        return os.environ[name].strip()
+    try:
+        for raw_line in (ROOT / ".env").read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            if key.strip() == name:
+                return value.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return ""
+
+
+def _configured_scheme() -> str:
+    # Optional local HTTPS is enabled only when both files are configured,
+    # matching backend.server.create_server().  The normal desktop mode is
+    # loopback HTTP inside the owner's own laptop.
+    return "https" if _configured_setting("MYRA_TLS_CERT_FILE") and _configured_setting("MYRA_TLS_KEY_FILE") else "http"
+
+
 def _backend_base_url(port: int) -> str:
     configured = os.environ.get("MYRA_BACKEND_URL", "").strip().rstrip("/")
-    return configured or f"http://127.0.0.1:{port}"
+    return configured or f"{_configured_scheme()}://127.0.0.1:{port}"
 
 
 def self_test() -> int:
@@ -76,7 +100,7 @@ def self_test() -> int:
     import webview  # noqa: F401  (import is the test)
 
     port = int(os.environ.get("MYRA_SELFTEST_PORT", "8876") or 8876)
-    base_url = f"http://127.0.0.1:{port}"
+    base_url = _backend_base_url(port)
     backend = EmbeddedBackend(port=port)
     backend.start()
     try:

@@ -16,9 +16,9 @@ HOST = os.environ.get("MYRA_HOST", os.environ.get("STONIC_HOST", "127.0.0.1"))
 PORT = os.environ.get("MYRA_PORT", os.environ.get("STONIC_PORT", "8765"))
 
 
-def open_browser():
+def open_browser(scheme="http"):
     time.sleep(1.2)  # give the server a moment to come up
-    url = f"http://127.0.0.1:{PORT}"
+    url = f"{scheme}://127.0.0.1:{PORT}"
 
     # Search candidates: command names as well as standard Windows desktop browser paths
     candidates = ["msedge", "chrome", "google-chrome", "chromium"]
@@ -50,8 +50,9 @@ def open_browser():
 
 
 if __name__ == "__main__":
-    if "--no-browser" not in sys.argv:
-        threading.Thread(target=open_browser, daemon=True).start()
     sys.path.insert(0, str(ROOT / "backend"))
     import server
+    scheme = "https" if server.TLS_CERT_FILE and server.TLS_KEY_FILE else "http"
+    if "--no-browser" not in sys.argv:
+        threading.Thread(target=open_browser, args=(scheme,), daemon=True).start()
     server.main()

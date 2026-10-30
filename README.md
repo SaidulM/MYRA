@@ -30,6 +30,9 @@
 ## 🌟 Key Features
 
 - 🧠 **Selected AI Brain, Used Exactly:** Gemini, Groq, OpenRouter, OpenAI, DeepSeek, Mistral or Ollama Local can be selected in the top BRAIN switcher. An explicit choice is authoritative — if that brain is missing/offline, MYRA says so instead of silently answering through another provider. `Auto` chooses the best configured brain.
+- ⚡ **Short answers by default (v1.1):** MYRA normally gives the direct main answer in 1–3 short sentences and speaks only the first 1–2 sentences. It expands only when you ask for more (for example “বেশি করে বলো”, “একটু বড় করে বলো”, “ভালো করে বুঝিয়ে বলো” or “explain in detail”), or when you choose **Detailed explanations** in **SETTING → Answer length**.
+- 🧰 **Every visible option is backed (v1.1):** **SETTING → System Files & Background** checks/creates the database, private `.env` starter, UI-settings backup, workspace, voice folders, offline-news file and feedback file behind the UI. Mistral key entry/status/removal and live Ollama running/model status are included.
+- 🎙️ **Faster spoken replies (v1.1):** the installed hearing model warms up while you speak, pause detection is tighter, normal speech generation avoids a slow double attempt, and a matching Windows voice can Start if the neural voice is slow.
 - ✨ **3D Hologram Particle Characters:**
   - `CORE` (living orb of light)
   - `MALE` (professional JARVIS-style assistant)
@@ -89,7 +92,7 @@ python launcher.py   # checks GitHub updates + starts MYRA (desktop app on Windo
 # or
 python run.py        # starts the legacy web version directly
 ```
-For the web version, open `http://127.0.0.1:8765` in your browser. For the native desktop app on Windows, double-click `MYRA.pyw` instead — no browser or console window is involved.
+For the web version, open `http://127.0.0.1:8765` in your browser (or `https://127.0.0.1:8765` only if you deliberately configured both `MYRA_TLS_CERT_FILE` and `MYRA_TLS_KEY_FILE`). For the native desktop app on Windows, double-click `MYRA.pyw` instead — no browser or console window is involved. The normal `127.0.0.1` connection stays inside your own laptop; cloud AI, GitHub, news and confirmed model downloads use HTTPS.
 
 ---
 
@@ -121,6 +124,7 @@ MYRA/
 ├── README.md             ← Documentation and usage instructions
 ├── backend/
 │   ├── server.py         ← Unified legacy HTTP server & API routing
+│   ├── runtime_setup.py  ← Creates/checks local files, defaults and readiness behind every UI option
 │   ├── api_v1.py         ← Core 2.0 `/api/v1` route mixin
 │   ├── service.py        ← UI-independent Core service
 │   ├── providers.py      ← Gemini/Groq Core planner/vision adapter
@@ -153,4 +157,6 @@ MYRA/
 - Real API keys prefer the Windows/OS credential store when `keyring` is available, with the private local `.env` as fallback. Set `MYRA_SECRET_STORE=env` to force `.env`-only behavior.
 - The UI never exposes full API keys (only masked tails like `••••a1b2`).
 - The unified SQLite database lives in Windows app data (`%LOCALAPPDATA%\MYRA\myra.db`); it and any legacy `data/myra.db` are private/local and never committed.
-- The server binds to `127.0.0.1` by default, so only your laptop can access it. `MYRA_HOST=0.0.0.0` is an explicit opt-in for trusted-LAN/mobile use; API v1 action routes then also require `MYRA_API_TOKEN`.
+- The server binds to `127.0.0.1` by default, so only your laptop can access it. In this normal mode, local HTTP never leaves the laptop; internet services (cloud AI, GitHub updates, RSS and confirmed model downloads) use verified HTTPS, while Ollama stays local.
+- Optional local-server HTTPS is available for advanced setups by setting both `MYRA_TLS_CERT_FILE` and `MYRA_TLS_KEY_FILE` to a trusted certificate/key pair. Leave both empty for the normal desktop app.
+- Phone Link is honestly **OFF** in local-only mode instead of showing a QR code that cannot work. `MYRA_HOST=0.0.0.0` is an explicit trusted-LAN opt-in: use trusted home Wi-Fi only and prefer HTTPS. A long `MYRA_API_TOKEN` is then required for Core API (`/api/v1/...`) action calls from other devices — but it is **not** a password for the whole web page, so never expose LAN mode beyond your own trusted network. MYRA's own screen on this laptop keeps working whether or not a token is set.

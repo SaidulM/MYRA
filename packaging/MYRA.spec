@@ -11,7 +11,7 @@ hiddenimports = [
     # Local backend modules are imported through backend/ pathex.
     "agent", "api_v1", "browser_control", "chat", "config", "core_agent",
     "core_memory", "live_vision", "memory", "news", "notes", "paths",
-    "providers", "reminders", "research", "server", "service",
+    "providers", "reminders", "research", "runtime_setup", "server", "service",
     "skill_registry", "skills_manager", "voice", "voice_engine", "voice_studio",
     "windows_control",
     # Secure storage and optional engines.
@@ -24,6 +24,9 @@ datas = [
     (str(root / "ui"), "ui"),
     (str(root / "assets"), "assets"),
     (str(root / "docs"), "docs"),
+    # Starter settings template: runtime create-if-missing uses it to build
+    # the private .env file (never contains real keys).
+    (str(root / ".env.example"), "."),
 ]
 binaries = []
 
