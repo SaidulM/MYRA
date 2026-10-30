@@ -3565,42 +3565,116 @@ document.addEventListener('DOMContentLoaded', () => {
   };
   checkInitialSetup();
 
-  /* Auto Update Check (runs every 5 mins & on start) */
+  /* Optional update notice. An update problem must never trap the owner:
+     the popup can always be closed with ✕, Later, Escape, or by clicking
+     outside it, and a dismissed version is not auto-opened again. */
+  const UPDATE_DISMISSED_KEY = 'myra_update_dismissed_version';
+  let latestUpdateVersion = '';
+  let updateAutoShownVersion = '';
+  let updateApplyBusy = false;
+
+  const closeUpdateModal = (remember = true) => {
+    const modal = $('updateModal');
+    if (modal) modal.classList.add('hidden');
+    if (remember && latestUpdateVersion) {
+      try { localStorage.setItem(UPDATE_DISMISSED_KEY, latestUpdateVersion); } catch (e) {}
+    }
+    if (updateApplyBusy) {
+      toast('⬇️ Update is continuing in the background. You can keep using MYRA.');
+    }
+  };
+  const openUpdateModal = (force = false) => {
+    const modal = $('updateModal');
+    if (!modal) return;
+    let dismissed = '';
+    try { dismissed = localStorage.getItem(UPDATE_DISMISSED_KEY) || ''; } catch (e) {}
+    if (!force && latestUpdateVersion && dismissed === latestUpdateVersion) return;
+    modal.classList.remove('hidden');
+    updateAutoShownVersion = latestUpdateVersion;
+  };
+
   const checkAppUpdate = async () => {
     if (location.protocol === 'file:') return;
     try {
       const res = await fetch('/api/system/update-check');
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (data.update_available) {
+        latestUpdateVersion = String(data.latest_version || '');
         $('updateChip').classList.remove('hidden');
-        $('updateCurrentVer').textContent = data.current_version;
-        $('updateLatestVer').textContent = data.latest_version;
-        $('updateModal').classList.remove('hidden');
+        $('updateCurrentVer').textContent = data.current_version || 'local';
+        $('updateLatestVer').textContent = latestUpdateVersion || 'unknown';
+        // Notify once for this version in this session. After the owner
+        // dismisses it, only the small UPDATE READY chip remains.
+        if (updateAutoShownVersion !== latestUpdateVersion) openUpdateModal(false);
+      } else {
+        latestUpdateVersion = '';
+        updateAutoShownVersion = '';
+        $('updateChip').classList.add('hidden');
+        $('updateModal').classList.add('hidden');
+        try { localStorage.removeItem(UPDATE_DISMISSED_KEY); } catch (e) {}
       }
     } catch (e) {}
   };
   setTimeout(checkAppUpdate, 2500);
   setInterval(checkAppUpdate, 5 * 60 * 1000);
 
-  $('updateChip').addEventListener('click', () => $('updateModal').classList.remove('hidden'));
+  $('updateChip').addEventListener('click', () => openUpdateModal(true));
+  $('closeUpdateBtn')?.addEventListener('click', () => closeUpdateModal(true));
+  $('dismissUpdateBtn')?.addEventListener('click', () => closeUpdateModal(true));
+  $('updateModal')?.addEventListener('click', (event) => {
+    if (event.target === $('updateModal')) closeUpdateModal(true);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !$('updateModal')?.classList.contains('hidden')) {
+      closeUpdateModal(true);
+    }
+  });
 
   $('applyUpdateBtn').addEventListener('click', async () => {
+    if (updateApplyBusy) return;
     const btn = $('applyUpdateBtn');
+    const progress = $('updateProgressMsg');
+    updateApplyBusy = true;
     btn.disabled = true;
-    $('updateProgressMsg').textContent = '⬇️ Downloading update from GitHub and refreshing files…';
+    btn.textContent = '⬇️ Updating…';
+    if (progress) progress.textContent = '⬇️ Downloading update from GitHub and refreshing files… You may close this popup and keep using MYRA.';
+    const controller = 'AbortController' in window ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 120000) : null;
     try {
-      const res = await fetch('/api/system/update-apply', { method: 'POST' });
-      const data = await res.json();
-      if (data.ok) {
-        $('updateProgressMsg').textContent = '✅ Update complete! Restarting MYRA…';
-        toast('🚀 MYRA updated successfully! Reloading…');
-        setTimeout(() => window.location.reload(), 1600);
-      } else {
-        throw new Error(data.error || 'Update failed');
+      const res = await fetch('/api/system/update-apply', {
+        method: 'POST',
+        signal: controller ? controller.signal : undefined,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        const statusText = data.status === 'offline'
+          ? 'GitHub could not be reached. Check the internet and try again later.'
+          : 'The update did not finish. Your installed MYRA is still usable.';
+        throw new Error(data.error || statusText);
       }
+      if (data.status === 'current') {
+        if (progress) progress.textContent = '✅ MYRA is already up to date.';
+        $('updateChip').classList.add('hidden');
+        try { localStorage.removeItem(UPDATE_DISMISSED_KEY); } catch (e) {}
+        toast('✅ MYRA is already up to date.');
+        closeUpdateModal(false);
+        return;
+      }
+      if (progress) progress.textContent = '✅ Update complete! Reloading MYRA…';
+      try { localStorage.removeItem(UPDATE_DISMISSED_KEY); } catch (e) {}
+      toast('🚀 MYRA updated successfully! Reloading…');
+      setTimeout(() => window.location.reload(), 1600);
     } catch (e) {
-      $('updateProgressMsg').textContent = '⚠️ Could not update: ' + e.message;
+      const message = e && e.name === 'AbortError'
+        ? 'Update took too long and was stopped. Check the internet and try again later.'
+        : (e.message || 'Update failed.');
+      if (progress) progress.textContent = '⚠️ Could not update: ' + message + ' Tap “Later — Continue MYRA” to keep using MYRA.';
+      toast('⚠️ MYRA update failed, but MYRA is still usable. Close the popup with Later or ✕.', 6500);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+      updateApplyBusy = false;
       btn.disabled = false;
+      btn.textContent = '⬇️ Update MYRA Now';
     }
   });
 

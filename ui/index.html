@@ -785,21 +785,23 @@
   </div>
 </div>
 
-<!-- MANDATORY / AUTO-UPDATE MODAL -->
+<!-- OPTIONAL / AUTO-UPDATE MODAL: never traps the owner inside MYRA -->
 <div class="modal-backdrop hidden" id="updateModal">
-  <div class="modal-box">
-    <h2>🚀 MYRA Update Required</h2>
+  <div class="modal-box" role="dialog" aria-modal="false" aria-labelledby="updateModalTitle">
+    <button class="modal-close-btn" id="closeUpdateBtn" type="button" title="Close and continue using MYRA" aria-label="Close update popup">✕</button>
+    <h2 id="updateModalTitle">🚀 MYRA Update Available</h2>
     <p class="modal-desc" id="updateModalDesc">
       A newer version of MYRA is published on GitHub.
-      Updates ensure you have the latest AI enhancements, memory optimizations, and security fixes.
+      You can update now, or close this popup and continue using the installed version.
     </p>
     <div class="input-row" style="background:rgba(2,16,12,0.6);padding:10px;border-radius:8px;font-size:12px;">
       <div>Current version: <b id="updateCurrentVer">...</b></div>
       <div style="margin-left:auto;">Latest on GitHub: <b id="updateLatestVer" style="color:var(--accent);">...</b></div>
     </div>
     <div id="updateProgressMsg" class="hint" style="color:var(--accent);"></div>
-    <div class="modal-actions">
-      <button class="btn btn-send" id="applyUpdateBtn" style="width:100%;padding:12px;">⬇️ Update MYRA Now</button>
+    <div class="modal-actions update-actions">
+      <button class="btn update-later-btn" id="dismissUpdateBtn" type="button">Later — Continue MYRA</button>
+      <button class="btn btn-send" id="applyUpdateBtn" type="button">⬇️ Update MYRA Now</button>
     </div>
   </div>
 </div>
