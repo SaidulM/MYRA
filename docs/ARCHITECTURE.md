@@ -6,7 +6,7 @@
 └──────────────────┬───────────────────────┬───────────────────┘
                    │                       │
                    └──────────┬────────────┘
-                              │ local HTTP (loopback by default)
+                              │ local HTTP loopback (optional local HTTPS)
                     ┌─────────▼─────────┐
                     │ server.py+api_v1.py│ legacy API + /api/v1
                     └─────────┬─────────┘
@@ -38,7 +38,10 @@
 - **One unified SQLite store.** `backend/core_memory.py` (schema v2, app-data `myra.db`) owns conversations, memories, notes, reminders, preferences and tasks. Legacy `backend/memory.py`, `notes.py` and `reminders.py` keep their old APIs but delegate to this store, and legacy `data/myra.db` rows are imported once (idempotent, legacy IDs tracked in `legacy_id_map`). A note or memory created in either surface now appears in both.
 - Core Chat calls the shared provider layer with legacy local-intent execution, silent auto-learning and legacy-memory injection disabled. The older web chat retains its existing behavior for compatibility, so its local actions are not the same confirmation boundary as Core Agent Mode.
 - Provider layer (`backend/providers.py`) implements streaming, validated structured JSON, tool calling and vision across Gemini/Groq/OpenAI-compatible providers, advertising only capabilities each adapter actually implements.
-- **Explicit brain selection is authoritative** in legacy chat, Core streaming fallback and Agent planning. If the owner selects Ollama (or any listed provider), MYRA uses only that provider or returns a provider-specific not-configured/unreachable error; it never silently labels a Gemini answer as the selected brain. `Auto` is the only mode that waterfalls across configured providers.
+- **Explicit brain selection is authoritative** in legacy chat, Core streaming fallback and Agent planning. If the owner selects Ollama (or any listed provider), MYRA uses only that provider or returns a provider-specific not-configured/unreachable error; it never silently labels a Gemini answer as the selected brain. `Auto` is the only mode that waterfalls across configured providers. Attached Visual Hub frames are forwarded to the selected brain too — including Ollama's OpenAI-compatible endpoint — so a local vision model can really inspect them and a text-only model surfaces Ollama's honest unsupported-image error instead of a fabricated description.
+- **Runtime readiness backs the visible UI.** `backend/runtime_setup.py` is called by both `server.main()` and the embedded desktop backend. It idempotently creates the app-data folders, unified DB/default UI settings, voice model registry/cache folders, offline-news file, feedback file, runtime status and a private `.env` starter (never overwriting an existing `.env`). `GET /api/system/readiness` returns a non-secret checklist; `POST /api/system/readiness/ensure` repairs/creates the local pieces. `GET/POST /api/settings/ui` backs up validated non-secret UI choices in SQLite preferences, `POST /api/feedback` appends to app-data `feedback.jsonl`, and the web history/chat context persist in the WebView profile.
+- **Short-answer policy is enforced in the request, not just the prompt.** `chat.response_style_for_payload()` resolves the latest explicit Bengali/Banglish/English instruction first, then the saved `response_style`/environment default. Legacy chat and Core streaming use a 220-token budget for short replies and 1200 only for detailed replies; internal research explicitly requests detailed synthesis. Spoken extraction defaults to the first 1–2 sentences/about 300 characters and detailed speech to about 5 sentences/850 characters.
+- **Voice latency work overlaps Start with speaking.** When the owner arms backend live voice, the UI calls `POST /api/v1/voice/warmup`; `VoiceEngine.warmup()` loads an already-installed faster-whisper model on a daemon thread and never downloads. Browser/backend pause thresholds are tighter, faster-whisper uses beam size 1/no previous-text conditioning, normal Edge TTS goes straight to plain text instead of SSML-then-fallback, and the UI can Start a matching browser/Windows voice if neural synthesis exceeds its short wait.
 - The original interface's **AGENT** tab is wired to Core `/api/v1/agent/tasks` with polling, visible steps/results, approve/deny, pause/resume/cancel and Windows emergency-stop/reset. Its Skills window maps owner-friendly groups to the real registry; Windows PC-control skills remain opt-in.
 - The original interface's live voice has a WebView2-safe chain: `getUserMedia` + `MediaRecorder` + browser-side pause detection/WAV conversion → `/api/v1/voice/transcribe` (faster-whisper) → existing chat → concise character-gendered TTS → listen again. Browser SpeechRecognition is still preferred only in a normal browser, not inside `/?shell=desktop`.
 - **LangChain note:** MYRA does not add LangChain as a runtime dependency merely to name-check it. LangChain/LangGraph-style orchestration does not make a microphone, STT model, LLM or TTS service intrinsically faster, and the extra dependency surface would work against the 8GB-RAM goal. MYRA keeps the equivalent bounded chain natively in `providers.py`/`core_agent.py`/`voice_engine.py`, and addresses latency where it actually occurs: capture segmentation, local STT, provider choice, concise speech text and TTS timeout/fallback.
@@ -61,16 +64,34 @@ Default Windows data path:
 %LOCALAPPDATA%\MYRA\
   myra.db
   workspace\
-  models\
+  models\faster-whisper\
+  voice_cache\
+  voice-temp\
   backups\
+  logs\
+  webview-profile\
+  attachments\
   voice-models.json
+  news_cache.json
+  feedback.jsonl
+  runtime-status.json
 ```
 
 `MYRA_DATA_DIR` overrides the location. SQLite stores conversations, messages, user-approved memories, notes, preferences, skill enablement and agent tasks. Secrets are not stored in SQLite.
 
 ## Secrets
 
-When the optional `keyring` package has a working backend, provider keys from the integrated settings layer are saved in the OS credential store and any old plaintext copy is blanked from `.env`. Without it, MYRA keeps the private `.env` behavior. Effective secret lookup is environment → credential store → `.env`. API/UI status only receives `set`, a masked tail and the storage type; model names and other non-secret settings remain in `.env`.
+When the optional `keyring` package has a working backend, provider keys from the integrated settings layer are saved in the OS credential store and any old plaintext copy is blanked from `.env`. Without it, MYRA keeps the private `.env` behavior. Effective secret lookup is environment → credential store → `.env`. API/UI status only receives `set`, a masked tail and the storage type; model names and other non-secret settings remain in `.env`. Ollama status additionally performs a short cached local `/api/tags` check so the UI can distinguish a saved model from a running/installed one.
+
+Cloud providers, GitHub, RSS and confirmed model downloads use verified HTTPS and provider code does not downgrade TLS. The desktop backend is loopback HTTP by default because traffic remains inside one laptop. `server.create_server()` can wrap the same server in TLS when both `MYRA_TLS_CERT_FILE` and `MYRA_TLS_KEY_FILE` point to existing trusted files; one-sided configuration is rejected. `/api/system/network-info` reports the actual bind/scheme and returns an empty `mobile_url` in loopback mode, so Phone Link honestly reports OFF instead of generating an unreachable QR code.
+
+## Legacy runtime/settings routes
+
+- `GET/POST /api/settings/ui` — validated non-secret UI settings/defaults in SQLite
+- `GET /api/system/readiness`, `POST /api/system/readiness/ensure` — non-secret local-file checklist and repair/create action
+- `POST /api/feedback` — append owner feedback to app-data `feedback.jsonl`
+- `GET /api/system/network-info` — actual bind host/port/scheme, LAN state and honest Phone Link availability
+- `POST /api/settings/verify` returns `{ok, results}` with HTTP 200 only when at least one tested provider succeeds; otherwise 503. Verification generations are capped at 16 output tokens.
 
 ## API v1 groups
 
@@ -83,11 +104,11 @@ When the optional `keyring` package has a working backend, provider keys from th
 - `POST /api/v1/skills/{id}/enabled`, `POST /api/v1/skills/{id}/run`
 - `GET/POST /api/v1/agent/tasks`, task start/pause/resume/cancel/approve/deny
 - `POST /api/v1/vision/analyze` (one explicitly consented frame)
-- Live vision sessions (`/api/v1/live-vision/...`), voice turn + speech-model install/remove (`/api/v1/voice/...`)
+- Live vision sessions (`/api/v1/live-vision/...`), voice status/transcription/synthesis/turn, no-download `POST /api/v1/voice/warmup`, and speech-model install/remove (`/api/v1/voice/...`)
 - `POST /api/v1/research`, world headlines, browser control (`/api/v1/browser/...`), Windows control + emergency stop (`/api/v1/windows/...`)
 - `POST /api/v1/data/migrate-legacy`, `GET /api/v1/export`, `POST /api/v1/backup`
 
-If the server is not bound to loopback, state-changing/private API v1 calls require `MYRA_API_TOKEN` through `X-MYRA-Token`.
+If the server is not bound to loopback, state-changing/private API v1 calls from other devices require `MYRA_API_TOKEN` through `X-MYRA-Token`. Requests originating from the same computer (loopback client — MYRA's own desktop window) are always allowed, so a configured token never locks the owner out of their own screen. The token gates API v1 only; it is not a password for the legacy web page routes, which stay protected by the default `127.0.0.1` bind.
 
 ## Updates never block the app
 
@@ -95,19 +116,20 @@ If the server is not bound to loopback, state-changing/private API v1 calls requ
 
 ## Honest capability status
 
-Validated by the automated suite (61 tests) plus prior offscreen GUI smoke tests. Items marked "owner acceptance" are code-complete but need the owner's physical Windows hardware to prove.
+Validated by the automated suite (74 tests) plus prior offscreen GUI smoke tests. Items marked "owner acceptance" are code-complete but need the owner's physical Windows hardware to prove.
 
 | Capability | Status |
 |---|---|
 | Persistent chat/memory/notes/reminders | Implemented in the unified app-data store; legacy data auto-imported |
-| Text chat | Multi-provider; Core Chat uses the shared layer with legacy side effects disabled |
+| Runtime files/UI options | Runtime setup creates/checks DB, folders, defaults, `.env` starter, voice/news/feedback files; Settings exposes a non-secret readiness checklist and repair action |
+| Text chat | Multi-provider; Core Chat uses the shared layer with legacy side effects disabled; short-by-default token budgets, detailed only on explicit request/setting |
 | Streaming replies | Implemented (`/api/v1/chat/stream`); desktop Chat consumes it |
 | Structured JSON output | Implemented with schema validation |
 | Provider tool calling | Gemini + OpenAI-compatible adapters; live keys owner-tested |
 | Agent Mode | Implemented for 40 registered skills, bounded and confirmable; original UI shows live steps/approval/pause/stop |
-| One screenshot/image frame | Implemented (Gemini, OpenAI/OpenRouter vision fallback) |
+| One screenshot/image frame | Implemented (Gemini, OpenAI/OpenRouter vision fallback, configured Ollama vision models; Visual Hub frames are forwarded to the selected brain, and text-only local models return Ollama's own honest unsupported-image error) |
 | Continuous live screen/camera | Implemented as consent-based sampled frames (not provider-native video); owner acceptance pending |
-| Realtime voice | Default-window MediaRecorder/pause-detection → faster-whisper → selected AI → concise Edge/browser TTS → listen again; Qt pipeline also remains. Owner microphone acceptance pending |
+| Realtime voice | Default-window MediaRecorder/pause-detection → background-warmed faster-whisper → selected AI with short budget → concise Edge/browser TTS → listen again; Qt pipeline also remains. Owner microphone acceptance pending |
 | Web research | Implemented (SSRF-guarded search/fetch/extract with citations) |
 | Browser automation | Implemented with optional Playwright (visible, gated); owner acceptance pending |
 | Semantic Windows app control | Implemented with optional pywinauto + PyAutoGUI fallback; owner acceptance pending |

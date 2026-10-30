@@ -364,6 +364,16 @@ select.input{cursor:pointer}
 .sk-info small{color:var(--muted);font-size:11.5px;line-height:1.4}
 .skill-soon{border-style:dashed;opacity:.75}
 .soon-tag{font-family:'Orbitron',sans-serif;font-size:9.5px;letter-spacing:1.4px;color:var(--hot);border:1px solid var(--hot);border-radius:999px;padding:3px 9px}
+.skill-library-btn{width:auto!important;margin-top:0!important;padding:7px 10px!important;font-size:10.5px!important;flex:none}
+.readiness-actions{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px}
+.readiness-actions .btn{width:auto;margin-top:0;flex:1 1 190px;padding:9px 12px}
+.readiness-list{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.readiness-item{display:flex;gap:9px;align-items:flex-start;background:rgba(2,16,12,.55);border:1px solid var(--panel-border);border-radius:9px;padding:8px 10px}
+.readiness-icon{flex:none;line-height:1.35}
+.readiness-item b{display:block;font-size:12px;line-height:1.35}
+.readiness-item small{display:block;color:var(--muted);font-size:11px;line-height:1.45;margin-top:1px}
+.readiness-item.is-warning{border-color:rgba(248,113,113,.65)}
+.readiness-item.is-action{border-color:rgba(251,191,36,.65)}
 
 /* Character full view */
 .char-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin-bottom:16px}

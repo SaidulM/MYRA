@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 from urllib.parse import urlparse
 
+import config
 import paths
 
 
@@ -76,7 +77,7 @@ class BrowserController:
         return sync_playwright()
 
     def _launch(self, playwright):
-        headless = os.environ.get("MYRA_BROWSER_HEADLESS", "").lower() in {"1", "true", "yes"}
+        headless = config.get("MYRA_BROWSER_HEADLESS", "").lower() in {"1", "true", "yes"}
         errors = []
         for channel in ("msedge", "chrome", None):
             try:

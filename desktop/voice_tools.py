@@ -28,7 +28,7 @@ def wav_bytes(pcm, sample_rate=16000, channels=1, sample_width=2):
 
 
 class VoiceActivitySegmenter:
-    def __init__(self, sample_rate=16000, threshold=650, min_speech_ms=250, silence_ms=750, max_utterance_ms=30000):
+    def __init__(self, sample_rate=16000, threshold=650, min_speech_ms=250, silence_ms=650, max_utterance_ms=30000):
         self.sample_rate = int(sample_rate)
         self.threshold = float(threshold)
         self.min_speech_bytes = int(self.sample_rate * 2 * min_speech_ms / 1000)

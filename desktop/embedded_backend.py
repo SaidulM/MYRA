@@ -36,16 +36,12 @@ class EmbeddedBackend:
         os.environ.setdefault("MYRA_HOST", self.host)
         os.environ.setdefault("MYRA_PORT", str(self.port))
 
-        import memory
-        import notes
-        import reminders
         import server
 
-        # Unified-store initializers are idempotent and import any legacy
-        # rows once detected; they do not start external processes.
-        memory.init_db()
-        notes.init_db()
-        reminders.init_db()
+        # Creates/checks MYRA's unified DB, workspace, voice/news/feedback
+        # files, .env starter and default UI settings.  It is idempotent
+        # and does not start external processes or download models.
+        server.initialize_runtime()
         try:
             self._server = server.create_server(self.host, self.port)
         except OSError:

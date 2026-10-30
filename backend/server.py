@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import ssl
 import sys
 import threading
 import time
@@ -29,6 +30,7 @@ import memory  # noqa: E402
 import news  # noqa: E402
 import notes  # noqa: E402
 import reminders  # noqa: E402
+import runtime_setup  # noqa: E402
 import skills_manager  # noqa: E402
 
 try:
@@ -47,9 +49,24 @@ UI_DIR = ROOT / "ui"
 # the owner intentionally wants LAN/mobile access on a trusted network.
 HOST = config.get("MYRA_HOST", config.get("STONIC_HOST", "127.0.0.1"))
 PORT = int(config.get("MYRA_PORT", config.get("STONIC_PORT", "8765")))
+# Optional advanced HTTPS.  The normal desktop app stays on loopback HTTP
+# inside the owner's own laptop; both files must be configured to enable TLS.
+TLS_CERT_FILE = config.get("MYRA_TLS_CERT_FILE", "").strip()
+TLS_KEY_FILE = config.get("MYRA_TLS_KEY_FILE", "").strip()
 
 MAX_BODY = 1024 * 1024
 MAX_CHAT_BODY = 10 * 1024 * 1024
+
+
+def initialize_runtime():
+    """Create/check every local file and default the UI options need."""
+    result = runtime_setup.ensure_runtime_files(create_env=True)
+    # Legacy initializers share the same unified SQLite store and are
+    # idempotent; keep them for older import-time compatibility.
+    memory.init_db()
+    notes.init_db()
+    reminders.init_db()
+    return result
 
 
 def get_local_ip() -> str:
@@ -84,7 +101,7 @@ class MyraHandler(CoreApiMixin, SimpleHTTPRequestHandler):
                 "status": "ok",
                 "app": "MYRA",
                 "stage": 11,
-                "version": "1.0.0",
+                "version": "1.1.0",
                 "ready": True,
                 "api_v1": True,
             })
@@ -95,6 +112,17 @@ class MyraHandler(CoreApiMixin, SimpleHTTPRequestHandler):
             # Flat fields keep the web UI working; "keys" is used by the
             # native desktop client and older Core clients.
             self._send_json({"ok": True, **status, "keys": status})
+            return
+
+        if path == "/api/settings/ui":
+            result = runtime_setup.get_ui_settings()
+            self._send_json({"ok": True, **result})
+            return
+
+        if path == "/api/system/readiness":
+            bind_host = str(self.server.server_address[0]) if self.server else HOST
+            scheme = getattr(self.server, "myra_scheme", "https" if TLS_CERT_FILE and TLS_KEY_FILE else "http")
+            self._send_json(runtime_setup.runtime_status(host=bind_host, scheme=scheme))
             return
 
         if path == "/api/memory":
@@ -152,11 +180,23 @@ class MyraHandler(CoreApiMixin, SimpleHTTPRequestHandler):
 
         if path == "/api/system/network-info":
             local_ip = get_local_ip()
+            bind_host = str(self.server.server_address[0]) if self.server else HOST
+            bind_port = int(self.server.server_address[1]) if self.server else PORT
+            scheme = getattr(self.server, "myra_scheme", "https" if TLS_CERT_FILE and TLS_KEY_FILE else "http")
+            lan_enabled = bind_host not in {"127.0.0.1", "localhost", "::1"}
             self._send_json({
                 "ok": True,
                 "local_ip": local_ip,
-                "port": PORT,
-                "mobile_url": f"http://{local_ip}:{PORT}",
+                "bind_host": bind_host,
+                "port": bind_port,
+                "scheme": scheme,
+                "lan_enabled": lan_enabled,
+                "mobile_url": f"{scheme}://{local_ip}:{bind_port}" if lan_enabled else "",
+                "message": (
+                    "Phone Link is available on this trusted LAN address."
+                    if lan_enabled
+                    else "Phone Link is OFF in safe local-only mode (127.0.0.1). MYRA is reachable only inside this laptop."
+                ),
             })
             return
 
@@ -220,6 +260,46 @@ class MyraHandler(CoreApiMixin, SimpleHTTPRequestHandler):
             self._send_json(result)
             return
 
+        # 1b. UI settings backup/defaults used by every visual option.
+        if path == "/api/settings/ui":
+            data = self._read_json(max_bytes=64_000)
+            if data is None:
+                return
+            try:
+                settings = runtime_setup.save_ui_settings(data.get("settings", data))
+            except (TypeError, ValueError) as exc:
+                self._send_json({"ok": False, "error": str(exc)}, status=400)
+                return
+            self._send_json({"ok": True, "settings": settings})
+            return
+
+        # 1c. Create/repair local runtime files without touching secrets.
+        if path == "/api/system/readiness/ensure":
+            data = self._read_json(max_bytes=8_000)
+            if data is None:
+                return
+            result = runtime_setup.ensure_runtime_files(create_env=True)
+            bind_host = str(self.server.server_address[0]) if self.server else HOST
+            scheme = getattr(self.server, "myra_scheme", "https" if TLS_CERT_FILE and TLS_KEY_FILE else "http")
+            result = runtime_setup.runtime_status(host=bind_host, scheme=scheme)
+            self._send_json(result)
+            return
+
+        # 1d. Feedback is saved in MYRA's private app-data folder.
+        if path == "/api/feedback":
+            data = self._read_json(max_bytes=16_000)
+            if data is None:
+                return
+            try:
+                record = runtime_setup.append_feedback(
+                    data.get("text", ""), source=data.get("source", "web-ui")
+                )
+            except (OSError, TypeError, ValueError) as exc:
+                self._send_json({"ok": False, "error": str(exc)}, status=400)
+                return
+            self._send_json({"ok": True, "feedback": record}, status=201)
+            return
+
         # 2. Key settings save
         if path == "/api/settings/keys":
             data = self._read_json()
@@ -255,13 +335,15 @@ class MyraHandler(CoreApiMixin, SimpleHTTPRequestHandler):
             rate = str(data.get("rate", "+0%"))
             pitch = str(data.get("pitch", "+0Hz"))
             style = str(data.get("style", "gentle"))
+            detailed = bool(data.get("detailed")) or data.get("response_style") == "detailed"
 
             if not text or not voice_studio:
                 self._send_json({"ok": False, "error": "TTS engine not ready"}, status=400)
                 return
 
             audio_bytes = voice_studio.synthesize_speech(
-                text, character=character, voice=voice, rate=rate, pitch=pitch, style=style
+                text, character=character, voice=voice, rate=rate, pitch=pitch, style=style,
+                detailed=detailed,
             )
             if audio_bytes:
                 self.send_response(200)
@@ -304,8 +386,9 @@ class MyraHandler(CoreApiMixin, SimpleHTTPRequestHandler):
                 return
             gemini = data.get("gemini_key", data.get("gemini")) or config.gemini_key()
             groq = data.get("groq_key", data.get("groq")) or config.groq_key()
-            res = chat.verify_key_connection(gemini=gemini, groq=groq)
-            self._send_json(res)
+            results = chat.verify_key_connection(gemini=gemini, groq=groq)
+            ok = any(isinstance(v, dict) and v.get("ok") for v in results.values())
+            self._send_json({"ok": ok, "results": results}, status=200 if ok else 503)
             return
 
         # 4. Remove saved key
@@ -433,20 +516,33 @@ class MyraHandler(CoreApiMixin, SimpleHTTPRequestHandler):
         pass
 
 
-def create_server(host=HOST, port=PORT):
+def create_server(host=HOST, port=PORT, tls_cert_file=None, tls_key_file=None):
     handler = partial(MyraHandler, directory=str(UI_DIR))
-    return ThreadingHTTPServer((host, port), handler)
+    server = ThreadingHTTPServer((host, port), handler)
+    cert_file = TLS_CERT_FILE if tls_cert_file is None else str(tls_cert_file or "").strip()
+    key_file = TLS_KEY_FILE if tls_key_file is None else str(tls_key_file or "").strip()
+    server.myra_scheme = "http"
+    if bool(cert_file) != bool(key_file):
+        server.server_close()
+        raise ValueError("MYRA_TLS_CERT_FILE and MYRA_TLS_KEY_FILE must be set together")
+    if cert_file and key_file:
+        cert_path = Path(cert_file).expanduser()
+        key_path = Path(key_file).expanduser()
+        if not cert_path.exists() or not key_path.exists():
+            server.server_close()
+            raise FileNotFoundError("Configured MYRA TLS certificate/key file was not found")
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+        server.myra_scheme = "https"
+    return server
 
 
 def main():
-    # Initialize the legacy SQLite tables used by the main web UI. The
-    # Core service initializes its separate app-data database lazily.
-    memory.init_db()
-    notes.init_db()
-    reminders.init_db()
+    initialize_runtime()
 
     server = create_server()
-    print(f"🤖 MYRA is running at http://{HOST}:{PORT}")
+    print(f"🤖 MYRA is running at {server.myra_scheme}://{HOST}:{PORT}")
     print("Press Ctrl+C to quit.")
     try:
         server.serve_forever()

@@ -43,6 +43,60 @@ this step.
 Free keys: Gemini — <https://aistudio.google.com> · Groq —
 <https://console.groq.com>.
 
+SETTING includes key status/removal for Gemini, Groq, OpenRouter, OpenAI,
+DeepSeek and Mistral. The Ollama row shows the saved model plus whether
+the Ollama app is actually running and whether that exact model is
+installed.
+
+## Answer length and faster replies
+
+MYRA is set to **short answers by default**. In **SETTING → Answer
+length**, keep **Short by default** for the fastest replies. MYRA gives a
+longer explanation only when you clearly ask for more — for example
+“বেশি করে বলো”, “একটু বড় করে বলো”, “ভালো করে বুঝিয়ে বলো” or “explain in
+detail”. Choose **Detailed explanations** only if you want longer answers
+most of the time.
+
+For voice, MYRA now prepares the already-installed hearing model while
+you are speaking, uses a shorter pause before sending your finished
+sentence, generates a short spoken answer, and can fall back quickly to a
+matching Windows voice if the neural voice service is slow. Your finished
+speech is sent directly to MYRA; it is not placed in the typed-message
+box and does not need a second Send tap.
+
+## System Files & Background
+
+Open **SETTING → System Files & Background** if an option ever seems
+unprepared:
+
+- **CHECK SYSTEM FILES** only reports what is ready/missing; it never
+  shows API-key values.
+- **CREATE / REPAIR FILES** creates the local database, default UI
+  settings, workspace, voice cache/temp folders, model registry,
+  offline-news file, feedback file and a private `.env` starter if one
+  is missing. It never overwrites an existing `.env`, never downloads a
+  voice model silently, and does not erase memories, notes or keys.
+
+A browser-profile copy keeps the interface instant, and the same
+non-secret choices (character, theme, brain, answer length, voice,
+awareness and panel/news preferences) are backed up in `myra.db`.
+
+## Connection safety and Phone Link
+
+MYRA's normal desktop backend uses `127.0.0.1`, which means the window
+and backend talk only inside this laptop. That local HTTP connection does
+not travel over the internet. Cloud AI providers, GitHub updates, news
+feeds and confirmed model downloads use HTTPS; Ollama is local.
+
+Phone Link therefore shows **OFF** in normal safe mode rather than a
+fake QR code. Advanced users may deliberately set `MYRA_HOST=0.0.0.0` and
+preferably both `MYRA_TLS_CERT_FILE` and `MYRA_TLS_KEY_FILE` for trusted
+home Wi-Fi. A long `MYRA_API_TOKEN` then gates Core API (`/api/v1/...`)
+action calls from other devices, but it is **not** a password for the
+whole MYRA page — so never expose LAN mode to public Wi-Fi or the
+internet. (Setting a token never locks MYRA's own screen on this laptop;
+same-laptop requests are always allowed.)
+
 ## Voice, Live Vision and Computer control
 
 The default smooth window now contains the live-voice and Core Agent
@@ -72,7 +126,7 @@ cloud brains and Edge neural voices still need internet.
 ## Your data
 
 Everything private lives in `%LOCALAPPDATA%\MYRA\` (database, workspace,
-speech models, backups, webview profile) — outside the install folder, so updates and
+speech models/cache, offline news, feedback, backups, logs, attachments and webview profile) — outside the install folder, so updates and
 reinstalls keep it. Old `data\myra.db` contents are imported automatically
 once; **Diagnostics → Import legacy data** can re-run the import safely.
 
@@ -107,6 +161,12 @@ bundled into the build.
   app, make sure the exact model shown in **SETTING** is installed, then
   try again. MYRA intentionally will not fall back to Gemini while
   Ollama is explicitly selected.
+- **An option says a file or setting is missing** — open **SETTING →
+  System Files & Background → CREATE / REPAIR FILES**, then tap
+  **CHECK SYSTEM FILES**. Items that still need your choice (an API key or
+  the one-time voice-model download) are listed honestly.
+- **Phone Link says OFF** — this is correct in safe local-only mode. It
+  only becomes available after deliberate trusted-LAN configuration.
 - **Update window reports no internet** — MYRA simply starts the installed
   version; nothing is broken. Updates require verified HTTPS to GitHub.
 - **`launcher-log.txt`** in the MYRA folder records update/start messages.

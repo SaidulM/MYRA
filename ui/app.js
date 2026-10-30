@@ -46,15 +46,37 @@ function setHoloState(txt) {
   const el = $('holoState'); if (el) el.textContent = txt;
 }
 
-/* ---------- Session console + history ---------- */
+/* ---------- Session console + persistent history ---------- */
 const EVENTS = [];
 function logEvent(msg) {
   EVENTS.push([new Date(), msg]);
   const el = $('consoleLog');
   if (el) el.textContent = EVENTS.map(([d, m]) => `[${d.toLocaleTimeString('en-GB')}] ${m}`).join('\n');
 }
-const HISTORY = [];
-function pushHistory(who, text) { HISTORY.push({ who, text, at: new Date() }); }
+function loadSavedHistory() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('myra_history') || '[]');
+    if (!Array.isArray(raw)) return [];
+    return raw.slice(-200).map((h) => ({
+      who: h && h.who === 'user' ? 'user' : 'ai',
+      text: String((h && h.text) || ''),
+      at: new Date((h && h.at) || Date.now()),
+    })).filter((h) => h.text);
+  } catch (e) { return []; }
+}
+const HISTORY = loadSavedHistory();
+function saveHistory() {
+  try {
+    localStorage.setItem('myra_history', JSON.stringify(HISTORY.slice(-200).map((h) => ({
+      who: h.who, text: h.text, at: h.at instanceof Date ? h.at.toISOString() : h.at,
+    }))));
+  } catch (e) {}
+}
+function pushHistory(who, text) {
+  HISTORY.push({ who, text, at: new Date() });
+  if (HISTORY.length > 200) HISTORY.splice(0, HISTORY.length - 200);
+  saveHistory();
+}
 
 /* =========================================================
    Themes
@@ -91,6 +113,128 @@ const HOLO = {
   pMat: null,
   startMorph: null,  // set inside initHologram
 };
+
+/* ---------- UI settings backup in MYRA's local database ----------
+   The WebView localStorage is the fast Start cache; the same non-secret
+   choices are also mirrored to /api/settings/ui (SQLite myra.db).  If a
+   browser profile is cleared, MYRA can restore the owner's choices. */
+const UI_SETTING_LOCAL_KEYS = new Set([
+  'myra_name', 'myra_owner', 'myra_char', 'myra_theme', 'myra_brain_provider',
+  'myra_personality', 'myra_response_style', 'myra_awareness', 'myra_voice_style',
+  'myra_voice_pitch', 'myra_voice_rate', 'myra_voice_uri', 'myra_voice_muted',
+  'myra_speech_lang', 'myra_lang', 'myra_custom_persona_name',
+  'myra_custom_persona_prompt', 'myra_office_anim', 'myra_globe_spin',
+  'myra_right_collapsed', 'myra_news_region', 'myra_onboarded',
+]);
+let uiSettingsSyncTimer = null;
+let uiSettingsHydrating = false;
+const nativeStorageSetItem = Storage.prototype.setItem;
+const nativeStorageRemoveItem = Storage.prototype.removeItem;
+function collectUiSettings() {
+  const pitch = parseFloat(localStorage.getItem('myra_voice_pitch'));
+  const rate = parseFloat(localStorage.getItem('myra_voice_rate'));
+  return {
+    assistant_name: localStorage.getItem('myra_name') || 'MYRA',
+    owner_name: localStorage.getItem('myra_owner') || 'Saidul',
+    character: HOLO.char,
+    theme: themeName,
+    brain_provider: localStorage.getItem('myra_brain_provider') || 'auto',
+    personality: localStorage.getItem('myra_personality') || 'Warm & friendly',
+    response_style: localStorage.getItem('myra_response_style') || 'auto',
+    awareness: localStorage.getItem('myra_awareness') === '1',
+    voice_style: localStorage.getItem('myra_voice_style') || 'gentle',
+    voice_pitch: Number.isFinite(pitch) ? pitch : 1.0,
+    voice_rate: Number.isFinite(rate) ? rate : 1.0,
+    voice_uri: localStorage.getItem('myra_voice_uri') || 'auto',
+    voice_muted: localStorage.getItem('myra_voice_muted') === '1',
+    speech_language: localStorage.getItem('myra_speech_lang') || localStorage.getItem('myra_lang') || 'bn-BD',
+    custom_persona_name: localStorage.getItem('myra_custom_persona_name') || '',
+    custom_persona_prompt: localStorage.getItem('myra_custom_persona_prompt') || '',
+    office_animation: localStorage.getItem('myra_office_anim') !== '0',
+    globe_auto_spin: localStorage.getItem('myra_globe_spin') !== '0',
+    right_panel_collapsed: localStorage.getItem('myra_right_collapsed') === '1',
+    news_region: localStorage.getItem('myra_news_region') || 'all',
+    onboarded: localStorage.getItem('myra_onboarded') === 'true',
+  };
+}
+async function syncUiSettingsNow(useBeacon = false) {
+  if (location.protocol === 'file:') return;
+  const body = JSON.stringify({ settings: collectUiSettings() });
+  try {
+    if (useBeacon && navigator.sendBeacon) {
+      navigator.sendBeacon('/api/settings/ui', new Blob([body], { type: 'application/json' }));
+      return;
+    }
+    await fetch('/api/settings/ui', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: useBeacon,
+    });
+  } catch (e) {}
+}
+function queueUiSettingsSync() {
+  if (uiSettingsHydrating || location.protocol === 'file:') return;
+  clearTimeout(uiSettingsSyncTimer);
+  uiSettingsSyncTimer = setTimeout(() => syncUiSettingsNow(false), 650);
+}
+try {
+  Storage.prototype.setItem = function(key, value) {
+    nativeStorageSetItem.call(this, key, value);
+    if (this === localStorage && UI_SETTING_LOCAL_KEYS.has(key)) queueUiSettingsSync();
+  };
+  Storage.prototype.removeItem = function(key) {
+    nativeStorageRemoveItem.call(this, key);
+    if (this === localStorage && UI_SETTING_LOCAL_KEYS.has(key)) queueUiSettingsSync();
+  };
+  window.addEventListener('beforeunload', () => syncUiSettingsNow(true));
+} catch (e) {}
+async function hydrateUiSettings() {
+  if (location.protocol === 'file:') return;
+  const controller = 'AbortController' in window ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), 1200) : null;
+  try {
+    const res = await fetch('/api/settings/ui', { signal: controller ? controller.signal : undefined });
+    const data = await res.json().catch(() => ({}));
+    const stored = (data && data.stored_settings) || {};
+    const setIfMissing = (key, value) => {
+      if (value === undefined || value === null || localStorage.getItem(key) !== null) return;
+      nativeStorageSetItem.call(localStorage, key, String(value));
+    };
+    uiSettingsHydrating = true;
+    setIfMissing('myra_name', stored.assistant_name);
+    setIfMissing('myra_owner', stored.owner_name);
+    setIfMissing('myra_char', stored.character);
+    setIfMissing('myra_theme', stored.theme);
+    setIfMissing('myra_brain_provider', stored.brain_provider);
+    setIfMissing('myra_personality', stored.personality);
+    setIfMissing('myra_response_style', stored.response_style);
+    if (stored.awareness !== undefined) setIfMissing('myra_awareness', stored.awareness ? '1' : '0');
+    setIfMissing('myra_voice_style', stored.voice_style);
+    setIfMissing('myra_voice_pitch', stored.voice_pitch);
+    setIfMissing('myra_voice_rate', stored.voice_rate);
+    setIfMissing('myra_voice_uri', stored.voice_uri);
+    if (stored.voice_muted !== undefined) setIfMissing('myra_voice_muted', stored.voice_muted ? '1' : '0');
+    setIfMissing('myra_speech_lang', stored.speech_language);
+    setIfMissing('myra_lang', stored.speech_language);
+    setIfMissing('myra_custom_persona_name', stored.custom_persona_name);
+    setIfMissing('myra_custom_persona_prompt', stored.custom_persona_prompt);
+    if (stored.office_animation !== undefined) setIfMissing('myra_office_anim', stored.office_animation ? '1' : '0');
+    if (stored.globe_auto_spin !== undefined) setIfMissing('myra_globe_spin', stored.globe_auto_spin ? '1' : '0');
+    if (stored.right_panel_collapsed !== undefined) setIfMissing('myra_right_collapsed', stored.right_panel_collapsed ? '1' : '0');
+    setIfMissing('myra_news_region', stored.news_region);
+    if (stored.onboarded !== undefined) setIfMissing('myra_onboarded', stored.onboarded ? 'true' : 'false');
+    themeName = localStorage.getItem('myra_theme') || themeName;
+    if (!THEME_HEX[themeName]) themeName = 'stonic';
+    HOLO.char = savedChar();
+  } catch (e) {
+    // Local settings remain fully usable if the backend is briefly busy.
+  } finally {
+    if (timer) clearTimeout(timer);
+    uiSettingsHydrating = false;
+    queueUiSettingsSync(); // migrate existing local choices into myra.db
+  }
+}
 
 const LGT = (() => {
   const nrm = (x, y, z) => { const l = Math.hypot(x, y, z); return [x / l, y / l, z / l]; };
@@ -860,7 +1004,7 @@ const FEEDS = [
 const OFFLINE_NEWS = [
   { title: "You're offline — live headlines will appear here the moment internet returns.", link: '#', src: 'OFFLINE', ts: Date.now() },
 ];
-let newsItems = [], newsLive = false, newsRegion = 'all';
+let newsItems = [], newsLive = false, newsRegion = localStorage.getItem('myra_news_region') || 'all';
 
 function timeAgo(ts) {
   const m = Math.floor((Date.now() - ts) / 60000);
@@ -1069,7 +1213,7 @@ function renderHistory() {
   const box = $('historyList');
   box.innerHTML = '';
   if (!HISTORY.length) {
-    box.innerHTML = '<div class="empty-note">No conversation yet this session.</div>';
+    box.innerHTML = '<div class="empty-note">No saved conversation yet.</div>';
     return;
   }
   HISTORY.forEach((h) => {
@@ -1089,7 +1233,7 @@ function renderHistory() {
 /* =========================================================
    Speaking (demo TTS; real voice in Stage 5)
    ========================================================= */
-let VOICE_MUTED = false;
+let VOICE_MUTED = localStorage.getItem('myra_voice_muted') === '1';
 function speechLangFor(text) {
   if (/[\u0980-\u09FF]/.test(text)) return 'bn-BD';
   if (/[\u0900-\u097F]/.test(text)) return 'hi-IN';
@@ -1112,7 +1256,8 @@ function browserVoiceGender(voice) {
   if (/male|david|guy|daniel|george|ravi|hemant|madhur|pradeep|bashkar/.test(name)) return 'male';
   return '';
 }
-function spokenMainText(raw, maxChars = 620) {
+function spokenMainText(raw, detailed = false) {
+  const maxChars = detailed ? 850 : 300;
   let text = String(raw || '')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`[^`]+`/g, ' ')
@@ -1130,7 +1275,7 @@ function spokenMainText(raw, maxChars = 620) {
   const parts = sentences.length ? sentences : [text];
   if (parts.length > 1 && /^(sure|of course|certainly|okay|here(?:'s| is)(?: the answer)?)[.!।]?$/i.test(parts[0])) parts.shift();
   let out = '';
-  for (const sentence of parts.slice(0, 4)) {
+  for (const sentence of parts.slice(0, detailed ? 5 : 2)) {
     const candidate = out ? `${out} ${sentence}` : sentence;
     if (candidate.length > maxChars && out) break;
     out = candidate;
@@ -1140,8 +1285,17 @@ function spokenMainText(raw, maxChars = 620) {
   return out;
 }
 
-async function speakDemo(rawText) {
-  const text = spokenMainText(rawText);
+function hasFastBrowserVoice(lang) {
+  if (!('speechSynthesis' in window)) return false;
+  try {
+    const gender = characterVoiceGender();
+    const prefix = String(lang || '').slice(0, 2).toLowerCase();
+    return speechSynthesis.getVoices().some((v) => browserVoiceGender(v) === gender && v.lang.toLowerCase().startsWith(prefix));
+  } catch (e) { return false; }
+}
+async function speakDemo(rawText, options = {}) {
+  const detailed = Boolean(options && (options.detailed || options.response_style === 'detailed'));
+  const text = spokenMainText(rawText, detailed);
   if (!text) return;
   if (!HOLO.power) return;
   if (VOICE_MUTED) {
@@ -1178,7 +1332,20 @@ async function speakDemo(rawText) {
   // FEMALE female). A browser voice URI is not an Edge voice ID.
   try {
     const controller = 'AbortController' in window ? new AbortController() : null;
-    const timeoutId = controller ? setTimeout(() => controller.abort(), 12000) : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 7000) : null;
+    // If Edge voice generation is slow and Windows already has a matching
+    // same-language voice, start locally instead of making the owner wait.
+    const fastFallbackId = controller ? setTimeout(() => {
+      if (hasFastBrowserVoice(lang)) controller.abort();
+    }, 1800) : null;
+    const savedPitchForEdge = parseFloat(localStorage.getItem('myra_voice_pitch'));
+    const savedRateForEdge = parseFloat(localStorage.getItem('myra_voice_rate'));
+    const edgePitch = Number.isFinite(savedPitchForEdge)
+      ? `${Math.round(clamp((savedPitchForEdge - 1) * 50, -30, 30)) >= 0 ? '+' : ''}${Math.round(clamp((savedPitchForEdge - 1) * 50, -30, 30))}Hz`
+      : '+0Hz';
+    const edgeRate = Number.isFinite(savedRateForEdge)
+      ? `${Math.round(clamp((savedRateForEdge - 1) * 100, -40, 50)) >= 0 ? '+' : ''}${Math.round(clamp((savedRateForEdge - 1) * 100, -40, 50))}%`
+      : '+0%';
     const res = await fetch('/api/voice/speak', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1187,10 +1354,15 @@ async function speakDemo(rawText) {
         character: HOLO.char,
         voice: 'auto',
         style: localStorage.getItem('myra_voice_style') || 'gentle',
+        pitch: edgePitch,
+        rate: edgeRate,
+        detailed,
+        response_style: detailed ? 'detailed' : 'short',
       }),
       signal: controller ? controller.signal : undefined,
     });
     if (timeoutId) clearTimeout(timeoutId);
+    if (fastFallbackId) clearTimeout(fastFallbackId);
     if (runId !== speechRunId) return;
 
     if (res.ok && (res.headers.get('Content-Type') || '').includes('audio')) {
@@ -1281,9 +1453,22 @@ const GREETINGS = {
   male: 'Good day, sir. 🎩 I am MYRA, at your service. I will use exactly the brain you select above, with a male voice in this form. How may I help?',
   female: "Hello, I'm MYRA — your personal desktop companion. 💗 I will use exactly the brain you select above, with a female voice in this form. Type below or tap the mic and talk to me!",
 };
-let chatContext = [];
-let chatBusy = false;
 const MAX_CHAT_CONTEXT = 14;
+function loadSavedChatContext() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('myra_chat_context') || '[]');
+    if (!Array.isArray(raw)) return [];
+    return raw.slice(-MAX_CHAT_CONTEXT).map((m) => ({
+      role: m && m.role === 'assistant' ? 'assistant' : 'user',
+      text: String((m && m.text) || '').slice(0, 6000),
+    })).filter((m) => m.text);
+  } catch (e) { return []; }
+}
+let chatContext = loadSavedChatContext();
+let chatBusy = false;
+function saveChatContext() {
+  try { localStorage.setItem('myra_chat_context', JSON.stringify(chatContext.slice(-MAX_CHAT_CONTEXT))); } catch (e) {}
+}
 
 function currentPersonality() {
   const sel = $('personality');
@@ -1354,7 +1539,7 @@ function addMsg(text, who, skipHistory) {
   if (text && !skipHistory) pushHistory(who, text);
   return bubble;
 }
-async function sendChat(voiceText) {
+async function sendChat(voiceText, options = {}) {
   if (chatBusy) return;
   const input = $('chatInput');
   // Live speech is delivered directly to MYRA. It is never placed in the
@@ -1371,6 +1556,7 @@ async function sendChat(voiceText) {
   addMsg(text, 'user');
   chatContext.push({ role: 'user', text });
   chatContext = chatContext.slice(-MAX_CHAT_CONTEXT);
+  saveChatContext();
   if (!directText) input.value = '';
   setChatBusy(true);
   setHoloStatus('🤔 MYRA is thinking…');
@@ -1388,9 +1574,10 @@ async function sendChat(voiceText) {
       throw previewError;
     }
 
-    // Multimodal Vision capture: if camera or screen stream is live, capture frame
-    let imageBase64 = null;
-    if (VIS.cam || VIS.scr) {
+    // Multimodal Vision capture: a Snapshot passes its exact captured
+    // frame; otherwise use the currently consented live camera/screen.
+    let imageBase64 = options && typeof options.image === 'string' ? options.image : null;
+    if (!imageBase64 && (VIS.cam || VIS.scr)) {
       try {
         const video = $('vhVideo');
         if (video && video.videoWidth && video.videoHeight) {
@@ -1415,6 +1602,7 @@ async function sendChat(voiceText) {
       assistant_name: localStorage.getItem('myra_name') || 'MYRA',
       owner_name: localStorage.getItem('myra_owner') || 'Saidul',
       provider: localStorage.getItem('myra_brain_provider') || 'auto',
+      response_style: localStorage.getItem('myra_response_style') || 'auto',
       custom_prompt: HOLO.char === 'custom' ? (localStorage.getItem('myra_custom_persona_prompt') || '') : undefined,
       image: imageBase64 || undefined,
     };
@@ -1437,6 +1625,7 @@ async function sendChat(voiceText) {
     const reply = String(data.reply).trim();
     chatContext.push({ role: 'assistant', text: reply });
     chatContext = chatContext.slice(-MAX_CHAT_CONTEXT);
+    saveChatContext();
     const selectedBrain = payload.provider || 'auto';
     const meta = [
       data.provider_label ? 'via ' + data.provider_label : '',
@@ -1462,7 +1651,7 @@ async function sendChat(voiceText) {
       }
     }
     if (data.notice) toast('ℹ️ ' + data.notice, 4200);
-    speakDemo(reply);
+    speakDemo(reply, { response_style: data.response_style || 'short' });
   } catch (error) {
     const message = friendlyChatError(error, error.data);
     finishAiBubble(typing, message, '');
@@ -1490,6 +1679,7 @@ function newChat() {
   ready.textContent = '✦ NEW CONVERSATION ✦';
   log.appendChild(ready);
   chatContext = [];
+  saveChatContext();
   addMsg(GREETINGS[HOLO.char] || GREETINGS.core, 'ai');
   logEvent('new conversation started');
 }
@@ -1757,6 +1947,15 @@ async function startBackendLiveVoiceOnce() {
     promptLiveVoiceSetup(status);
     return false;
   }
+  // Load the already-installed hearing model while the owner is speaking,
+  // so the first finished sentence does not wait for model Start.
+  try {
+    fetch('/api/v1/voice/warmup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    }).catch(() => {});
+  } catch (e) {}
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({
@@ -1824,7 +2023,7 @@ async function startBackendLiveVoiceOnce() {
         if (BACKEND_MIC.ctx && BACKEND_MIC.ctx.state !== 'running') {
           // If Chromium keeps the analyser suspended, do not lose the
           // utterance: transcribe a bounded segment anyway.
-          if (now - BACKEND_MIC.startedAt > 7000) stopBackendMic(false, false);
+          if (now - BACKEND_MIC.startedAt > 6000) stopBackendMic(false, false);
           return;
         }
         BACKEND_MIC.analyser.getByteTimeDomainData(samples);
@@ -1833,7 +2032,7 @@ async function startBackendLiveVoiceOnce() {
         const rms = Math.sqrt(sum / samples.length);
         updateMicWave(1 + Math.min(3, rms * 10));
         if (rms > 0.025) { BACKEND_MIC.heard = true; BACKEND_MIC.lastLoudAt = now; }
-        if (BACKEND_MIC.heard && now - BACKEND_MIC.lastLoudAt > 900) stopBackendMic(false, false);
+        if (BACKEND_MIC.heard && now - BACKEND_MIC.lastLoudAt > 700) stopBackendMic(false, false);
         else if (now - BACKEND_MIC.startedAt > 15000) stopBackendMic(!BACKEND_MIC.heard, !BACKEND_MIC.heard);
       }, 120);
     }
@@ -1898,7 +2097,7 @@ function setupSpeechRecognition() {
       updateMicWave(2.5);
 
       // Fast automatic delivery on silence (650ms if final, 1300ms interim).
-      const silenceDelay = hasFinal ? 650 : 1300;
+      const silenceDelay = hasFinal ? 500 : 1050;
       speechSilenceTimer = setTimeout(() => {
         const val = liveVoiceTranscript.trim();
         if (val && !chatBusy) {
@@ -1925,7 +2124,7 @@ function setupSpeechRecognition() {
           try { rec.stop(); } catch (err) {}
           updateMicWave(0);
         }
-      }, 500);
+      }, 300);
     }
   };
 
@@ -2019,6 +2218,7 @@ async function setMic(on, silent) {
 
 function setMute(muted) {
   VOICE_MUTED = muted;
+  try { localStorage.setItem('myra_voice_muted', muted ? '1' : '0'); } catch (e) {}
   const b = $('muteBtn');
   b.textContent = muted ? '🔇' : '🔊';
   b.classList.toggle('on', muted);
@@ -2324,7 +2524,7 @@ const ONBOARD_GREETINGS = {
 };
 
 function checkOnboarding() {
-  const onboarded = localStorage.getItem('myra_onboarded');
+  const onboarded = localStorage.getItem('myra_onboarded') === 'true';
   const modal = $('onboardModal');
   if (!modal) return;
 
@@ -2444,6 +2644,7 @@ function initMobileLink() {
   const copyBtn = $('copyMobileUrlBtn');
   const urlDisplay = $('mobileUrlDisplay');
   const qrBox = $('phoneQrBox');
+  const note = $('mobileLinkNote');
 
   if (!btn || !modal) return;
 
@@ -2458,7 +2659,18 @@ function initMobileLink() {
     try {
       const res = await fetch('/api/system/network-info');
       const data = await res.json();
-      const mobileUrl = data.mobile_url || `http://${location.hostname}:${location.port || 8765}`;
+      if (!data.lan_enabled || !data.mobile_url) {
+        if (note) note.textContent = 'Phone Link is OFF in safe local-only mode. MYRA is reachable only inside this laptop (127.0.0.1), so a phone QR would not work. LAN mode must be deliberately configured with MYRA_HOST on trusted Wi-Fi (prefer HTTPS). Note: MYRA_API_TOKEN only gates Core API calls from other devices — it is not a password for the whole page.';
+        if (urlDisplay) urlDisplay.textContent = 'Local-only mode · 127.0.0.1';
+        if (qrBox) qrBox.innerHTML = '<div style="padding:28px 14px;text-align:center;color:#020b18;font-weight:700;line-height:1.5">📱<br>Phone Link OFF<br><small>Safe local-only mode</small></div>';
+        if (copyBtn) copyBtn.disabled = true;
+        return;
+      }
+      if (copyBtn) copyBtn.disabled = false;
+      const mobileUrl = data.mobile_url;
+      if (note) note.textContent = data.scheme === 'https'
+        ? 'Scan this QR code on the same trusted Wi-Fi. This LAN link uses HTTPS.'
+        : 'Scan this QR code only on trusted home Wi-Fi. This LAN link is HTTP, not HTTPS.';
       if (urlDisplay) urlDisplay.textContent = mobileUrl;
       if (qrBox) {
         if (typeof QRCode !== 'undefined') {
@@ -2475,8 +2687,9 @@ function initMobileLink() {
         }
       }
     } catch (e) {
-      const fallbackUrl = `http://${location.hostname}:${location.port || 8765}`;
-      if (urlDisplay) urlDisplay.textContent = fallbackUrl;
+      if (note) note.textContent = 'Could not check Phone Link status. MYRA will stay in local-only mode.';
+      if (urlDisplay) urlDisplay.textContent = 'Phone Link unavailable';
+      if (copyBtn) copyBtn.disabled = true;
     }
   });
 
@@ -2494,7 +2707,12 @@ function initMobileLink() {
 /* =========================================================
    Event wiring
    ========================================================= */
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  await hydrateUiSettings();
+  // A few module-level values were read before backend settings could be
+  // restored into a cleared WebView profile; refresh them after hydration.
+  VOICE_MUTED = localStorage.getItem('myra_voice_muted') === '1';
+  newsRegion = localStorage.getItem('myra_news_region') || 'all';
   document.body.dataset.theme = themeName;
   logEvent('MYRA shell boot · theme=' + themeName + ' · char=' + HOLO.char);
 
@@ -2507,6 +2725,40 @@ document.addEventListener('DOMContentLoaded', () => {
   initMobileLink();
   checkOnboarding();
   syncCharUI();
+
+  // Restore the last visible conversation (history itself is saved too).
+  // Replace the static first-run greeting instead of showing it twice.
+  if (chatContext.length) {
+    const log = $('chatLog');
+    if (log) {
+      log.innerHTML = '';
+      const ready = document.createElement('div');
+      ready.className = 'sys-ready';
+      ready.textContent = '✦ SYSTEM READY ✦';
+      log.appendChild(ready);
+    }
+    chatContext.slice(-8).forEach((m) => addMsg(m.text, m.role === 'assistant' ? 'ai' : 'user', true));
+  }
+  const savedMuteBtn = $('muteBtn');
+  if (savedMuteBtn && VOICE_MUTED) {
+    savedMuteBtn.textContent = '🔇';
+    savedMuteBtn.classList.add('on');
+  }
+  const officeToggle = $('officeAnimToggle');
+  if (officeToggle) {
+    officeToggle.checked = localStorage.getItem('myra_office_anim') !== '0';
+    officeToggle.addEventListener('change', () => localStorage.setItem('myra_office_anim', officeToggle.checked ? '1' : '0'));
+  }
+  const globeToggle = $('globeSpin');
+  if (globeToggle) {
+    globeToggle.checked = localStorage.getItem('myra_globe_spin') !== '0';
+    globeToggle.addEventListener('change', () => localStorage.setItem('myra_globe_spin', globeToggle.checked ? '1' : '0'));
+  }
+  document.querySelectorAll('.rg-chip').forEach((chip) => chip.classList.toggle('active', chip.dataset.region === newsRegion));
+  if (localStorage.getItem('myra_right_collapsed') === '1') {
+    document.body.classList.add('right-collapsed');
+    $('reopenRightBtn')?.classList.remove('hidden');
+  }
 
   const voiceStyleSel = $('voiceStyleSelect');
   if (voiceStyleSel) {
@@ -2538,14 +2790,18 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   $('nameSave')?.addEventListener('click', () => {
     const v = $('nameInput')?.value.trim() || 'MYRA';
+    const owner = $('ownerNameChar')?.value.trim() || localStorage.getItem('myra_owner') || 'Saidul';
     localStorage.setItem('myra_name', v);
+    localStorage.setItem('myra_owner', owner);
     if (npNameEl) npNameEl.textContent = v.toUpperCase();
-    toast('✨ Name saved — say hello to ' + v + '!');
+    applyOwner(owner);
+    toast('✨ Names saved — hello ' + owner.split(' ')[0] + ', I am ' + v + '!');
   });
   const applyOwner = (name) => {
     $('profileNameTop').textContent = (name || 'Profile').split(' ')[0];
     $('profileAvatar').textContent = (name || 'S').trim().charAt(0).toUpperCase() || 'S';
     $('ownerName').value = name || '';
+    if ($('ownerNameChar')) $('ownerNameChar').value = name || '';
   };
   applyOwner(localStorage.getItem('myra_owner') || 'Saidul');
   $('ownerSave').addEventListener('click', () => {
@@ -2559,16 +2815,33 @@ document.addEventListener('DOMContentLoaded', () => {
   setupDropdown('supportBtn', 'supportDrop');
   setupDropdown('profileBtn', 'profileDrop');
   document.addEventListener('click', () => closeDropdowns());
-  $('feedbackSend').addEventListener('click', () => {
+  $('feedbackSend').addEventListener('click', async () => {
     const v = $('feedbackText').value.trim();
     if (!v) { toast('✏️ Write something first!'); return; }
-    const arr = JSON.parse(localStorage.getItem('myra_feedback') || '[]');
-    arr.push({ ts: Date.now(), text: v });
-    localStorage.setItem('myra_feedback', JSON.stringify(arr));
+    // Browser-profile backup first, then MYRA's durable app-data file.
+    try {
+      const arr = JSON.parse(localStorage.getItem('myra_feedback') || '[]');
+      arr.push({ ts: Date.now(), text: v });
+      localStorage.setItem('myra_feedback', JSON.stringify(arr.slice(-100)));
+    } catch (e) {}
+    let savedToFile = false;
+    if (location.protocol !== 'file:') {
+      try {
+        const res = await fetch('/api/feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: v, source: 'web-ui' }),
+        });
+        const data = await res.json().catch(() => ({}));
+        savedToFile = Boolean(res.ok && data.ok);
+      } catch (e) {}
+    }
     $('feedbackText').value = '';
     closeDropdowns();
-    toast('💬 Thanks! Your feedback is saved on this device.');
-    logEvent('feedback saved');
+    toast(savedToFile
+      ? '💬 Thanks! Feedback saved in MYRA’s local feedback.jsonl file.'
+      : '💬 Thanks! Feedback saved in this app profile on your device.');
+    logEvent('feedback saved' + (savedToFile ? ' to feedback.jsonl' : ' to local profile backup'));
   });
 
   /* Awareness */
@@ -2577,8 +2850,8 @@ document.addEventListener('DOMContentLoaded', () => {
   aw.addEventListener('change', () => {
     localStorage.setItem('myra_awareness', aw.checked ? '1' : '0');
     toast(aw.checked
-      ? '👁️ Awareness ON — in Stages 5 & 9 MYRA will proactively notice things, always within the permissions you grant.'
-      : '👁️ Awareness OFF — MYRA will only respond when you talk to her.', 4800);
+      ? '👁️ Awareness ON — MYRA may speak due-reminder alerts. It never starts the mic, camera or screen by itself.'
+      : '👁️ Awareness OFF — reminders still appear as text, but MYRA will not speak proactive alerts.', 5200);
     logEvent('awareness ' + (aw.checked ? 'ON' : 'OFF'));
   });
 
@@ -2686,7 +2959,14 @@ document.addEventListener('DOMContentLoaded', () => {
   $('newChatBtn').addEventListener('click', newChat);
   $('historyBtn').addEventListener('click', () => openView('history'));
   $('consoleBtn').addEventListener('click', () => openView('console'));
-  $('clearHistory').addEventListener('click', () => { HISTORY.length = 0; renderHistory(); toast('🕘 History cleared for this session.'); });
+  $('clearHistory').addEventListener('click', () => {
+    HISTORY.length = 0;
+    saveHistory();
+    chatContext = [];
+    saveChatContext();
+    renderHistory();
+    toast('🕘 Saved conversation history cleared from this device.');
+  });
   $('expandConvoBtn').addEventListener('click', () => {
     const p = $('convoPanel');
     const on = p.classList.toggle('expanded');
@@ -2696,12 +2976,14 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   $('collapseRightBtn').addEventListener('click', () => {
     document.body.classList.add('right-collapsed');
+    localStorage.setItem('myra_right_collapsed', '1');
     $('reopenRightBtn').classList.remove('hidden');
     setTimeout(drawWires, 80);
     logEvent('right panel hidden');
   });
   $('reopenRightBtn').addEventListener('click', () => {
     document.body.classList.remove('right-collapsed');
+    localStorage.setItem('myra_right_collapsed', '0');
     $('reopenRightBtn').classList.add('hidden');
     setTimeout(drawWires, 80);
     logEvent('right panel restored');
@@ -3024,7 +3306,9 @@ document.addEventListener('DOMContentLoaded', () => {
             ? `রিমাইন্ডার এলার্ট: ${r.text}`
             : `Reminder Alert: ${r.text}`;
           toast('⏰ ' + alertMsg, 8000);
-          speakDemo(alertMsg);
+          // Awareness controls proactive speech only; the text reminder
+          // still appears, and no sensor is ever started automatically.
+          if (localStorage.getItem('myra_awareness') === '1') speakDemo(alertMsg);
           addMsg(alertMsg, 'ai');
         });
         loadReminders();
@@ -3033,24 +3317,34 @@ document.addEventListener('DOMContentLoaded', () => {
   };
   setInterval(checkDueReminders, 12000);
 
-  /* Visual Hub Snapshot */
-  $('vhSnapBtn')?.addEventListener('click', () => {
+  /* Visual Hub Snapshot — captures the exact consented frame and sends it */
+  $('vhSnapBtn')?.addEventListener('click', async () => {
     const video = $('vhVideo');
     if (!VIS.cam && !VIS.scr) {
       toast('📷 Turn on camera or screen share first to take a snapshot.');
       return;
     }
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      toast('📷 The camera/screen is still starting. Wait one moment and tap Snapshot again.');
+      return;
+    }
     try {
       const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth || 640;
-      canvas.height = video.videoHeight || 480;
+      const scale = Math.min(1, 1000 / Math.max(video.videoWidth, video.videoHeight));
+      canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+      canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
       const ctx = canvas.getContext('2d');
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const image = canvas.toDataURL('image/jpeg', 0.84);
       document.querySelector('[data-mode="voice"]').click();
-      $('chatInput').value = "Here is what I'm looking at right now (Snapshot captured).";
-      $('chatInput').focus();
-      toast('📸 Snapshot captured and attached to chat!');
-      logEvent('visual snapshot captured');
+      toast('📸 Snapshot captured — MYRA is looking at it now.');
+      logEvent('visual snapshot captured and sent with owner consent');
+      await sendChat(
+        VIS.scr
+          ? 'Here is a snapshot of my screen. Tell me briefly what you see and help me with it.'
+          : 'Here is a snapshot from my camera. Tell me briefly what you see.',
+        { image },
+      );
     } catch (e) {
       toast('⚠️ Snapshot error: ' + e.message);
     }
@@ -3159,7 +3453,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btn = $(removeId);
     if (!badge || !btn) return;
     if (info && info.set) {
-      badge.textContent = '✅ Saved (' + info.masked + ')';
+      badge.textContent = '✅ Saved (' + (info.masked || info.model || 'ready') + ')';
       badge.classList.add('set');
       btn.classList.remove('hidden');
     } else {
@@ -3173,6 +3467,11 @@ document.addEventListener('DOMContentLoaded', () => {
       $('keysPreviewNote').classList.remove('hidden');
       paintKeyStatus('geminiKeyStatus', 'removeGemini', null);
       paintKeyStatus('groqKeyStatus', 'removeGroq', null);
+      paintKeyStatus('openrouterKeyStatus', 'removeOpenrouter', null);
+      paintKeyStatus('openaiKeyStatus', 'removeOpenai', null);
+      paintKeyStatus('deepseekKeyStatus', 'removeDeepseek', null);
+      paintKeyStatus('mistralKeyStatus', 'removeMistral', null);
+      paintKeyStatus('ollamaKeyStatus', 'removeOllama', null);
       return;
     }
     try {
@@ -3183,15 +3482,25 @@ document.addEventListener('DOMContentLoaded', () => {
       paintKeyStatus('openrouterKeyStatus', 'removeOpenrouter', data.openrouter);
       paintKeyStatus('openaiKeyStatus', 'removeOpenai', data.openai);
       paintKeyStatus('deepseekKeyStatus', 'removeDeepseek', data.deepseek);
+      paintKeyStatus('mistralKeyStatus', 'removeMistral', data.mistral);
       paintKeyStatus('ollamaKeyStatus', 'removeOllama', data.ollama);
+      if (data.ollama && $('ollamaKeyStatus')) {
+        const savedModel = data.ollama.model || 'no model saved';
+        $('ollamaKeyStatus').textContent = data.ollama.running
+          ? (data.ollama.model_installed
+            ? `✅ Ollama running · ${savedModel} ready`
+            : `⚠️ Ollama running · ${savedModel} not installed`)
+          : `○ Ollama offline · saved model: ${savedModel}`;
+        $('ollamaKeyStatus').classList.toggle('set', Boolean(data.ollama.running && data.ollama.model_installed));
+      }
       if (data.gemini && data.gemini.model && $('geminiModelSelect')) {
         $('geminiModelSelect').value = data.gemini.model;
       }
       if (data.groq && data.groq.model && $('groqModelSelect')) {
         $('groqModelSelect').value = data.groq.model;
       }
-      if (data.ollama && data.ollama.model && $('ollamaModel')) {
-        $('ollamaModel').value = data.ollama.model;
+      if (data.ollama && $('ollamaModel')) {
+        $('ollamaModel').value = data.ollama.model || '';
       }
     } catch (e) {
       const g = $('geminiKeyStatus');
@@ -3204,16 +3513,86 @@ document.addEventListener('DOMContentLoaded', () => {
   const settingsChip = document.querySelector('[data-view="setting"]');
   if (settingsChip) settingsChip.addEventListener('click', refreshKeyStatus);
 
-  // Direct brain switcher synchronization
-  const brainSelect = $('quickBrainSelect');
-  if (brainSelect) {
-    const saved = localStorage.getItem('myra_brain_provider') || 'auto';
-    brainSelect.value = saved;
-    brainSelect.addEventListener('change', () => {
-      localStorage.setItem('myra_brain_provider', brainSelect.value);
-      toast('🧠 AI Brain switched to: ' + brainSelect.options[brainSelect.selectedIndex].text, 4000);
+  /* Answer length: short by default; backend expands only when asked. */
+  const responseLengthSelect = $('responseLengthSelect');
+  if (responseLengthSelect) {
+    responseLengthSelect.value = localStorage.getItem('myra_response_style') || 'auto';
+    responseLengthSelect.addEventListener('change', () => {
+      localStorage.setItem('myra_response_style', responseLengthSelect.value);
+      const label = responseLengthSelect.options[responseLengthSelect.selectedIndex].text;
+      const note = responseLengthSelect.value === 'detailed'
+        ? 'MYRA will explain in more detail by default; say “সংক্ষেপে বলো” for a short reply.'
+        : responseLengthSelect.value === 'short'
+          ? 'MYRA will stay short unless you clearly ask for more.'
+          : 'Short by default; MYRA expands only when you ask “বেশি করে বলো” or “explain in detail”.';
+      toast('✍️ Answer length: ' + label + '. ' + note, 5200);
+      logEvent('answer length → ' + responseLengthSelect.value);
     });
   }
+
+  /* System files/readiness panel. Status never shows secrets. */
+  const renderReadiness = (data) => {
+    const summary = $('readinessSummary');
+    const list = $('readinessList');
+    if (!summary || !list) return;
+    const checks = Array.isArray(data && data.checks) ? data.checks : [];
+    const readyCount = checks.filter((c) => c.ready).length;
+    const localMode = data && data.backend ? data.backend.mode : '';
+    const lanEnabled = Boolean(data && data.backend && data.backend.lan_enabled);
+    summary.textContent = checks.length
+      ? `${readyCount}/${checks.length} ready · ${localMode}. Cloud AI/GitHub/news use HTTPS${lanEnabled ? '; LAN mode is ON, so use only trusted Wi-Fi.' : '; your local backend stays inside this laptop in safe mode.'}`
+      : 'Could not load readiness yet.';
+    list.innerHTML = '';
+    checks.forEach((c) => {
+      const item = document.createElement('div');
+      item.className = 'readiness-item'
+        + (c.status === 'warning' ? ' is-warning' : '')
+        + (c.status === 'action_needed' ? ' is-action' : '');
+      const icon = document.createElement('span');
+      icon.className = 'readiness-icon';
+      icon.textContent = c.ready ? '✅' : (c.status === 'warning' ? '⚠️' : '○');
+      const text = document.createElement('span');
+      const b = document.createElement('b');
+      b.textContent = c.label || c.id || 'System item';
+      const detail = document.createElement('small');
+      detail.textContent = c.detail || '';
+      text.appendChild(b);
+      text.appendChild(detail);
+      item.appendChild(icon);
+      item.appendChild(text);
+      list.appendChild(item);
+    });
+  };
+  const refreshReadiness = async (repair = false) => {
+    const summary = $('readinessSummary');
+    if (inPreviewFile) {
+      if (summary) summary.textContent = 'Preview mode: run MYRA normally to check and prepare local files.';
+      if ($('readinessList')) $('readinessList').innerHTML = '';
+      return;
+    }
+    if (summary) summary.textContent = repair ? 'Preparing MYRA’s local files…' : 'Checking MYRA’s local files…';
+    try {
+      const res = await fetch(repair ? '/api/system/readiness/ensure' : '/api/system/readiness', {
+        method: repair ? 'POST' : 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        body: repair ? JSON.stringify({}) : undefined,
+      });
+      const data = await res.json().catch(() => ({}));
+      renderReadiness(data);
+      if (repair) {
+        toast(data.ok
+          ? '✅ MYRA local files are prepared. Optional items (a key or voice model) may still need your choice.'
+          : '⚠️ Some local files could not be prepared. Tap CHECK to see details.', 6200);
+      }
+      logEvent('system readiness ' + (repair ? 'repair checked' : 'checked'));
+    } catch (e) {
+      if (summary) summary.textContent = 'Backend offline — readiness could not be checked.';
+    }
+  };
+  $('refreshReadiness')?.addEventListener('click', () => refreshReadiness(false));
+  $('repairReadiness')?.addEventListener('click', () => refreshReadiness(true));
+  if (settingsChip) settingsChip.addEventListener('click', () => refreshReadiness(false));
+  refreshReadiness(false);
 
   $('saveKeys').addEventListener('click', async () => {
     const gemini = $('geminiKey') ? $('geminiKey').value.trim() : '';
@@ -3221,11 +3600,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const openrouter = $('openrouterKey') ? $('openrouterKey').value.trim() : '';
     const openai = $('openaiKey') ? $('openaiKey').value.trim() : '';
     const deepseek = $('deepseekKey') ? $('deepseekKey').value.trim() : '';
+    const mistral = $('mistralKey') ? $('mistralKey').value.trim() : '';
     const ollama = $('ollamaModel') ? $('ollamaModel').value.trim() : '';
 
     if (inPreviewFile) {
-      if ($('geminiKey')) $('geminiKey').value = '';
-      if ($('groqKey')) $('groqKey').value = '';
+      ['geminiKey', 'groqKey', 'openrouterKey', 'openaiKey', 'deepseekKey', 'mistralKey'].forEach((id) => { if ($(id)) $(id).value = ''; });
       toast('👀 Preview mode — run python run.py to save real keys locally.', 4500);
       return;
     }
@@ -3236,6 +3615,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (openrouter) body.openrouter_key = openrouter;
     if (openai) body.openai_key = openai;
     if (deepseek) body.deepseek_key = deepseek;
+    if (mistral) body.mistral_key = mistral;
     if (ollama) body.ollama_model = ollama;
     if ($('geminiModelSelect')) body.gemini_model = $('geminiModelSelect').value;
     if ($('groqModelSelect')) body.groq_model = $('groqModelSelect').value;
@@ -3258,8 +3638,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if ($('openrouterKey')) $('openrouterKey').value = '';
       if ($('openaiKey')) $('openaiKey').value = '';
       if ($('deepseekKey')) $('deepseekKey').value = '';
+      if ($('mistralKey')) $('mistralKey').value = '';
       refreshKeyStatus();
-      toast('🔑 AI Brain keys saved safely on your laptop (.env). You can chat with MYRA now!', 5500);
+      toast('🔑 AI Brain keys saved safely on your laptop (Windows Credential Manager when available). You can chat with MYRA now!', 5500);
       logEvent('API keys saved');
     } catch (e) {
       toast('❌ Could not save (' + e.message + ')', 5000);
@@ -3288,13 +3669,27 @@ document.addEventListener('DOMContentLoaded', () => {
   $('removeOpenrouter')?.addEventListener('click', () => removeKey('openrouter'));
   $('removeOpenai')?.addEventListener('click', () => removeKey('openai'));
   $('removeDeepseek')?.addEventListener('click', () => removeKey('deepseek'));
+  $('removeMistral')?.addEventListener('click', () => removeKey('mistral'));
   $('removeOllama')?.addEventListener('click', () => removeKey('ollama'));
 
-  /* Reset preferences */
-  $('resetPrefs').addEventListener('click', () => {
-    ['myra_char', 'myra_name', 'myra_skills', 'myra_personality', 'myra_theme', 'myra_awareness', 'myra_owner', 'myra_voice_uri', 'myra_voice_pitch', 'myra_voice_rate']
+  /* Reset preferences (display choices + skill switches; keys/data stay) */
+  $('resetPrefs').addEventListener('click', async () => {
+    ['myra_char', 'myra_name', 'myra_skills', 'myra_personality', 'myra_theme', 'myra_awareness', 'myra_owner', 'myra_voice_uri', 'myra_voice_pitch', 'myra_voice_rate', 'myra_voice_style', 'myra_voice_muted', 'myra_speech_lang', 'myra_lang', 'myra_onboarded', 'myra_brain_provider', 'myra_response_style', 'myra_custom_persona_name', 'myra_custom_persona_prompt', 'myra_office_anim', 'myra_globe_spin', 'myra_right_collapsed', 'myra_news_region', 'stonic_gender', 'myra_welcomed']
       .forEach((k) => localStorage.removeItem(k));
-    toast('🧹 Preferences reset — reload the page to start fresh.', 4200);
+    const skillDefaults = { browser_agent: true, pc_control: false, news_reader: true, note_helper: true, camera_vision: false };
+    document.querySelectorAll('.skill-toggle').forEach((tg) => {
+      tg.checked = Boolean(skillDefaults[tg.dataset.skill]);
+      saved[tg.dataset.skill] = tg.checked;
+    });
+    localStorage.setItem('myra_skills', JSON.stringify(saved));
+    if (location.protocol !== 'file:') {
+      try {
+        await Promise.all(Object.entries(CORE_SKILL_GROUPS).map(([name, ids]) => setCoreSkillGroup(ids, Boolean(skillDefaults[name]))));
+      } catch (e) {
+        toast('⚠️ Display preferences reset, but MYRA Core skill switches could not be reached.', 5600);
+      }
+    }
+    toast('🧹 Preferences reset — reload MYRA to apply every display default. API keys and saved data were kept.', 5600);
     logEvent('preferences reset');
   });
 
@@ -3302,11 +3697,29 @@ document.addEventListener('DOMContentLoaded', () => {
   $('vhCamBtn').addEventListener('click', () => setVisual('cam', !VIS.cam));
   $('vhScrBtn').addEventListener('click', () => setVisual('scr', !VIS.scr));
   document.querySelectorAll('.vh-suggest').forEach((btn) => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
+      const prompt = btn.dataset.vh || 'Tell me what you see.';
+      const wantsScreen = /screen/i.test(prompt);
       document.querySelector('[data-mode="voice"]').click();
-      $('chatInput').value = btn.dataset.vh;
-      $('chatInput').focus();
-      toast('👁️ Real vision arrives in Stage 9 — I placed your request in the chat box.');
+      if (wantsScreen && !VIS.scr) await setVisual('scr', true);
+      if (!wantsScreen && !VIS.cam) await setVisual('cam', true);
+      if (!(wantsScreen ? VIS.scr : VIS.cam)) {
+        toast('👁️ MYRA could not open that view. Allow the permission prompt, then tap the suggestion again.');
+        return;
+      }
+      // Wait briefly for the first real frame; otherwise the chat could be
+      // sent with words only and MYRA would have nothing to look at.
+      const video = $('vhVideo');
+      const started = Date.now();
+      while (video && (!video.videoWidth || !video.videoHeight) && Date.now() - started < 2500) {
+        await new Promise((resolve) => setTimeout(resolve, 120));
+      }
+      if (!video || !video.videoWidth || !video.videoHeight) {
+        toast('👁️ The camera/screen opened, but no picture arrived yet. Wait one moment and tap the suggestion again.');
+        return;
+      }
+      // Direct vision turn: no text is parked in the typed-message box.
+      await sendChat(prompt);
     });
   });
 
@@ -3358,23 +3771,37 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   });
-  if (location.protocol !== 'file:') {
-    fetch('/api/v1/skills')
-      .then((r) => r.json())
-      .then((data) => {
-        const byId = {};
-        (data.skills || []).forEach((skill) => { byId[skill.id] = Boolean(skill.enabled); });
-        document.querySelectorAll('.skill-toggle').forEach((tg) => {
-          const ids = CORE_SKILL_GROUPS[tg.dataset.skill];
-          if (ids && ids.length && ids.every((id) => id in byId)) {
-            tg.checked = ids.every((id) => byId[id]);
-            saved[tg.dataset.skill] = tg.checked;
-          }
-        });
-        localStorage.setItem('myra_skills', JSON.stringify(saved));
-      })
-      .catch(() => {});
-  }
+  const refreshSkillLibrary = async () => {
+    const status = $('skillLibraryStatus');
+    if (location.protocol === 'file:') {
+      if (status) status.textContent = 'Preview mode: run MYRA normally to load the real built-in skill library.';
+      return;
+    }
+    if (status) status.textContent = 'Loading the built-in skill library…';
+    try {
+      const res = await fetch('/api/v1/skills');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) throw new Error(data.error || 'Skill library unavailable');
+      const skills = Array.isArray(data.skills) ? data.skills : [];
+      const byId = {};
+      skills.forEach((skill) => { byId[skill.id] = Boolean(skill.enabled); });
+      document.querySelectorAll('.skill-toggle').forEach((tg) => {
+        const ids = CORE_SKILL_GROUPS[tg.dataset.skill];
+        if (ids && ids.length && ids.every((id) => id in byId)) {
+          tg.checked = ids.every((id) => byId[id]);
+          saved[tg.dataset.skill] = tg.checked;
+        }
+      });
+      localStorage.setItem('myra_skills', JSON.stringify(saved));
+      const enabledCount = skills.filter((s) => s.enabled).length;
+      if (status) status.textContent = `${skills.length} built-in skills loaded from MYRA Core · ${enabledCount} enabled. Use the switches above to control them.`;
+      logEvent('skill library refreshed: ' + skills.length + ' skills');
+    } catch (e) {
+      if (status) status.textContent = 'Could not load the built-in skill library. Check that MYRA’s backend is running, then tap Refresh.';
+    }
+  };
+  $('refreshSkillLibrary')?.addEventListener('click', refreshSkillLibrary);
+  refreshSkillLibrary();
 
   /* Personality */
   const persSel = $('personality');
@@ -3548,6 +3975,7 @@ document.addEventListener('DOMContentLoaded', () => {
       document.querySelectorAll('.rg-chip').forEach((c) => c.classList.remove('active'));
       chip.classList.add('active');
       newsRegion = chip.dataset.region;
+      localStorage.setItem('myra_news_region', newsRegion);
       renderNews();
     });
   });
@@ -3558,7 +3986,8 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const res = await fetch('/api/settings');
       const data = await res.json();
-      if (!data.gemini.set && !data.groq.set) {
+      const anyBrainSet = ['gemini', 'groq', 'openrouter', 'openai', 'deepseek', 'mistral', 'ollama'].some((name) => data[name] && data[name].set);
+      if (!anyBrainSet) {
         $('connectModal').classList.remove('hidden');
       }
     } catch (e) {}
@@ -3704,8 +4133,8 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       const vData = await vRes.json();
       if (!vData.ok) {
-        const gemErr = vData.results && vData.results.gemini && vData.results.gemini.message;
-        const groqErr = vData.results && vData.results.groq && vData.results.groq.message;
+        const gemErr = vData.results && vData.results.gemini && (vData.results.gemini.message || vData.results.gemini.error);
+        const groqErr = vData.results && vData.results.groq && (vData.results.groq.message || vData.results.groq.error);
         throw new Error(gemErr || groqErr || 'API key test failed. Please check the entered keys.');
       }
 
@@ -3742,7 +4171,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  pushHistory('ai', GREETINGS[HOLO.char] || GREETINGS.core);
-  logEvent('shell ready · MYRA v1.0 complete');
-  toast('🤖 MYRA v1.0 — Online & Ready! Complete Personal Desktop AI Assistant.', 6000);
+  const bootGreeting = GREETINGS[HOLO.char] || GREETINGS.core;
+  if (!HISTORY.length || HISTORY[HISTORY.length - 1].text !== bootGreeting) pushHistory('ai', bootGreeting);
+  if (!chatContext.length) {
+    const greetingBubble = $('greetingBubble');
+    if (greetingBubble) greetingBubble.textContent = bootGreeting;
+    else addMsg(bootGreeting, 'ai', true);
+  }
+  logEvent('shell ready · MYRA v1.1 complete');
+  toast('🤖 MYRA v1.1 — Online & Ready! Complete Personal Desktop AI Assistant.', 6000);
 });

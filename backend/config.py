@@ -10,7 +10,11 @@ non-secret model choices. Security rules:
   "is it set?" plus a masked tail like ``••••a1b2``.
 * ``.env`` stays out of Git (see .gitignore).
 """
+import json
 import os
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -62,9 +66,27 @@ def get(name, default=""):
     return load_env().get(name, default)
 
 
+def ensure_env_file(path=None):
+    """Create the private .env starter file if it does not exist.
+
+    Existing files are never overwritten.  The starter contains setting
+    names only; the owner still pastes their own keys inside MYRA.
+    Returns True only when a new file was created.
+    """
+    target = Path(path).expanduser() if path else ENV_PATH
+    if target.exists():
+        return False
+    text = ENV_EXAMPLE.read_text(encoding="utf-8") if ENV_EXAMPLE.exists() else "# MYRA private settings\n"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    tmp.write_text(text.rstrip() + "\n", encoding="utf-8")
+    os.replace(tmp, target)
+    return True
+
+
 def _keyring_module():
     """Return keyring only when it has a usable (non-fail) backend."""
-    if os.environ.get("MYRA_SECRET_STORE", "").strip().lower() == "env":
+    if get("MYRA_SECRET_STORE", "").strip().lower() == "env":
         return None
     try:
         import keyring
@@ -149,6 +171,66 @@ def _secret_status(name, model):
     }
 
 
+_OLLAMA_STATUS_CACHE = {"key": None, "at": 0.0, "value": None}
+
+
+def ollama_status(opener=None):
+    """Return saved Ollama settings plus a short, cached reachability check.
+
+    The settings UI previously guessed "offline" from a missing field.
+    This performs one tiny local ``/api/tags`` request (cached for a few
+    seconds) so the badge can honestly say whether the Ollama app is
+    reachable and whether the saved model is installed.
+    """
+    model = get("OLLAMA_MODEL", "").strip()
+    base_url = (get(OLLAMA_URL, "http://127.0.0.1:11434") or "http://127.0.0.1:11434").rstrip("/")
+    cache_key = (base_url, model)
+    now = time.monotonic()
+    if (
+        _OLLAMA_STATUS_CACHE["key"] == cache_key
+        and _OLLAMA_STATUS_CACHE["value"] is not None
+        and now - _OLLAMA_STATUS_CACHE["at"] < 3.0
+    ):
+        return dict(_OLLAMA_STATUS_CACHE["value"])
+
+    running = False
+    installed_models = []
+    open_url = opener or urllib.request.urlopen
+    try:
+        request = urllib.request.Request(
+            f"{base_url}/api/tags", headers={"Accept": "application/json"}
+        )
+        with open_url(request, timeout=0.35) as response:
+            running = int(getattr(response, "status", 200) or 200) == 200
+            payload = json.loads(response.read().decode("utf-8") or "{}")
+        for item in payload.get("models", []) if isinstance(payload, dict) else []:
+            if isinstance(item, dict):
+                name = str(item.get("name") or item.get("model") or "").strip()
+                if name:
+                    installed_models.append(name)
+    except (OSError, ValueError, urllib.error.URLError):
+        running = False
+
+    wanted = model.lower()
+    model_installed = bool(
+        wanted
+        and any(
+            name.lower() == wanted or name.lower().startswith(wanted + ":")
+            for name in installed_models
+        )
+    )
+    value = {
+        "set": bool(model),
+        "url": base_url,
+        "model": model,
+        "running": running,
+        "model_installed": model_installed,
+        "installed_models": installed_models[:20],
+    }
+    _OLLAMA_STATUS_CACHE.update({"key": cache_key, "at": now, "value": value})
+    return dict(value)
+
+
 def key_status():
     """What the settings UI is allowed to know — never the full keys."""
     return {
@@ -163,11 +245,7 @@ def key_status():
         "mistral": _secret_status(
             MISTRAL, get("MISTRAL_MODEL", "mistral-small-latest") or "mistral-small-latest"
         ),
-        "ollama": {
-            "set": bool(get("OLLAMA_MODEL", "")),
-            "url": get(OLLAMA_URL, "http://127.0.0.1:11434"),
-            "model": get("OLLAMA_MODEL", ""),
-        },
+        "ollama": ollama_status(),
         "secret_backend": secret_backend(),
     }
 

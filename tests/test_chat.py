@@ -300,6 +300,83 @@ class ChatTests(unittest.TestCase):
         self.assertEqual(result["provider_label"], "Ollama Local AI")
         self.assertEqual(result["reply"], "Local brain reply")
 
+    def test_explicit_ollama_receives_attached_image(self):
+        captured = {}
+
+        def fake_compatible(messages, system_prompt, api_key, endpoint_url, models, provider, opener, image=None, max_output_tokens=None):
+            captured["provider"] = provider
+            captured["image"] = image
+            captured["endpoint"] = endpoint_url
+            return ("I can see the frame.", models[0])
+
+        payload = self.explicit_payload("ollama")
+        payload["image"] = "data:image/jpeg;base64,QUJD"
+        with patch.object(chat.config, "gemini_key", return_value="fake-gemini-key"), patch.object(
+            chat.config, "groq_key", return_value=""
+        ), patch.object(chat.config, "openrouter_key", return_value=""), patch.object(
+            chat.config, "openai_key", return_value=""
+        ), patch.object(chat.config, "deepseek_key", return_value=""), patch.object(
+            chat.config, "mistral_key", return_value=""
+        ), patch.object(chat.config, "ollama_model", return_value="llava"), patch.object(
+            chat.config, "ollama_url", return_value="http://127.0.0.1:11434"
+        ), patch.object(chat, "_call_openai_compatible", side_effect=fake_compatible), patch.object(
+            chat, "_call_gemini", side_effect=AssertionError("Gemini must not be called")
+        ):
+            result = chat.get_reply(payload)
+        self.assertEqual(result["provider"], "ollama")
+        self.assertEqual(captured["provider"], "ollama")
+        self.assertEqual(captured["image"], "data:image/jpeg;base64,QUJD")
+        self.assertTrue(captured["endpoint"].endswith("/v1/chat/completions"))
+
+    def test_response_style_short_by_default_and_detailed_only_when_asked(self):
+        cases = [
+            ("আজকের আবহাওয়া কেমন?", "auto", "short"),
+            ("বেশি করে বলো", "auto", "detailed"),
+            ("একটু বড় করে বলো", "short", "detailed"),
+            ("ভালো করে বুঝিয়ে বলো", "auto", "detailed"),
+            ("Please explain in detail", "auto", "detailed"),
+            ("সংক্ষেপে বলো", "detailed", "short"),
+            ("Tell me about Dhaka", "detailed", "detailed"),
+            ("Tell me about Dhaka", "short", "short"),
+        ]
+        for text, saved_style, expected in cases:
+            with self.subTest(text=text, saved_style=saved_style):
+                payload = {
+                    "messages": [{"role": "user", "text": text}],
+                    "response_style": saved_style,
+                }
+                self.assertEqual(chat.response_style_for_payload(payload), expected)
+        self.assertEqual(chat.output_token_budget("short"), 220)
+        self.assertEqual(chat.output_token_budget("detailed"), 1200)
+
+    def test_gemini_request_uses_short_or_detailed_token_budget(self):
+        seen_budgets = []
+
+        def opener(request, timeout):
+            body = json.loads(request.data.decode("utf-8"))
+            seen_budgets.append(body["generationConfig"]["maxOutputTokens"])
+            return FakeResponse(
+                {"candidates": [{"content": {"parts": [{"text": "Short main answer."}]}}]}
+            )
+
+        for text, expected_style, expected_budget in [
+            ("Hello MYRA", "short", 220),
+            ("ভালো করে বুঝিয়ে বলো", "detailed", 1200),
+        ]:
+            payload = self.payload()
+            payload["messages"] = [{"role": "user", "text": text}]
+            payload.update({
+                "response_style": "auto",
+                "allow_local_intent": False,
+                "auto_learn": False,
+            })
+            with patch.dict(os.environ, {"GEMINI_MODEL": "gemini-test"}), patch.object(
+                chat.config, "gemini_key", return_value="fake-gemini-key"
+            ), patch.object(chat.config, "groq_key", return_value=""):
+                result = chat.get_reply(payload, opener=opener)
+            self.assertEqual(result["response_style"], expected_style)
+            self.assertEqual(seen_budgets[-1], expected_budget)
+
 
 if __name__ == "__main__":
     unittest.main()

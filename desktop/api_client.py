@@ -3,6 +3,44 @@ import json
 import os
 import urllib.error
 import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def _configured_setting(name: str) -> str:
+    """Read one backend setting from the environment, then private .env.
+
+    Mirrors desktop/web_shell.py so the Qt fallback window follows the same
+    optional-HTTPS and API-token settings as the main MYRA window instead of
+    silently assuming plain HTTP with no token.
+    """
+    if os.environ.get(name):
+        return os.environ[name].strip()
+    try:
+        for raw_line in (ROOT / ".env").read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            if key.strip() == name:
+                return value.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return ""
+
+
+def _default_base_url() -> str:
+    configured = os.environ.get("MYRA_BACKEND_URL", "").strip().rstrip("/")
+    if configured:
+        return configured
+    scheme = (
+        "https"
+        if _configured_setting("MYRA_TLS_CERT_FILE") and _configured_setting("MYRA_TLS_KEY_FILE")
+        else "http"
+    )
+    port = os.environ.get("MYRA_PORT", "8765") or "8765"
+    return f"{scheme}://127.0.0.1:{port}"
 
 
 class ApiError(Exception):
@@ -11,8 +49,8 @@ class ApiError(Exception):
 
 class ApiClient:
     def __init__(self, base_url=None, token=None):
-        self.base_url = (base_url or os.environ.get("MYRA_BACKEND_URL") or "http://127.0.0.1:8765").rstrip("/")
-        self.token = token or os.environ.get("MYRA_API_TOKEN", "")
+        self.base_url = (base_url or _default_base_url()).rstrip("/")
+        self.token = token or _configured_setting("MYRA_API_TOKEN")
 
     def request(self, method, path, payload=None, timeout=90):
         data = None

@@ -132,6 +132,75 @@ class ApiIntegrationTests(unittest.TestCase):
         status, data = self.call("GET", f"/api/v1/conversations/{data['conversation_id']}")
         self.assertEqual(len(data["conversation"]["messages"]), 2)
 
+    def test_runtime_settings_readiness_feedback_and_network_endpoints(self):
+        status, data = self.call(
+            "POST",
+            "/api/settings/ui",
+            {"settings": {"theme": "friendly", "response_style": "short", "voice_pitch": 1.2}},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(data["settings"]["theme"], "friendly")
+        self.assertEqual(data["settings"]["response_style"], "short")
+
+        status, data = self.call("GET", "/api/settings/ui")
+        self.assertEqual(status, 200)
+        self.assertEqual(data["stored_settings"]["theme"], "friendly")
+
+        status, data = self.call(
+            "POST", "/api/settings/keys", {"mistral_key": "mistral-fake-secret-1234"}
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(data["keys"]["mistral"]["set"])
+        self.assertNotIn("mistral-fake-secret", json.dumps(data))
+
+        status, data = self.call("POST", "/api/system/readiness/ensure", {})
+        self.assertEqual(status, 200)
+        self.assertTrue(data["ok"])
+        check_ids = {item["id"] for item in data["checks"]}
+        self.assertTrue({"database", "ui_settings", "workspace", "feedback", "external_https"}.issubset(check_ids))
+        self.assertNotIn("mistral-fake-secret", json.dumps(data))
+        data_dir = self.root / "data"
+        self.assertTrue((data_dir / "myra.db").exists())
+        self.assertTrue((data_dir / "workspace").is_dir())
+        self.assertTrue((data_dir / "voice_cache").is_dir())
+        self.assertTrue((data_dir / "feedback.jsonl").exists())
+
+        status, data = self.call(
+            "POST", "/api/feedback", {"text": "Readiness endpoint works", "source": "test"}
+        )
+        self.assertEqual(status, 201)
+        self.assertEqual(data["feedback"]["text"], "Readiness endpoint works")
+        self.assertIn("Readiness endpoint works", (data_dir / "feedback.jsonl").read_text(encoding="utf-8"))
+
+        status, data = self.call("GET", "/api/system/network-info")
+        self.assertEqual(status, 200)
+        self.assertFalse(data["lan_enabled"])
+        self.assertEqual(data["mobile_url"], "")
+        self.assertEqual(data["scheme"], "http")
+
+        status, data = self.call("POST", "/api/v1/voice/warmup", {})
+        self.assertEqual(status, 200)
+        self.assertIn("warmup", data)
+        self.assertFalse(data["warmup"]["started"])
+
+        with mock.patch.object(
+            server.chat,
+            "verify_key_connection",
+            return_value={"gemini": {"ok": True, "model": "gemini-fake"}},
+        ):
+            status, data = self.call(
+                "POST", "/api/settings/verify", {"gemini_key": "fake-key-for-test"}
+            )
+        self.assertEqual(status, 200)
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["results"]["gemini"]["model"], "gemini-fake")
+
+        with mock.patch.object(server.chat, "verify_key_connection", return_value={}):
+            status, data = self.call("POST", "/api/settings/verify", {})
+        self.assertEqual(status, 503)
+        self.assertFalse(data["ok"])
+        self.assertEqual(data["results"], {})
+
     def test_vision_refuses_without_explicit_consent(self):
         status, data = self.call(
             "POST",
@@ -140,6 +209,48 @@ class ApiIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 403)
         self.assertIn("explicit consent", data["error"])
+
+
+class ApiTokenScopeTests(unittest.TestCase):
+    """MYRA_API_TOKEN gates other devices, never MYRA's own local screen."""
+
+    def _handler(self, client_host, bind_host="0.0.0.0", token_header=""):
+        handler = object.__new__(api_v1.CoreApiMixin)
+        handler.client_address = (client_host, 51234)
+        handler.headers = {"X-MYRA-Token": token_header} if token_header else {}
+
+        class _Server:
+            server_address = (bind_host, 8765)
+
+        handler.server = _Server()
+        return handler
+
+    def test_loopback_client_allowed_even_with_token_set(self):
+        handler = self._handler("127.0.0.1")
+        with mock.patch.object(
+            api_v1.config, "get", side_effect=lambda name, default="": "s3cret" if name == "MYRA_API_TOKEN" else default
+        ):
+            self.assertTrue(handler._api_v1_authorized("POST", "/api/v1/chat"))
+            self.assertTrue(handler._api_v1_full_access())
+
+    def test_lan_client_needs_token_header_for_actions(self):
+        handler = self._handler("192.168.1.40")
+        with mock.patch.object(
+            api_v1.config, "get", side_effect=lambda name, default="": "s3cret" if name == "MYRA_API_TOKEN" else default
+        ):
+            self.assertFalse(handler._api_v1_authorized("POST", "/api/v1/chat"))
+            self.assertFalse(handler._api_v1_full_access())
+        with_token = self._handler("192.168.1.40", token_header="s3cret")
+        with mock.patch.object(
+            api_v1.config, "get", side_effect=lambda name, default="": "s3cret" if name == "MYRA_API_TOKEN" else default
+        ):
+            self.assertTrue(with_token._api_v1_authorized("POST", "/api/v1/chat"))
+
+    def test_lan_client_without_token_configured_gets_only_public_gets(self):
+        handler = self._handler("192.168.1.40")
+        with mock.patch.object(api_v1.config, "get", side_effect=lambda name, default="": default):
+            self.assertTrue(handler._api_v1_authorized("GET", "/api/v1/health"))
+            self.assertFalse(handler._api_v1_authorized("POST", "/api/v1/chat"))
 
 
 if __name__ == "__main__":

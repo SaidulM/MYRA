@@ -118,6 +118,7 @@ class MyraService:
             "character": character,
             "personality": payload.get("personality", "Balanced"),
             "provider": provider,
+            "response_style": payload.get("response_style", "auto"),
             "image": image,
             "memory_context": memory_context,
             "models": self.memory.get_preference("provider_models", {}) or {},
@@ -172,6 +173,7 @@ class MyraService:
             "character": character,
             "personality": payload.get("personality", "Balanced"),
             "provider": provider,
+            "response_style": payload.get("response_style", "auto"),
             "image": payload.get("image"),
             "memory_context": memory_context,
             "models": self.memory.get_preference("provider_models", {}) or {},
@@ -199,6 +201,7 @@ class MyraService:
                 system_prompt,
                 provider=provider,
                 model_overrides=chat_payload["models"],
+                max_output_tokens=chat.output_token_budget(chat.response_style_for_payload(chat_payload, message)),
             ):
                 if event.get("type") == "delta" and event.get("text"):
                     text_parts.append(event["text"])
@@ -229,6 +232,7 @@ class MyraService:
             "message": saved,
             "mode": "chat",
             "streamed": True,
+            "response_style": chat.response_style_for_payload(chat_payload, message),
         }
 
     def structured(self, payload):
@@ -304,6 +308,7 @@ class MyraService:
             "owner_name": "Boss",
             "character": "core",
             "personality": "Professional",
+            "response_style": "detailed",
             "models": self.memory.get_preference("provider_models", {}) or {},
             "allow_local_intent": False,
             "auto_learn": False,
@@ -341,7 +346,13 @@ class MyraService:
             character=payload.get("character", "core"),
             voice=payload.get("voice"),
             style=payload.get("style", "gentle"),
+            detailed=bool(payload.get("detailed")) or payload.get("response_style") == "detailed",
         )
+
+    def warmup_voice(self, payload=None):
+        if payload is not None and not isinstance(payload, dict):
+            raise ValueError("voice warmup payload must be an object")
+        return self.voice_engine.warmup((payload or {}).get("model", ""))
 
     def voice_turn(self, payload):
         if not isinstance(payload, dict):
@@ -358,6 +369,7 @@ class MyraService:
             "owner_name": payload.get("owner_name", "Boss"),
             "personality": payload.get("personality", "Balanced"),
             "provider": payload.get("provider", "auto"),
+            "response_style": payload.get("response_style", "auto"),
         })
         audio, tts_error = None, ""
         if payload.get("speak", True):
@@ -367,6 +379,7 @@ class MyraService:
                     "character": payload.get("character", "core"),
                     "voice": payload.get("voice"),
                     "style": payload.get("style", "gentle"),
+                    "response_style": chat_result.get("response_style", "short"),
                 })
             except Exception as exc:
                 tts_error = f"{exc.__class__.__name__}: {exc}"[:400]

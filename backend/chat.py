@@ -18,7 +18,9 @@ Security/privacy rules:
 from __future__ import annotations
 
 import json
+import re
 import socket
+import time
 from datetime import datetime
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -71,6 +73,10 @@ MAX_MESSAGES = 16
 MAX_MESSAGE_CHARS = 6000
 MAX_CONTEXT_CHARS = 30000
 MAX_OUTPUT_TOKENS = 1200
+# Owner rule: normal replies are short and fast.  A detailed budget is
+# used only when the owner explicitly asks MYRA to say/explain more.
+SHORT_OUTPUT_TOKENS = 220
+DETAILED_OUTPUT_TOKENS = MAX_OUTPUT_TOKENS
 TIMEOUT_SECONDS = 25
 
 
@@ -100,6 +106,91 @@ def _clean_short(value, default, max_len=60):
         return default
     cleaned = " ".join(value.split()).strip()
     return cleaned[:max_len] if cleaned else default
+
+
+_DETAILED_ANSWER_PATTERNS = (
+    # Bengali (the owner's exact ways of asking for more)
+    "বেশি করে বল", "বেশি করে বলো", "আরো বেশি বল", "আরও বেশি বল",
+    "আরো বল", "আরও বল", "বড় করে বল", "বড় করে বল", "লম্বা করে বল",
+    "বিস্তারিত", "ভালো করে বুঝিয়ে", "ভালো করে বুঝিয়ে", "ভালোভাবে বুঝিয়ে",
+    "ভালোভাবে বুঝিয়ে", "বুঝিয়ে বল", "বুঝিয়ে বল", "ব্যাখ্যা কর",
+    "উদাহরণসহ", "উদাহরণ সহ", "ধাপে ধাপে", "পুরোটা বল", "সবটা বল",
+    # Banglish
+    "beshi kore bolo", "beshi kore bol", "aro bolo", "boro kore bolo",
+    "bistarito", "bujhiye bolo", "bujiye bolo", "details e bolo",
+    "detail e bolo", "explain koro", "step by step bolo",
+    # English
+    "in detail", "detailed", "explain", "elaborate", "tell me more",
+    "say more", "longer answer", "full explanation", "comprehensive",
+    "deep dive", "with examples", "step by step", "expand on",
+)
+
+_SHORT_ANSWER_PATTERNS = (
+    "সংক্ষেপে", "ছোট করে", "অল্প কথায়", "অল্প কথায়", "এক লাইনে",
+    "short e bolo", "choto kore", "briefly", "in short", "short answer",
+    "be brief", "concise", "one line", "quick answer", "just tell me",
+)
+
+
+def _fold_answer_text(text) -> str:
+    folded = str(text or "").casefold().replace("’", "'")
+    return " ".join(folded.split())
+
+
+def wants_detailed_answer(text) -> bool:
+    folded = _fold_answer_text(text)
+    return any(pattern in folded for pattern in _DETAILED_ANSWER_PATTERNS)
+
+
+def wants_short_answer(text) -> bool:
+    folded = _fold_answer_text(text)
+    return any(pattern in folded for pattern in _SHORT_ANSWER_PATTERNS)
+
+
+def latest_user_text_from_payload(payload) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    direct = payload.get("message")
+    if isinstance(direct, str) and direct.strip():
+        return direct.strip()
+    messages = payload.get("messages")
+    if isinstance(messages, list):
+        for item in reversed(messages):
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("role", "user")).lower() != "user":
+                continue
+            text = item.get("text", item.get("content", ""))
+            if isinstance(text, str) and text.strip():
+                return text.strip()
+    return ""
+
+
+def response_style_for_payload(payload, latest_user_text: str = "") -> str:
+    """Return ``short`` or ``detailed`` for this one reply.
+
+    The latest explicit instruction wins.  Otherwise the saved setting is
+    used; ``auto`` means short unless detail was explicitly requested.
+    """
+    text = latest_user_text or latest_user_text_from_payload(payload)
+    if wants_short_answer(text) and not wants_detailed_answer(text):
+        return "short"
+    if wants_detailed_answer(text):
+        return "detailed"
+
+    requested = ""
+    if isinstance(payload, dict):
+        requested = str(payload.get("response_style") or "").strip().lower()
+    if requested not in {"auto", "short", "detailed"}:
+        try:
+            requested = str(config.get("MYRA_RESPONSE_STYLE", "auto") or "auto").strip().lower()
+        except Exception:
+            requested = "auto"
+    return "detailed" if requested == "detailed" else "short"
+
+
+def output_token_budget(style: str) -> int:
+    return DETAILED_OUTPUT_TOKENS if style == "detailed" else SHORT_OUTPUT_TOKENS
 
 
 def normalize_messages(raw_messages):
@@ -190,6 +281,12 @@ def build_system_prompt(payload):
     }
     character_style = character_styles.get(character, character_styles["core"])
     today = datetime.now().astimezone().strftime("%A, %d %B %Y")
+    response_style = response_style_for_payload(payload)
+    answer_length_rule = (
+        "ANSWER LENGTH: The owner explicitly asked for more detail. Start with the main answer, then explain clearly and completely; use steps or examples only when they genuinely help."
+        if response_style == "detailed"
+        else "ANSWER LENGTH (owner rule): Reply SHORT by default — give the direct main answer in 1–3 short sentences (about 55 words or less). Do not add background, long lists, or extra explanation unless safety or clarity truly requires one short extra sentence."
+    )
 
     prompt_lines = [
         f"You are {assistant_name}, a personal desktop AI assistant for {owner_name}.",
@@ -197,7 +294,8 @@ def build_system_prompt(payload):
         f"Preferred communication style: {personality}.",
         f"Today's local date is {today}.",
         "Reply in the same language as the user's latest message (e.g. Bengali, English, etc.) unless they ask otherwise.",
-        "Be genuinely helpful, intelligent and empathetic. Keep normal speech replies natural and concise.",
+        "Be genuinely helpful, intelligent and empathetic.",
+        answer_length_rule,
         "When an image or webcam/screen frame is attached, inspect it carefully and answer questions about what is seen (objects in hand, text, screens).",
         "You have local persistent SQLite memory and offline notes storage on this laptop.",
         "Never ask for, reveal, or repeat API keys, passwords, OTPs or other secrets.",
@@ -236,6 +334,11 @@ def build_system_prompt(payload):
 
 _DISCOVERED_GEMINI_MODELS = {}
 _DISCOVERED_GROQ_MODELS = {}
+# A failed/slow model-list call must not be repeated before every chat;
+# that could add several seconds to every spoken reply.  Cache the safe
+# built-in model list for ten minutes after a discovery failure.
+_DISCOVERY_FAILURE_UNTIL = {}
+_DISCOVERY_FAILURE_TTL_SECONDS = 600
 
 
 def discover_gemini_models(api_key: str, opener=default_opener) -> tuple:
@@ -244,6 +347,9 @@ def discover_gemini_models(api_key: str, opener=default_opener) -> tuple:
         return DEFAULT_GEMINI_MODELS
     if clean_key in _DISCOVERED_GEMINI_MODELS:
         return _DISCOVERED_GEMINI_MODELS[clean_key]
+    failure_key = ("gemini", clean_key)
+    if _DISCOVERY_FAILURE_UNTIL.get(failure_key, 0) > time.monotonic():
+        return DEFAULT_GEMINI_MODELS
 
     # Keep the key in the header only; URLs are much more likely to be logged.
     url = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -280,6 +386,7 @@ def discover_gemini_models(api_key: str, opener=default_opener) -> tuple:
     except Exception:
         pass
 
+    _DISCOVERY_FAILURE_UNTIL[failure_key] = time.monotonic() + _DISCOVERY_FAILURE_TTL_SECONDS
     return DEFAULT_GEMINI_MODELS
 
 
@@ -289,6 +396,9 @@ def discover_groq_models(api_key: str, opener=default_opener) -> tuple:
         return DEFAULT_GROQ_MODELS
     if clean_key in _DISCOVERED_GROQ_MODELS:
         return _DISCOVERED_GROQ_MODELS[clean_key]
+    failure_key = ("groq", clean_key)
+    if _DISCOVERY_FAILURE_UNTIL.get(failure_key, 0) > time.monotonic():
+        return DEFAULT_GROQ_MODELS
 
     url = "https://api.groq.com/openai/v1/models"
     headers = {"Authorization": f"Bearer {clean_key}", "User-Agent": UA_STRING}
@@ -322,6 +432,7 @@ def discover_groq_models(api_key: str, opener=default_opener) -> tuple:
     except Exception:
         pass
 
+    _DISCOVERY_FAILURE_UNTIL[failure_key] = time.monotonic() + _DISCOVERY_FAILURE_TTL_SECONDS
     return DEFAULT_GROQ_MODELS
 
 
@@ -450,7 +561,7 @@ def _extract_openai_text(data, provider="openai"):
     return text
 
 
-def _call_gemini(messages, system_prompt, api_key, opener, image=None, model_override=None):
+def _call_gemini(messages, system_prompt, api_key, opener, image=None, model_override=None, max_output_tokens=SHORT_OUTPUT_TOKENS):
     contents = []
     for i, msg in enumerate(messages):
         is_user = msg["role"] == "user"
@@ -479,7 +590,7 @@ def _call_gemini(messages, system_prompt, api_key, opener, image=None, model_ove
         payload = {
             "systemInstruction": {"parts": [{"text": system_prompt}]},
             "contents": contents,
-            "generationConfig": {"temperature": 0.75, "maxOutputTokens": MAX_OUTPUT_TOKENS},
+            "generationConfig": {"temperature": 0.75, "maxOutputTokens": int(max_output_tokens or SHORT_OUTPUT_TOKENS)},
         }
         url = GEMINI_URL.format(model=quote(model, safe='-._~'))
         try:
@@ -494,7 +605,7 @@ def _call_gemini(messages, system_prompt, api_key, opener, image=None, model_ove
                     if alt_contents and alt_contents[0]["role"] == "user":
                         orig = alt_contents[0]["parts"][0].get("text", "")
                         alt_contents[0]["parts"][0]["text"] = f"[Instruction: {system_prompt}]\n\n{orig}"
-                    data = _post_json(url, {"contents": alt_contents, "generationConfig": {"temperature": 0.75}}, headers, "gemini", opener)
+                    data = _post_json(url, {"contents": alt_contents, "generationConfig": {"temperature": 0.75, "maxOutputTokens": int(max_output_tokens or SHORT_OUTPUT_TOKENS)}}, headers, "gemini", opener)
                     return _extract_gemini_text(data), model
                 except Exception:
                     pass
@@ -504,7 +615,7 @@ def _call_gemini(messages, system_prompt, api_key, opener, image=None, model_ove
     raise last_error
 
 
-def _call_openai_compatible(messages, system_prompt, api_key, endpoint_url, models, provider, opener, image=None):
+def _call_openai_compatible(messages, system_prompt, api_key, endpoint_url, models, provider, opener, image=None, max_output_tokens=SHORT_OUTPUT_TOKENS):
     headers = {"User-Agent": UA_STRING}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -533,7 +644,7 @@ def _call_openai_compatible(messages, system_prompt, api_key, endpoint_url, mode
             "model": model,
             "messages": api_messages,
             "temperature": 0.75,
-            "max_tokens": MAX_OUTPUT_TOKENS,
+            "max_tokens": int(max_output_tokens or SHORT_OUTPUT_TOKENS),
         }
         try:
             data = _post_json(endpoint_url, payload, headers, provider, opener)
@@ -585,7 +696,7 @@ def _combined_failure(errors):
     )
 
 
-def get_reply(payload, opener=default_opener):
+def _get_reply_inner(payload, opener=default_opener):
     """Orchestrate multi-brain intelligence with vision, memory auto-learning, and zero-token local execution."""
     if not isinstance(payload, dict):
         raise ChatError("invalid_request", "The chat request could not be read. Please try again.", status=400)
@@ -626,6 +737,8 @@ def get_reply(payload, opener=default_opener):
             pass
 
     system_prompt = build_system_prompt(payload)
+    response_style = response_style_for_payload(payload, latest_user_text)
+    max_output_tokens = output_token_budget(response_style)
 
     # Load provider keys
     gemini_k = config.gemini_key().strip()
@@ -700,6 +813,7 @@ def get_reply(payload, opener=default_opener):
                     opener,
                     image=image,
                     model_override=model_overrides.get("gemini"),
+                    max_output_tokens=max_output_tokens,
                 )
                 return {
                     "ok": True,
@@ -716,7 +830,7 @@ def get_reply(payload, opener=default_opener):
         elif prov == "groq" and groq_k:
             try:
                 models = _models_for("groq", groq_k, opener=opener, override=model_overrides.get("groq"))
-                reply, model = _call_openai_compatible(messages, system_prompt, groq_k, GROQ_URL, models, "groq", opener, image=image)
+                reply, model = _call_openai_compatible(messages, system_prompt, groq_k, GROQ_URL, models, "groq", opener, image=image, max_output_tokens=max_output_tokens)
                 notice = ""
                 if gemini_k and preferred_provider == "auto":
                     notice = "Gemini was temporarily unavailable, so Groq backup answered smoothly."
@@ -739,7 +853,7 @@ def get_reply(payload, opener=default_opener):
             try:
                 conf_model = config.get("OPENROUTER_MODEL", "auto").strip()
                 models = (conf_model,) if conf_model and conf_model != "auto" else DEFAULT_OPENROUTER_MODELS
-                reply, model = _call_openai_compatible(messages, system_prompt, openrouter_k, OPENROUTER_URL, models, "openrouter", opener, image=image)
+                reply, model = _call_openai_compatible(messages, system_prompt, openrouter_k, OPENROUTER_URL, models, "openrouter", opener, image=image, max_output_tokens=max_output_tokens)
                 return {
                     "ok": True,
                     "reply": reply,
@@ -755,7 +869,7 @@ def get_reply(payload, opener=default_opener):
         elif prov == "openai" and openai_k:
             try:
                 conf_model = config.get("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
-                reply, model = _call_openai_compatible(messages, system_prompt, openai_k, OPENAI_URL, (conf_model,), "openai", opener, image=image)
+                reply, model = _call_openai_compatible(messages, system_prompt, openai_k, OPENAI_URL, (conf_model,), "openai", opener, image=image, max_output_tokens=max_output_tokens)
                 return {
                     "ok": True,
                     "reply": reply,
@@ -771,7 +885,7 @@ def get_reply(payload, opener=default_opener):
         elif prov == "deepseek" and deepseek_k:
             try:
                 conf_model = config.get("DEEPSEEK_MODEL", "deepseek-chat").strip() or "deepseek-chat"
-                reply, model = _call_openai_compatible(messages, system_prompt, deepseek_k, DEEPSEEK_URL, (conf_model,), "deepseek", opener)
+                reply, model = _call_openai_compatible(messages, system_prompt, deepseek_k, DEEPSEEK_URL, (conf_model,), "deepseek", opener, max_output_tokens=max_output_tokens)
                 return {
                     "ok": True,
                     "reply": reply,
@@ -787,7 +901,7 @@ def get_reply(payload, opener=default_opener):
         elif prov == "mistral" and mistral_k:
             try:
                 conf_model = config.get("MISTRAL_MODEL", "mistral-small-latest").strip() or "mistral-small-latest"
-                reply, model = _call_openai_compatible(messages, system_prompt, mistral_k, MISTRAL_URL, (conf_model,), "mistral", opener)
+                reply, model = _call_openai_compatible(messages, system_prompt, mistral_k, MISTRAL_URL, (conf_model,), "mistral", opener, max_output_tokens=max_output_tokens)
                 return {
                     "ok": True,
                     "reply": reply,
@@ -804,7 +918,12 @@ def get_reply(payload, opener=default_opener):
             try:
                 ollama_base = config.ollama_url()
                 endpoint = f"{ollama_base.rstrip('/')}/v1/chat/completions"
-                reply, model = _call_openai_compatible(messages, system_prompt, "", endpoint, (ollama_m,), "ollama", opener)
+                # Forward an attached camera/screen frame too: vision-capable
+                # local models (llava, qwen2.5vl, llama3.2-vision…) can then
+                # actually see it, and text-only models make Ollama return an
+                # honest "does not support images" error instead of MYRA
+                # silently pretending the frame was inspected.
+                reply, model = _call_openai_compatible(messages, system_prompt, "", endpoint, (ollama_m,), "ollama", opener, image=image, max_output_tokens=max_output_tokens)
                 return {
                     "ok": True,
                     "reply": reply,
@@ -831,6 +950,15 @@ def get_reply(payload, opener=default_opener):
     raise _combined_failure(errors)
 
 
+def get_reply(payload, opener=default_opener):
+    """Public chat entry point; attaches the effective answer-length style."""
+    result = _get_reply_inner(payload, opener=opener)
+    if isinstance(result, dict):
+        result = dict(result)
+        result.setdefault("response_style", response_style_for_payload(payload))
+    return result
+
+
 def verify_key_connection(gemini: str = None, groq: str = None, opener=default_opener) -> dict:
     results = {}
     test_msg = [{"role": "user", "text": "Hello"}]
@@ -838,14 +966,14 @@ def verify_key_connection(gemini: str = None, groq: str = None, opener=default_o
 
     if gemini:
         try:
-            _, model = _call_gemini(test_msg, test_sys, gemini.strip(), opener)
+            _, model = _call_gemini(test_msg, test_sys, gemini.strip(), opener, max_output_tokens=16)
             results["gemini"] = {"ok": True, "model": model}
         except Exception as e:
             results["gemini"] = {"ok": False, "error": str(e)}
 
     if groq:
         try:
-            _, model = _call_openai_compatible(test_msg, test_sys, groq.strip(), GROQ_URL, DEFAULT_GROQ_MODELS, "groq", opener)
+            _, model = _call_openai_compatible(test_msg, test_sys, groq.strip(), GROQ_URL, DEFAULT_GROQ_MODELS, "groq", opener, max_output_tokens=16)
             results["groq"] = {"ok": True, "model": model}
         except Exception as e:
             results["groq"] = {"ok": False, "error": str(e)}

@@ -50,7 +50,24 @@ class CoreApiMixin:
         except Exception:
             return ""
 
+    def _client_is_loopback(self):
+        """True when the request comes from this same computer.
+
+        MYRA's own desktop window talks to the backend from 127.0.0.1, so a
+        configured MYRA_API_TOKEN must never lock the owner out of their own
+        screen. The token gates API-v1 calls from *other* devices/apps; it
+        is not a password for the whole web page (legacy page routes are
+        local-only by the default 127.0.0.1 bind instead).
+        """
+        try:
+            host = str(self.client_address[0])
+        except Exception:
+            return False
+        return host == "::1" or host == "localhost" or host.startswith("127.")
+
     def _api_v1_authorized(self, method, clean_path):
+        if self._client_is_loopback():
+            return True
         token = config.get("MYRA_API_TOKEN").strip()
         if token:
             return self.headers.get("X-MYRA-Token", "") == token
@@ -66,6 +83,8 @@ class CoreApiMixin:
         }
 
     def _api_v1_full_access(self):
+        if self._client_is_loopback():
+            return True
         token = config.get("MYRA_API_TOKEN").strip()
         if token:
             return self.headers.get("X-MYRA-Token", "") == token
@@ -404,6 +423,12 @@ class CoreApiMixin:
             # Realtime voice pipeline (desktop owns microphone/speaker)
             if clean_path == "/api/v1/voice/status" and method == "GET":
                 self._send_json({"ok": True, "voice": service.voice_status()})
+                return
+            if clean_path == "/api/v1/voice/warmup" and method == "POST":
+                payload = self._read_json_v1(8_000, optional=True)
+                if payload is None:
+                    return
+                self._send_json({"ok": True, "warmup": service.warmup_voice(payload)})
                 return
             if clean_path == "/api/v1/voice/models/install" and method == "POST":
                 payload = self._read_json_v1(8_000)
